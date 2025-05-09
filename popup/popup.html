@@ -20,7 +20,7 @@
     
     <div class="content">
       <div id="not-authenticated" class="hidden">
-        <p>Sign in with Google to start extracting your emails.</p>
+        <p>Sign in to start extracting your emails.</p>
         <button id="login-btn" class="primary-btn">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"></path>
@@ -28,6 +28,14 @@
             <line x1="15" y1="12" x2="3" y2="12"></line>
           </svg>
           Sign in with Google
+        </button>
+        <button id="ms-login-btn" class="secondary-btn mt-3">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <rect width="18" height="18" x="3" y="3" rx="2"></rect>
+            <path d="M3 9h18"></path>
+            <path d="M9 21V9"></path>
+          </svg>
+          Connect Business Central
         </button>
       </div>
       
@@ -43,6 +51,11 @@
             <p class="user-email">user@example.com</p>
             <p class="user-status">Connected to Gmail</p>
           </div>
+        </div>
+        
+        <div id="bc-status" class="connection-status mb-4">
+          <p class="status-text">Business Central: Not connected</p>
+          <button id="bc-connect-btn" class="secondary-btn mt-2">Connect Business Central</button>
         </div>
         
         <div class="stats">
