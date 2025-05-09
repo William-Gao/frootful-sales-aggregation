@@ -12,8 +12,12 @@ const openai = new OpenAIApi(new Configuration({
 }));
 
 Deno.serve(async (req) => {
+  // Handle CORS preflight requests
   if (req.method === 'OPTIONS') {
-    return new Response(null, { headers: corsHeaders });
+    return new Response(null, { 
+      status: 204,
+      headers: corsHeaders
+    });
   }
 
   try {
@@ -49,7 +53,10 @@ Deno.serve(async (req) => {
   } catch (error) {
     console.error('Error analyzing email:', error);
     return new Response(
-      JSON.stringify({ success: false, error: error.message }),
+      JSON.stringify({ 
+        success: false, 
+        error: error instanceof Error ? error.message : 'Unknown error'
+      }),
       {
         headers: {
           'Content-Type': 'application/json',
