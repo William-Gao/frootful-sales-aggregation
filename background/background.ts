@@ -1,0 +1,271 @@
+// Background service worker for Frootful Gmail Extension
+
+// Types
+interface Port {
+  name: string;
+  onDisconnect: {
+    addListener: (callback: () => void) => void;
+  };
+  onMessage: {
+    addListener: (callback: (message: any) => void) => void;
+  };
+  postMessage: (message: any) => void;
+}
+
+interface EmailData {
+  id: string;
+  threadId: string;
+  labelIds: string[];
+  snippet: string;
+  subject: string;
+  from: string;
+  to: string;
+  date: string;
+  body: string;
+}
+
+interface GmailResponse {
+  id: string;
+  threadId: string;
+  labelIds?: string[];
+  snippet?: string;
+  payload?: {
+    headers?: Array<{
+      name: string;
+      value: string;
+    }>;
+    body?: {
+      data?: string;
+    };
+    parts?: Array<{
+      mimeType?: string;
+      body?: {
+        data?: string;
+      };
+      parts?: any[];
+    }>;
+  };
+}
+
+// Keep track of active ports
+const ports: Set<Port> = new Set();
+
+// Handle installation
+chrome.runtime.onInstalled.addListener((details) => {
+  if (details.reason === 'install') {
+    // Open onboarding page on install
+    chrome.tabs.create({
+      url: 'onboarding/welcome.html'
+    });
+  }
+});
+
+// Handle connection from content scripts
+chrome.runtime.onConnect.addListener((port: Port) => {
+  ports.add(port);
+  
+  port.onDisconnect.addListener(() => {
+    ports.delete(port);
+  });
+  
+  port.onMessage.addListener(async (message: { action: string; emailId?: string }) => {
+    try {
+      if (message.action === 'authenticate') {
+        const token = await authenticate();
+        port.postMessage({ action: 'authenticate', success: true, token });
+      }
+      
+      if (message.action === 'revokeAuthentication') {
+        await revokeAuthentication();
+        port.postMessage({ action: 'revokeAuthentication', success: true });
+      }
+      
+      if (message.action === 'extractEmail' && message.emailId) {
+        // Get a fresh token before making the API request
+        const token = await getAuthToken();
+        const result = await extractEmail(message.emailId, token);
+        port.postMessage({ action: 'extractEmail', ...result });
+      }
+      
+      if (message.action === 'checkAuthState') {
+        const token = await getAuthToken();
+        port.postMessage({ action: 'checkAuthState', isAuthenticated: !!token });
+      }
+    } catch (error) {
+      console.error('Error in message handler:', error);
+      port.postMessage({ 
+        action: message.action,
+        success: false, 
+        error: error instanceof Error ? error.message : 'Unknown error'
+      });
+    }
+  });
+});
+
+// Get auth token (with refresh if needed)
+async function getAuthToken(): Promise<string | null> {
+  return new Promise((resolve) => {
+    chrome.identity.getAuthToken({ interactive: false }, (token) => {
+      if (chrome.runtime.lastError) {
+        console.error('Auth token error:', chrome.runtime.lastError);
+        resolve(null);
+        return;
+      }
+      resolve(token);
+    });
+  });
+}
+
+// Authentication functions
+async function authenticate(): Promise<string> {
+  return new Promise((resolve, reject) => {
+    chrome.identity.getAuthToken({ interactive: true }, (token) => {
+      if (chrome.runtime.lastError) {
+        reject(chrome.runtime.lastError);
+        return;
+      }
+      
+      if (token) {
+        // Store token
+        chrome.storage.local.set({ accessToken: token }, () => {
+          // Notify all connected ports about authentication state
+          ports.forEach(port => {
+            port.postMessage({ 
+              action: 'authStateChanged',
+              isAuthenticated: true 
+            });
+          });
+          resolve(token);
+        });
+      } else {
+        reject(new Error('Failed to get auth token'));
+      }
+    });
+  });
+}
+
+// Revoke authentication
+async function revokeAuthentication(): Promise<void> {
+  return new Promise((resolve, reject) => {
+    chrome.storage.local.get(['accessToken'], async (result) => {
+      if (result.accessToken) {
+        try {
+          // Revoke token with Google
+          await fetch(`https://accounts.google.com/o/oauth2/revoke?token=${result.accessToken}`);
+          
+          // Remove token from storage
+          chrome.identity.removeCachedAuthToken({ token: result.accessToken }, () => {
+            chrome.storage.local.remove('accessToken', () => {
+              // Notify all connected ports about authentication state
+              ports.forEach(port => {
+                port.postMessage({ 
+                  action: 'authStateChanged',
+                  isAuthenticated: false 
+                });
+              });
+              resolve();
+            });
+          });
+        } catch (error) {
+          reject(error);
+        }
+      } else {
+        resolve(); // No token to revoke
+      }
+    });
+  });
+}
+
+// Extract email content
+async function extractEmail(emailId: string, token: string | null): Promise<{ success: boolean; data?: EmailData; error?: string }> {
+  try {
+    if (!token) {
+      throw new Error('User not authenticated');
+    }
+
+    // Fetch email from Gmail API
+    const response = await fetch(`https://gmail.googleapis.com/gmail/v1/users/me/messages/${emailId}?format=full`, {
+      headers: {
+        Authorization: `Bearer ${token}`
+      }
+    });
+    console.log('This is the response: ')
+    console.log(response)
+    if (!response.ok) {
+      throw new Error(`Failed to fetch email: ${response.status}`);
+    }
+    
+    const emailData: GmailResponse = await response.json();
+    
+    // Parse email data
+    const parsedEmail = parseEmailData(emailData);
+    
+    return {
+      success: true,
+      data: parsedEmail
+    };
+  } catch (error) {
+    console.error('Error extracting email:', error);
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error'
+    };
+  }
+}
+
+// Parse Gmail API response into a more usable format
+function parseEmailData(emailData: GmailResponse): EmailData {
+  const headers: Record<string, string> = {};
+  
+  // Extract headers
+  if (emailData.payload && emailData.payload.headers) {
+    emailData.payload.headers.forEach(header => {
+      headers[header.name.toLowerCase()] = header.value;
+    });
+  }
+  
+  // Extract body content
+  let body = '';
+  
+  function extractBodyParts(part: any): void {
+    if (part.body && part.body.data) {
+      // Decode base64 content
+      const decodedData = atob(part.body.data.replace(/-/g, '+').replace(/_/g, '/'));
+      body += decodedData;
+    }
+    
+    if (part.parts) {
+      part.parts.forEach((subPart: any) => {
+        // Prefer HTML content
+        if (subPart.mimeType === 'text/html') {
+          extractBodyParts(subPart);
+        }
+      });
+      
+      // If no HTML found, use plain text
+      if (!body) {
+        part.parts.forEach((subPart: any) => {
+          if (subPart.mimeType === 'text/plain') {
+            extractBodyParts(subPart);
+          }
+        });
+      }
+    }
+  }
+  
+  if (emailData.payload) {
+    extractBodyParts(emailData.payload);
+  }
+  
+  return {
+    id: emailData.id,
+    threadId: emailData.threadId,
+    labelIds: emailData.labelIds || [],
+    snippet: emailData.snippet || '',
+    subject: headers.subject || '',
+    from: headers.from || '',
+    to: headers.to || '',
+    date: headers.date || '',
+    body: body
+  };
+}

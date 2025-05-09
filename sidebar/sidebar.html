@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Frootful</title>
+  <link rel="stylesheet" href="sidebar.css">
+</head>
+<body>
+  <div class="sidebar-container">
+    <header>
+      <div class="logo">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#6366F1" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 2a9 9 0 0 1 9 9v4a6 6 0 0 1-6 6v0a6 6 0 0 1-6-6v-4a9 9 0 0 1 9-9Z"></path>
+          <path d="M9 16V8a3 3 0 0 1 6 0v8"></path>
+        </svg>
+        <h1>Frootful</h1>
+      </div>
+      <button id="close-btn" aria-label="Close sidebar">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M18 6 6 18"></path>
+          <path d="m6 6 12 12"></path>
+        </svg>
+      </button>
+    </header>
+    
+    <div class="content">
+      <div id="email-info">
+        <div class="loading-state">
+          <div class="spinner"></div>
+          <p>Loading email content...</p>
+        </div>
+      </div>
+      
+      <div id="email-metadata" class="hidden">
+        <div class="metadata-item">
+          <span class="label">From:</span>
+          <span id="email-from" class="value"></span>
+        </div>
+        <div class="metadata-item">
+          <span class="label">Subject:</span>
+          <span id="email-subject" class="value"></span>
+        </div>
+        <div class="metadata-item">
+          <span class="label">Date:</span>
+          <span id="email-date" class="value"></span>
+        </div>
+      </div>
+      
+      <div id="email-body" class="hidden">
+        <h2>Email Content</h2>
+        <div id="email-content"></div>
+      </div>
+    </div>
+    
+    <footer>
+      <p>Powered by Frootful</p>
+    </footer>
+  </div>
+  
+  <script src="sidebar.js"></script>
+</body>
+</html>

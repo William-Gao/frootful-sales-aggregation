@@ -1,0 +1,51 @@
+{
+  "manifest_version": 3,
+  "name": "Frootful",
+  "version": "1.0.0",
+  "description": "Extract and analyze email content from Gmail",
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "action": {
+    "default_popup": "popup/popup.html",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+  "background": {
+    "service_worker": "background/background.js",
+    "type": "module"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://mail.google.com/*"],
+      "js": ["content/content.js"],
+      "css": ["content/content.css"]
+    }
+  ],
+  "permissions": [
+    "identity",
+    "storage",
+    "activeTab"
+  ],
+  "host_permissions": [
+    "https://mail.google.com/*",
+    "https://www.googleapis.com/*"
+  ],
+  "oauth2": {
+    "client_id": "930825445704-od6kb7h9h2a07kog5gg5l5c7kdfrbova.apps.googleusercontent.com",
+    "scopes": [
+      "https://www.googleapis.com/auth/gmail.readonly"
+    ]
+  },
+  "web_accessible_resources": [
+    {
+      "resources": ["sidebar/sidebar.html", "icons/*"],
+      "matches": ["https://mail.google.com/*"]
+    }
+  ]
+}
