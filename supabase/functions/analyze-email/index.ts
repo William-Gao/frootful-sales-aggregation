@@ -21,14 +21,14 @@ Deno.serve(async (req) => {
   }
 
   try {
-    const { emailContent } = await req.json();
+    const { emailContent, fromEmail } = await req.json();
 
     const completion = await openai.chat.completions.create({
       model: 'gpt-3.5-turbo',
       messages: [
         {
           role: 'system',
-          content: 'You are a helpful assistant that extracts purchase order information from emails. For each product mentioned, list it on a new line with its quantity and price if available.'
+          content: 'You are a helpful assistant that extracts purchase order information from emails. Extract each product with its quantity and price. Return the data in JSON format with the following structure: { orderLines: [{ itemName: string, quantity: number, unitPrice: number }] }'
         },
         {
           role: 'user',
@@ -36,13 +36,35 @@ Deno.serve(async (req) => {
         }
       ],
       temperature: 0.7,
-      max_tokens: 500
+      max_tokens: 500,
+      response_format: { type: "json_object" }
     });
 
-    const analysis = completion.choices[0].message.content;
+    const analysis = JSON.parse(completion.choices[0].message.content);
+
+    // Create purchase order in Business Central
+    const bcResponse = await fetch(`${req.headers.get('origin')}/functions/v1/business-central`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': req.headers.get('Authorization') || '',
+      },
+      body: JSON.stringify({
+        purchaseOrder: {
+          vendorEmail: fromEmail,
+          orderLines: analysis.orderLines
+        }
+      })
+    });
+
+    const bcResult = await bcResponse.json();
 
     return new Response(
-      JSON.stringify({ success: true, analysis }),
+      JSON.stringify({ 
+        success: true, 
+        analysis: analysis.orderLines,
+        purchaseOrder: bcResult
+      }),
       {
         headers: {
           'Content-Type': 'application/json',
