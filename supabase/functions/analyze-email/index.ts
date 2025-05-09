@@ -1,5 +1,5 @@
 import { createClient } from 'npm:@supabase/supabase-js@2.39.7';
-import { Configuration, OpenAIApi } from 'npm:openai@4.28.0';
+import OpenAI from 'npm:openai@4.28.0';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -7,9 +7,9 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'Content-Type, Authorization',
 };
 
-const openai = new OpenAIApi(new Configuration({
+const openai = new OpenAI({
   apiKey: Deno.env.get('OPENAI_API_KEY'),
-}));
+});
 
 Deno.serve(async (req) => {
   // Handle CORS preflight requests
