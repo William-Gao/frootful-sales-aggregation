@@ -2,7 +2,7 @@ import { Configuration, PublicClientApplication } from "@azure/msal-browser";
 
 export const msalConfig: Configuration = {
   auth: {
-    clientId: "YOUR_CLIENT_ID",
+    clientId: "4c92a998-6af5-4c2a-b16e-80ba1c6b9b3b",
     authority: "https://login.microsoftonline.com/common",
     redirectUri: chrome.identity.getRedirectURL(),
     navigateToLoginRequestUrl: true

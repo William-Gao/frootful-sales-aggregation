@@ -2,6 +2,8 @@ import { msalInstance, loginRequest } from './msalConfig';
 
 export async function authenticateBusinessCentral(): Promise<string> {
   try {
+    await msalInstance.initialize()
+    console.log("Hello! Made it inside here")
     // Always force interactive login
     const response = await msalInstance.loginPopup({
       ...loginRequest,
