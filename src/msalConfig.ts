@@ -5,10 +5,17 @@ export const msalConfig: Configuration = {
     clientId: "YOUR_CLIENT_ID",
     authority: "https://login.microsoftonline.com/common",
     redirectUri: chrome.identity.getRedirectURL(),
+    navigateToLoginRequestUrl: true
   },
   cache: {
-    cacheLocation: "localStorage",
-    storeAuthStateInCookie: true
+    cacheLocation: "sessionStorage", // Changed to sessionStorage
+    storeAuthStateInCookie: false // Disabled cookie storage
+  },
+  system: {
+    allowNativeBroker: false, // Disable native broker
+    windowHashTimeout: 60000,
+    iframeHashTimeout: 6000,
+    loadFrameTimeout: 0,
   }
 };
 
