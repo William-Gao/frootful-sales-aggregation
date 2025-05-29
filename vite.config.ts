@@ -6,6 +6,7 @@ export default defineConfig({
   plugins: [react()],
   optimizeDeps: {
     exclude: ['lucide-react'],
+    include: ['@azure/msal-browser']
   },
   build: {
     rollupOptions: {
@@ -20,7 +21,6 @@ export default defineConfig({
       output: {
         dir: 'dist',
         entryFileNames: (chunkInfo) => {
-          // Keep the original file structure for JS files
           if (chunkInfo.facadeModuleId?.includes('/background/')) {
             return 'background/[name].js';
           }
@@ -40,7 +40,6 @@ export default defineConfig({
         },
         chunkFileNames: '[name].js',
         assetFileNames: (assetInfo) => {
-          // Keep the original file structure for CSS files
           if (assetInfo.name?.endsWith('.css')) {
             if (assetInfo.name.includes('content/')) {
               return 'content/[name][extname]';
@@ -57,7 +56,8 @@ export default defineConfig({
           }
           return '[name][extname]';
         }
-      }
+      },
+      external: ['@azure/msal-browser']
     },
     outDir: 'dist',
     emptyOutDir: true,
