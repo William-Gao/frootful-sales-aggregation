@@ -1,4 +1,4 @@
-// Popup script for Frootful
+import { authenticateBusinessCentral, signOut } from '../src/businessCentralAuth';
 
 interface Port {
   postMessage: (message: any) => void;
@@ -12,15 +12,49 @@ document.addEventListener('DOMContentLoaded', () => {
   const authenticatedSection = document.getElementById('authenticated');
   const loginBtn = document.getElementById('login-btn') as HTMLButtonElement;
   const logoutBtn = document.getElementById('logout-btn') as HTMLButtonElement;
+  const bcLoginBtn = document.getElementById('bc-login-btn') as HTMLButtonElement;
+  const bcStatus = document.getElementById('bc-status');
   const userEmail = document.querySelector('.user-email');
   
-  if (!notAuthenticatedSection || !authenticatedSection || !loginBtn || !logoutBtn || !userEmail) {
+  if (!notAuthenticatedSection || !authenticatedSection || !loginBtn || !logoutBtn || !bcLoginBtn || !bcStatus || !userEmail) {
     console.error('Required elements not found');
     return;
   }
   
   // Initialize connection to background script
   const port: Port = chrome.runtime.connect({ name: 'frootful-popup' });
+  
+  // Handle Business Central authentication
+  bcLoginBtn.addEventListener('click', async () => {
+    try {
+      bcLoginBtn.disabled = true;
+      bcLoginBtn.textContent = 'Connecting...';
+      
+      const token = await authenticateBusinessCentral();
+      
+      // Store the token
+      chrome.storage.local.set({ bcAccessToken: token }, () => {
+        bcLoginBtn.classList.add('hidden');
+        if (bcStatus) {
+          bcStatus.classList.remove('hidden');
+        }
+      });
+    } catch (error) {
+      console.error('BC auth error:', error);
+      showError('Failed to connect to Business Central');
+    } finally {
+      bcLoginBtn.disabled = false;
+      bcLoginBtn.textContent = 'Connect to Business Central';
+    }
+  });
+  
+  // Check if already connected to BC
+  chrome.storage.local.get(['bcAccessToken'], (result) => {
+    if (result.bcAccessToken) {
+      bcLoginBtn.classList.add('hidden');
+      bcStatus.classList.remove('hidden');
+    }
+  });
   
   // Handle messages from background script
   port.onMessage.addListener((message: any) => {

@@ -34,7 +34,9 @@
   ],
   "host_permissions": [
     "https://mail.google.com/*",
-    "https://www.googleapis.com/*"
+    "https://www.googleapis.com/*",
+    "https://login.microsoftonline.com/*",
+    "https://*.dynamics.com/*"
   ],
   "oauth2": {
     "client_id": "930825445704-od6kb7h9h2a07kog5gg5l5c7kdfrbova.apps.googleusercontent.com",
