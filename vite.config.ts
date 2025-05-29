@@ -5,8 +5,7 @@ import { resolve } from 'path';
 export default defineConfig({
   plugins: [react()],
   optimizeDeps: {
-    exclude: ['lucide-react'],
-    include: ['@azure/msal-browser']
+    exclude: ['lucide-react']
   },
   build: {
     rollupOptions: {
@@ -56,10 +55,14 @@ export default defineConfig({
           }
           return '[name][extname]';
         }
-      },
-      external: ['@azure/msal-browser']
+      }
     },
     outDir: 'dist',
     emptyOutDir: true,
+  },
+  resolve: {
+    alias: {
+      '@': resolve(__dirname, 'src')
+    }
   }
 });

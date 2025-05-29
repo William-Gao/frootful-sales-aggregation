@@ -1,4 +1,4 @@
-import { authenticateBusinessCentral, signOut } from '../src/businessCentralAuth';
+import { authenticateBusinessCentral, signOut } from '../src/businessCentralAuth.js';
 
 interface Port {
   postMessage: (message: any) => void;
