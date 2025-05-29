@@ -104,6 +104,14 @@ header {
   color: #64748b;
 }
 
+/* Business Central section */
+.bc-auth-section {
+  margin-bottom: 16px;
+  padding: 12px;
+  background-color: #f8fafc;
+  border-radius: 8px;
+}
+
 /* Buttons */
 .primary-btn, .secondary-btn {
   width: 100%;
@@ -123,6 +131,7 @@ header {
   background-color: #6366F1;
   color: white;
   border: none;
+  margin-bottom: 8px;
 }
 
 .primary-btn:hover {
@@ -161,4 +170,16 @@ footer {
 /* Utility classes */
 .hidden {
   display: none;
+}
+
+.mb-4 {
+  margin-bottom: 1rem;
+}
+
+.text-sm {
+  font-size: 0.875rem;
+}
+
+.text-gray-600 {
+  color: #4b5563;
 }
