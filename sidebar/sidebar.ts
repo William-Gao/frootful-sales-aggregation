@@ -1,6 +1,6 @@
 // Sidebar script for Frootful
 
-import { authenticateBusinessCentral } from "../src/businessCentralAuth.js";
+import { authenticateBusinessCentral, fetchCustomers } from "../src/businessCentralAuth.js";
 
 interface Customer {
   id: string;
@@ -318,3 +318,15 @@ function showError(message: string): void {
     errorDiv.remove();
   }, 3000);
 }
+
+/*
+
+```
+ {
+            ...
+            "number": "C00020",
+            "displayName": "The Pessimist - Chattanooga",
+            "email": "wgao@mba2026.hbs.edu",
+           ...
+```
+*/
