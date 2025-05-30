@@ -42,6 +42,8 @@ if (!closeBtn || !emailInfo || !emailMetadata || !emailBody || !emailFrom ||
   throw new Error('Required elements not found');
 }
 
+let currentOrderId: string | null = null;
+
 // Close sidebar
 closeBtn.addEventListener('click', () => {
   window.parent.postMessage({ action: 'closeSidebar' }, '*');
@@ -162,32 +164,37 @@ importErpBtn.addEventListener('click', async () => {
       throw new Error('Not authenticated with Business Central');
     }
 
-    // Step 1: Create Order
-    updateStepStatus(createOrderStep, 'loading');
-    const orderResponse = await fetch('https://api.businesscentral.dynamics.com/v2.0/Production/api/v2.0/companies(45dbc5d1-5408-f011-9af6-6045bde9c6b1)/salesOrders/', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${token}`,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        orderDate: new Date().toISOString().split('T')[0],
-        customerNumber: "C04417",
-        currencyCode: "USD"
-      })
-    });
+    // Step 1: Create Order (if not exists)
+    if (!currentOrderId) {
+      updateStepStatus(createOrderStep, 'loading');
+      const orderResponse = await fetch('https://api.businesscentral.dynamics.com/v2.0/Production/api/v2.0/companies(45dbc5d1-5408-f011-9af6-6045bde9c6b1)/salesOrders/', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          orderDate: new Date().toISOString().split('T')[0],
+          customerNumber: "C04417",
+          currencyCode: "USD"
+        })
+      });
 
-    if (!orderResponse.ok) {
-      throw new Error(`Failed to create order: ${orderResponse.statusText}`);
+      if (!orderResponse.ok) {
+        throw new Error(`Failed to create order: ${orderResponse.statusText}`);
+      }
+
+      const order = await orderResponse.json();
+      currentOrderId = order.id;
+      updateStepStatus(createOrderStep, 'success');
+    } else {
+      updateStepStatus(createOrderStep, 'success');
     }
-
-    const order = await orderResponse.json();
-    updateStepStatus(createOrderStep, 'success');
 
     // Step 2: Add Items
     updateStepStatus(addItemsStep, 'loading');
     for (const item of items) {
-      const lineResponse = await fetch(`https://api.businesscentral.dynamics.com/v2.0/Production/api/v2.0/companies(45dbc5d1-5408-f011-9af6-6045bde9c6b1)/salesOrders(${order.id})/salesOrderLines`, {
+      const lineResponse = await fetch(`https://api.businesscentral.dynamics.com/v2.0/Production/api/v2.0/companies(45dbc5d1-5408-f011-9af6-6045bde9c6b1)/salesOrders(${currentOrderId})/salesOrderLines`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${token}`,
