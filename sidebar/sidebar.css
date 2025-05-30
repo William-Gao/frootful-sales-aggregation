@@ -275,6 +275,58 @@ header {
   box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.1);
 }
 
+/* Import progress */
+.import-progress {
+  margin: 16px 0;
+  padding: 16px;
+  background-color: #f8fafc;
+  border-radius: 8px;
+  border: 1px solid #e2e8f0;
+}
+
+.progress-step {
+  display: flex;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.progress-step:last-child {
+  margin-bottom: 0;
+}
+
+.step-indicator {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  margin-right: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background-color: #e2e8f0;
+  color: #64748b;
+}
+
+.step-indicator.loading {
+  border: 2px solid #6366F1;
+  border-right-color: transparent;
+  animation: spin 1s linear infinite;
+}
+
+.step-indicator.success {
+  background-color: #10B981;
+  color: white;
+}
+
+.step-indicator.error {
+  background-color: #EF4444;
+  color: white;
+}
+
+.step-text {
+  color: #334155;
+  font-weight: 500;
+}
+
 /* Import to ERP button */
 .import-erp-btn {
   width: 100%;
