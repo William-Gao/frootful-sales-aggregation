@@ -199,7 +199,7 @@ export async function fetchItems(token: string): Promise<any[]> {
   }
 }
 
-export async function analyzeEmailContent(emailBody: string): Promise<any[]> {
+export async function analyzeEmailContent(emailBody: string, items: any[]): Promise<any[]> {
   try {
     const response = await fetch('https://zkglvdfppodwlgzhfgqs.supabase.co/functions/v1/analyze-email', {
       method: 'POST',
@@ -207,7 +207,10 @@ export async function analyzeEmailContent(emailBody: string): Promise<any[]> {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}`
       },
-      body: JSON.stringify({ emailContent: emailBody })
+      body: JSON.stringify({ 
+        emailContent: emailBody,
+        items: items
+      })
     });
 
     if (!response.ok) {
