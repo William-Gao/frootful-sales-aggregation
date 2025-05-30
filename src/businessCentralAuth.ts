@@ -5,6 +5,28 @@ const SCOPE = 'https://api.businesscentral.dynamics.com/user_impersonation offli
 
 export async function authenticateBusinessCentral(): Promise<string> {
   try {
+    // Check if we have a valid token
+    const { bcAccessToken, bcTokenExpiry, bcRefreshToken } = await chrome.storage.local.get([
+      'bcAccessToken',
+      'bcTokenExpiry',
+      'bcRefreshToken'
+    ]);
+
+    // If we have a valid token, return it
+    if (bcAccessToken && bcTokenExpiry && Date.now() < bcTokenExpiry) {
+      return bcAccessToken;
+    }
+
+    // If we have a refresh token, try to refresh
+    if (bcRefreshToken) {
+      try {
+        return await refreshToken(bcRefreshToken);
+      } catch (error) {
+        console.error('Token refresh failed:', error);
+        // If refresh fails, proceed with new authentication
+      }
+    }
+
     // Generate random state and code verifier for PKCE
     const state = generateRandomString(32);
     const codeVerifier = generateRandomString(64);
@@ -57,13 +79,12 @@ export async function authenticateBusinessCentral(): Promise<string> {
       throw new Error('Failed to get access token');
     }
 
-    // Store refresh token securely
-    if (tokens.refresh_token) {
-      await chrome.storage.local.set({ 
-        bcRefreshToken: tokens.refresh_token,
-        bcTokenExpiry: Date.now() + (tokens.expires_in * 1000)
-      });
-    }
+    // Store tokens and expiry
+    await chrome.storage.local.set({ 
+      bcAccessToken: tokens.access_token,
+      bcRefreshToken: tokens.refresh_token,
+      bcTokenExpiry: Date.now() + (tokens.expires_in * 1000)
+    });
 
     return tokens.access_token;
   } catch (error) {
@@ -72,8 +93,38 @@ export async function authenticateBusinessCentral(): Promise<string> {
   }
 }
 
+async function refreshToken(refreshToken: string): Promise<string> {
+  const response = await fetch(`https://login.microsoftonline.com/${TENANT_ID}/oauth2/v2.0/token`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/x-www-form-urlencoded'
+    },
+    body: new URLSearchParams({
+      client_id: CLIENT_ID,
+      grant_type: 'refresh_token',
+      refresh_token: refreshToken,
+      scope: SCOPE
+    })
+  });
+
+  if (!response.ok) {
+    throw new Error('Token refresh failed');
+  }
+
+  const tokens = await response.json();
+
+  // Store new tokens and expiry
+  await chrome.storage.local.set({
+    bcAccessToken: tokens.access_token,
+    bcRefreshToken: tokens.refresh_token,
+    bcTokenExpiry: Date.now() + (tokens.expires_in * 1000)
+  });
+
+  return tokens.access_token;
+}
+
 export async function signOut(): Promise<void> {
-  await chrome.storage.local.remove(['bcRefreshToken', 'bcTokenExpiry']);
+  await chrome.storage.local.remove(['bcAccessToken', 'bcRefreshToken', 'bcTokenExpiry']);
   
   // Clear session storage
   sessionStorage.clear();
