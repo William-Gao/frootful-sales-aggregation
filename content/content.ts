@@ -30,23 +30,34 @@ let lastUrl: string | null = null;
 
 // Initialize connection to background script
 function initializeConnection(): void {
-  port = chrome.runtime.connect({ name: 'frootful-content' });
-  
-  port.onMessage.addListener((message: any) => {
-    if (message.action === 'authStateChanged') {
-      isAuthenticated = message.isAuthenticated;
-      init();
+  if (port) {
+    try {
+      port.postMessage({ action: 'ping' });
+    } catch (e) {
+      // Port is disconnected, create new connection
+      port = null;
     }
+  }
+
+  if (!port) {
+    port = chrome.runtime.connect({ name: 'frootful-content' });
     
-    if (message.action === 'extractEmail') {
-      handleExtractResponse(message);
-    }
-    
-    if (message.action === 'checkAuthState') {
-      isAuthenticated = message.isAuthenticated;
-      init();
-    }
-  });
+    port.onMessage.addListener((message: any) => {
+      if (message.action === 'authStateChanged') {
+        isAuthenticated = message.isAuthenticated;
+        init();
+      }
+      
+      if (message.action === 'extractEmail') {
+        handleExtractResponse(message);
+      }
+      
+      if (message.action === 'checkAuthState') {
+        isAuthenticated = message.isAuthenticated;
+        init();
+      }
+    });
+  }
   
   // Check if user is authenticated
   port.postMessage({ action: 'checkAuthState' });
@@ -59,10 +70,7 @@ initializeConnection();
 function init(): void {
   if (observer) observer.disconnect();
 
-  // MutationObserver (kept just in case)
   observer = new MutationObserver((mutations) => {
-    console.log('[Frootful] Mutation observed:', mutations);
-
     if (observerTimeout) clearTimeout(observerTimeout);
     observerTimeout = window.setTimeout(() => {
       checkForEmailView();
@@ -72,16 +80,14 @@ function init(): void {
   const mainContent = document.querySelector('[role="main"]');
   if (mainContent) {
     observer.observe(mainContent, { childList: true, subtree: true });
-    console.log('[Frootful] Observer attached to [role="main"]');
   }
 
-  // URL polling fallback (essential for Gmail)
+  // URL polling fallback
   startUrlWatcher();
 
   // Initial check
   const currentUrl = window.location.href;
   if (currentUrl !== lastUrl) {
-    console.log('[Frootful] Initial load at URL:', currentUrl);
     lastUrl = currentUrl;
     checkForEmailView();
   }
@@ -95,36 +101,20 @@ function checkForEmailView(): void {
   }
 
   const emailContainer = document.querySelector('[role="main"]');
-  if (!emailContainer) {
-    console.warn('[Frootful] [role="main"] not found.');
-    return;
-  }
+  if (!emailContainer) return;
 
-  // Find the email ID from the data-legacy-message-id attribute
   const messageIdElement = emailContainer.querySelector('[data-legacy-message-id]');
-  if (!messageIdElement) {
-    console.warn('[Frootful] Could not find message ID element.');
-    return;
-  }
+  if (!messageIdElement) return;
 
   currentEmailId = messageIdElement.getAttribute('data-legacy-message-id');
-  if (!currentEmailId) {
-    console.warn('[Frootful] No message ID found.');
-    return;
-  }
-
-  console.log('[Frootful] Detected message ID:', currentEmailId);
+  if (!currentEmailId) return;
 
   const senderSpan = emailContainer.querySelector('.gD');
-  if (!senderSpan) {
-    console.warn('[Frootful] Could not find .gD (sender span).');
-    return;
-  }
+  if (!senderSpan) return;
 
   if (currentEmailId && isAuthenticated) {
     const parent = senderSpan.parentElement;
     if (parent) {
-      console.log('[Frootful] Injecting button into:', parent);
       injectExtractButton(parent);
     }
   }
@@ -132,10 +122,7 @@ function checkForEmailView(): void {
 
 // Inject the extract button into Gmail UI
 function injectExtractButton(container: Element): void {
-  if (container.querySelector('.frootful-extract-btn')) {
-    console.log('[Frootful] Button already exists, skipping injection');
-    return;
-  }
+  if (container.querySelector('.frootful-extract-btn')) return;
 
   extractButton = document.createElement('div');
   extractButton.className = 'frootful-extract-btn';
@@ -163,6 +150,9 @@ function handleExtractClick(e: MouseEvent): void {
   e.preventDefault();
   e.stopPropagation();
   
+  // Ensure connection is active
+  initializeConnection();
+  
   if (!port || !currentEmailId) return;
   
   // Show loading state
@@ -173,6 +163,9 @@ function handleExtractClick(e: MouseEvent): void {
       textElement.textContent = 'Extracting...';
     }
   }
+
+  // Remove existing sidebar for new extraction
+  removeSidebar();
   
   // Request email extraction
   port.postMessage({
@@ -235,7 +228,6 @@ function startUrlWatcher(): void {
   setInterval(() => {
     const currentUrl = window.location.href;
     if (currentUrl !== lastUrl) {
-      console.log('[Frootful] URL changed (poll):', currentUrl);
       lastUrl = currentUrl;
       checkForEmailView();
     }
