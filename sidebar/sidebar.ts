@@ -12,6 +12,13 @@ interface EmailData {
   body: string;
 }
 
+interface Item {
+  id: string;
+  name: string;
+  quantity: number;
+  price: number;
+}
+
 document.addEventListener('DOMContentLoaded', () => {
   const closeBtn = document.getElementById('close-btn');
   const emailInfo = document.getElementById('email-info');
@@ -20,9 +27,13 @@ document.addEventListener('DOMContentLoaded', () => {
   const emailFrom = document.getElementById('email-from');
   const emailSubject = document.getElementById('email-subject');
   const emailDate = document.getElementById('email-date');
-  const emailContent = document.getElementById('email-content');
+  const addItemBtn = document.getElementById('add-item-btn');
+  const itemsContainer = document.getElementById('items-container');
   
-  if (!closeBtn || !emailInfo || !emailMetadata || !emailBody || !emailFrom || !emailSubject || !emailDate || !emailContent) {
+  let items: Item[] = [];
+  
+  if (!closeBtn || !emailInfo || !emailMetadata || !emailBody || !emailFrom || 
+      !emailSubject || !emailDate || !addItemBtn || !itemsContainer) {
     console.error('Required elements not found');
     return;
   }
@@ -32,12 +43,106 @@ document.addEventListener('DOMContentLoaded', () => {
     window.parent.postMessage({ action: 'closeSidebar' }, '*');
   });
   
+  // Handle add item button click
+  addItemBtn.addEventListener('click', () => {
+    addItem();
+  });
+  
   // Handle messages from content script
   window.addEventListener('message', async (event: MessageEvent) => {
     if (event.data.action === 'loadEmailData') {
       await displayEmailData(event.data.data);
     }
   });
+  
+  // Add new item
+  function addItem(item?: Item): void {
+    const newItem = item || {
+      id: generateId(),
+      name: '',
+      quantity: 1,
+      price: 0
+    };
+    
+    items.push(newItem);
+    
+    const itemElement = createItemElement(newItem);
+    itemsContainer.appendChild(itemElement);
+  }
+  
+  // Create item element
+  function createItemElement(item: Item): HTMLDivElement {
+    const itemBox = document.createElement('div');
+    itemBox.className = 'item-box';
+    itemBox.dataset.itemId = item.id;
+    
+    itemBox.innerHTML = `
+      <div class="item-header">
+        <span class="item-title">Item #${items.length}</span>
+        <button class="delete-item-btn">Delete</button>
+      </div>
+      <div class="item-fields">
+        <div class="item-field">
+          <label for="item-name-${item.id}">Item Name</label>
+          <input type="text" id="item-name-${item.id}" value="${item.name}" placeholder="Enter item name">
+        </div>
+        <div class="item-field">
+          <label for="item-quantity-${item.id}">Quantity</label>
+          <input type="number" id="item-quantity-${item.id}" value="${item.quantity}" min="1">
+        </div>
+        <div class="item-field">
+          <label for="item-price-${item.id}">Price</label>
+          <input type="number" id="item-price-${item.id}" value="${item.price}" min="0" step="0.01">
+        </div>
+      </div>
+    `;
+    
+    // Add event listeners
+    const deleteBtn = itemBox.querySelector('.delete-item-btn');
+    deleteBtn?.addEventListener('click', () => deleteItem(item.id));
+    
+    const inputs = itemBox.querySelectorAll('input');
+    inputs.forEach(input => {
+      input.addEventListener('change', () => updateItem(item.id));
+    });
+    
+    return itemBox;
+  }
+  
+  // Delete item
+  function deleteItem(itemId: string): void {
+    const index = items.findIndex(item => item.id === itemId);
+    if (index !== -1) {
+      items.splice(index, 1);
+      const itemElement = itemsContainer.querySelector(`[data-item-id="${itemId}"]`);
+      itemElement?.remove();
+    }
+  }
+  
+  // Update item
+  function updateItem(itemId: string): void {
+    const itemElement = itemsContainer.querySelector(`[data-item-id="${itemId}"]`);
+    if (!itemElement) return;
+    
+    const nameInput = itemElement.querySelector(`#item-name-${itemId}`) as HTMLInputElement;
+    const quantityInput = itemElement.querySelector(`#item-quantity-${itemId}`) as HTMLInputElement;
+    const priceInput = itemElement.querySelector(`#item-price-${itemId}`) as HTMLInputElement;
+    
+    const index = items.findIndex(item => item.id === itemId);
+    if (index !== -1) {
+      items[index] = {
+        ...items[index],
+        name: nameInput.value,
+        quantity: parseInt(quantityInput.value) || 1,
+        price: parseFloat(priceInput.value) || 0
+      };
+    }
+  }
+  
+  // Generate unique ID
+  function generateId(): string {
+    return Math.random().toString(36).substr(2, 9);
+  }
   
   // Display email data in sidebar
   async function displayEmailData(emailData: EmailData | undefined): Promise<void> {
@@ -57,61 +162,6 @@ document.addEventListener('DOMContentLoaded', () => {
       emailDate.textContent = formatDate(emailData.date);
     }
     
-    // Update content
-    if (emailData.body) {
-      // Create a sandbox to safely display HTML content
-      const sandbox = document.createElement('div');
-      sandbox.innerHTML = emailData.body;
-      
-      // Clean potentially dangerous elements
-      sanitizeHtml(sandbox);
-      
-      // Update the content
-      emailContent.innerHTML = '';
-      emailContent.appendChild(sandbox);
-
-      // Add analysis section
-      const analysisSection = document.createElement('div');
-      analysisSection.className = 'analysis-section';
-      analysisSection.innerHTML = '<h2>Purchase Order Analysis</h2><div class="loading">Analyzing email content...</div>';
-      emailBody.appendChild(analysisSection);
-
-      try {
-        const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/analyze-email`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}`
-          },
-          body: JSON.stringify({
-            emailContent: sandbox.textContent || emailData.snippet
-          })
-        });
-
-        if (!response.ok) {
-          throw new Error('Failed to analyze email');
-        }
-
-        const result = await response.json();
-        
-        if (result.success) {
-          analysisSection.innerHTML = `
-            <h2>Purchase Order Analysis</h2>
-            <div class="analysis-content">${result.analysis.replace(/\n/g, '<br>')}</div>
-          `;
-        } else {
-          throw new Error(result.error || 'Analysis failed');
-        }
-      } catch (error) {
-        analysisSection.innerHTML = `
-          <h2>Purchase Order Analysis</h2>
-          <div class="error">Failed to analyze email content: ${error instanceof Error ? error.message : 'Unknown error'}</div>
-        `;
-      }
-    } else {
-      emailContent.textContent = emailData.snippet || 'No content available';
-    }
-    
     // Show the sections
     const loadingState = emailInfo.querySelector('.loading-state');
     if (loadingState) {
@@ -119,13 +169,50 @@ document.addEventListener('DOMContentLoaded', () => {
     }
     emailMetadata.classList.remove('hidden');
     emailBody.classList.remove('hidden');
+    
+    // Extract items from email content
+    try {
+      const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/analyze-email`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}`
+        },
+        body: JSON.stringify({
+          emailContent: emailData.body || emailData.snippet
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to analyze email');
+      }
+
+      const result = await response.json();
+      
+      if (result.success && result.analysis) {
+        // Clear existing items
+        items = [];
+        itemsContainer.innerHTML = '';
+        
+        // Add extracted items
+        result.analysis.forEach((item: any) => {
+          addItem({
+            id: generateId(),
+            name: item.itemName,
+            quantity: item.quantity,
+            price: item.unitPrice
+          });
+        });
+      }
+    } catch (error) {
+      console.error('Error analyzing email:', error);
+    }
   }
   
   // Format email address
   function formatEmailAddress(address: string): string {
     if (!address) return '';
     
-    // Try to extract name and email
     const match = address.match(/(.+) <(.+)>/);
     if (match) {
       return match[1]; // Just return the name part
@@ -151,48 +238,6 @@ document.addEventListener('DOMContentLoaded', () => {
     } catch (e) {
       return dateString;
     }
-  }
-  
-  // Sanitize HTML to prevent XSS
-  function sanitizeHtml(element: HTMLElement): void {
-    // Remove scripts
-    const scripts = element.querySelectorAll('script');
-    scripts.forEach(script => script.remove());
-    
-    // Remove inline event handlers
-    const allElements = element.querySelectorAll('*');
-    allElements.forEach(el => {
-      // Remove all attributes that start with "on"
-      for (let i = el.attributes.length - 1; i >= 0; i--) {
-        const name = el.attributes[i].name;
-        if (name.startsWith('on')) {
-          el.removeAttribute(name);
-        }
-      }
-    });
-    
-    // Sanitize links
-    const links = element.querySelectorAll('a');
-    links.forEach(link => {
-      // Add target="_blank" and rel="noopener noreferrer" to all links
-      link.setAttribute('target', '_blank');
-      link.setAttribute('rel', 'noopener noreferrer');
-      
-      // Remove javascript: URLs
-      const href = link.getAttribute('href');
-      if (href && href.toLowerCase().startsWith('javascript:')) {
-        link.removeAttribute('href');
-      }
-    });
-    
-    // Remove CSS with position:fixed or position:absolute
-    const styles = element.querySelectorAll('style');
-    styles.forEach(style => {
-      if (style.textContent?.includes('position:') || 
-          style.textContent?.includes('position :')) {
-        style.remove();
-      }
-    });
   }
   
   // Show error message
