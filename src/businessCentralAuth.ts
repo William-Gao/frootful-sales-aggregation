@@ -1,5 +1,3 @@
-import { Configuration, PublicClientApplication } from "@azure/msal-browser";
-
 const CLIENT_ID = '4c92a998-6af5-4c2a-b16e-80ba1c6b9b3b';
 const TENANT_ID = 'common';
 const REDIRECT_URI = chrome.identity.getRedirectURL();
@@ -176,6 +174,49 @@ export async function fetchCustomers(token: string): Promise<any[]> {
     return data.value || [];
   } catch (error) {
     console.error('Error fetching customers:', error);
+    throw error;
+  }
+}
+
+export async function fetchItems(token: string): Promise<any[]> {
+  try {
+    const response = await fetch('https://api.businesscentral.dynamics.com/v2.0/Production/api/v2.0/companies(45dbc5d1-5408-f011-9af6-6045bde9c6b1)/items', {
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json'
+      }
+    });
+
+    if (!response.ok) {
+      throw new Error('Failed to fetch items');
+    }
+
+    const data = await response.json();
+    return data.value || [];
+  } catch (error) {
+    console.error('Error fetching items:', error);
+    throw error;
+  }
+}
+
+export async function analyzeEmailContent(emailBody: string): Promise<any[]> {
+  try {
+    const response = await fetch('https://zkglvdfppodwlgzhfgqs.supabase.co/functions/v1/analyze-email', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ emailContent: emailBody })
+    });
+
+    if (!response.ok) {
+      throw new Error('Failed to analyze email content');
+    }
+
+    const data = await response.json();
+    return data.analysis || [];
+  } catch (error) {
+    console.error('Error analyzing email:', error);
     throw error;
   }
 }

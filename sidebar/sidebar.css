@@ -161,22 +161,8 @@ header {
   margin-bottom: 4px;
 }
 
+.content-box select,
 .content-box input {
-  width: 100%;
-  padding: 6px 8px;
-  border: 1px solid #e2e8f0;
-  border-radius: 4px;
-  font-size: 14px;
-  margin-bottom: 8px;
-}
-
-.content-box input:focus {
-  outline: none;
-  border-color: #6366F1;
-  box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.1);
-}
-
-.customer-select {
   width: 100%;
   padding: 6px 8px;
   border: 1px solid #e2e8f0;
@@ -186,7 +172,8 @@ header {
   background-color: white;
 }
 
-.customer-select:focus {
+.content-box select:focus,
+.content-box input:focus {
   outline: none;
   border-color: #6366F1;
   box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.1);
@@ -279,7 +266,8 @@ header {
   display: block;
 }
 
-.item-field input {
+.item-field input,
+.item-field select {
   width: 100%;
   padding: 6px 8px;
   border: 1px solid #e2e8f0;
@@ -288,7 +276,8 @@ header {
   min-width: 0;
 }
 
-.item-field input:focus {
+.item-field input:focus,
+.item-field select:focus {
   outline: none;
   border-color: #6366F1;
   box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.1);

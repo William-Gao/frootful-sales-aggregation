@@ -1,12 +1,19 @@
 // Sidebar script for Frootful
 
-import { authenticateBusinessCentral, fetchCustomers } from "../src/businessCentralAuth.js";
+import { authenticateBusinessCentral, fetchCustomers, fetchItems, analyzeEmailContent } from "../src/businessCentralAuth.js";
 
 interface Customer {
   id: string;
   number: string;
   displayName: string;
   email: string;
+}
+
+interface Item {
+  id: string;
+  number: string;
+  displayName: string;
+  unitPrice: number;
 }
 
 interface EmailData {
@@ -28,6 +35,7 @@ interface OrderItem {
 }
 
 let customers: Customer[] = [];
+let items: Item[] = [];
 let currentCustomer: Customer | null = null;
 
 // Initialize DOM elements
@@ -60,7 +68,7 @@ closeBtn.addEventListener('click', () => {
   window.parent.postMessage({ action: 'closeSidebar' }, '*');
 });
 
-// Add item
+// Add item with autocomplete
 addItemBtn.addEventListener('click', () => {
   const itemBox = document.createElement('div');
   itemBox.className = 'item-box';
@@ -72,7 +80,14 @@ addItemBtn.addEventListener('click', () => {
     <div class="item-fields">
       <div class="item-field">
         <label>Item Name</label>
-        <input type="text" placeholder="Enter item name" class="item-name">
+        <select class="item-select">
+          <option value="">Select an item...</option>
+          ${items.map(item => `
+            <option value="${item.number}" data-price="${item.unitPrice}">
+              ${item.displayName}
+            </option>
+          `).join('')}
+        </select>
       </div>
       <div class="item-field">
         <label>Quantity</label>
@@ -80,7 +95,7 @@ addItemBtn.addEventListener('click', () => {
       </div>
       <div class="item-field">
         <label>Price</label>
-        <input type="number" min="0" step="0.01" value="0.00" class="item-price">
+        <input type="number" min="0" step="0.01" value="0.00" class="item-price" readonly>
       </div>
     </div>
   `;
@@ -93,15 +108,36 @@ addItemBtn.addEventListener('click', () => {
     });
   }
 
+  // Add item selection handler
+  const itemSelect = itemBox.querySelector('.item-select');
+  const priceInput = itemBox.querySelector('.item-price') as HTMLInputElement;
+  
+  if (itemSelect) {
+    itemSelect.addEventListener('change', (e) => {
+      const select = e.target as HTMLSelectElement;
+      const option = select.selectedOptions[0];
+      if (option && priceInput) {
+        priceInput.value = option.dataset.price || '0.00';
+      }
+    });
+  }
+
   itemsContainer.appendChild(itemBox);
 });
 
-// Fetch customers and populate dropdown
-async function initializeCustomers(token: string): Promise<void> {
+// Fetch customers and items, populate dropdowns
+async function initializeData(token: string): Promise<void> {
   try {
-    customers = await fetchCustomers(token);
+    // Fetch customers and items in parallel
+    const [fetchedCustomers, fetchedItems] = await Promise.all([
+      fetchCustomers(token),
+      fetchItems(token)
+    ]);
     
-    // Populate dropdown
+    customers = fetchedCustomers;
+    items = fetchedItems;
+    
+    // Populate customer dropdown
     customers.forEach(customer => {
       const option = document.createElement('option');
       option.value = customer.number;
@@ -109,8 +145,8 @@ async function initializeCustomers(token: string): Promise<void> {
       customerSelect.appendChild(option);
     });
   } catch (error) {
-    console.error('Error initializing customers:', error);
-    showError('Failed to load customers');
+    console.error('Error initializing data:', error);
+    showError('Failed to load customers and items');
   }
 }
 
@@ -131,11 +167,11 @@ window.addEventListener('message', async (event: MessageEvent) => {
     if (emailDate) emailDate.textContent = new Date(emailData.date).toLocaleString();
     
     try {
-      // Get token and initialize customers
+      // Get token and initialize data
       const token = await authenticateBusinessCentral();
       if (!token) throw new Error('Not authenticated');
       
-      await initializeCustomers(token);
+      await initializeData(token);
       
       // Find matching customer by email
       const senderEmail = emailData.from.match(/<(.+?)>/)?.[1] || emailData.from;
@@ -145,9 +181,80 @@ window.addEventListener('message', async (event: MessageEvent) => {
         customerSelect.value = matchingCustomer.number;
         currentCustomer = matchingCustomer;
       }
+
+      // Analyze email content and match items
+      const analyzedItems = await analyzeEmailContent(emailData.body);
+      
+      // Clear existing items
+      itemsContainer.innerHTML = '';
+      
+      // Add matched items
+      analyzedItems.forEach(analyzedItem => {
+        const matchingItem = items.find(item => 
+          item.displayName.toLowerCase().includes(analyzedItem.itemName.toLowerCase())
+        );
+        
+        if (matchingItem) {
+          const itemBox = document.createElement('div');
+          itemBox.className = 'item-box';
+          itemBox.innerHTML = `
+            <div class="item-header">
+              <span class="item-title">Item ${itemsContainer.children.length + 1}</span>
+              <button class="delete-item-btn">Delete</button>
+            </div>
+            <div class="item-fields">
+              <div class="item-field">
+                <label>Item Name</label>
+                <select class="item-select">
+                  <option value="">Select an item...</option>
+                  ${items.map(item => `
+                    <option value="${item.number}" 
+                            data-price="${item.unitPrice}"
+                            ${item.number === matchingItem.number ? 'selected' : ''}>
+                      ${item.displayName}
+                    </option>
+                  `).join('')}
+                </select>
+              </div>
+              <div class="item-field">
+                <label>Quantity</label>
+                <input type="number" min="1" value="${analyzedItem.quantity}" class="item-quantity">
+              </div>
+              <div class="item-field">
+                <label>Price</label>
+                <input type="number" min="0" step="0.01" value="${matchingItem.unitPrice}" class="item-price" readonly>
+              </div>
+            </div>
+          `;
+
+          // Add delete functionality
+          const deleteBtn = itemBox.querySelector('.delete-item-btn');
+          if (deleteBtn) {
+            deleteBtn.addEventListener('click', () => {
+              itemBox.remove();
+            });
+          }
+
+          // Add item selection handler
+          const itemSelect = itemBox.querySelector('.item-select');
+          const priceInput = itemBox.querySelector('.item-price') as HTMLInputElement;
+          
+          if (itemSelect) {
+            itemSelect.addEventListener('change', (e) => {
+              const select = e.target as HTMLSelectElement;
+              const option = select.selectedOptions[0];
+              if (option && priceInput) {
+                priceInput.value = option.dataset.price || '0.00';
+              }
+            });
+          }
+
+          itemsContainer.appendChild(itemBox);
+        }
+      });
     } catch (error) {
-      console.error('Error setting up customers:', error);
-      showError('Failed to load customer information');
+      console.error('Error setting up data:', error);
+      showError('Failed to load data');
     }
   }
 });
@@ -163,13 +270,13 @@ function getItems(): OrderItem[] {
   const itemBoxes = itemsContainer.querySelectorAll('.item-box');
   
   itemBoxes.forEach(box => {
-    const nameInput = box.querySelector('.item-name') as HTMLInputElement;
+    const itemSelect = box.querySelector('.item-select') as HTMLSelectElement;
     const quantityInput = box.querySelector('.item-quantity') as HTMLInputElement;
     const priceInput = box.querySelector('.item-price') as HTMLInputElement;
     
-    if (nameInput && quantityInput && priceInput) {
+    if (itemSelect && quantityInput && priceInput) {
       items.push({
-        itemName: nameInput.value,
+        itemName: itemSelect.value,
         quantity: parseInt(quantityInput.value, 10),
         price: parseFloat(priceInput.value)
       });
@@ -254,7 +361,7 @@ importErpBtn.addEventListener('click', async () => {
           'Content-Type': 'application/json'
         },
         body: JSON.stringify({
-          lineObjectNumber: 'OY-DAV-SEL',
+          lineObjectNumber: item.itemName,
           lineType: 'Item',
           quantity: item.quantity,
           unitPrice: item.price
@@ -318,15 +425,3 @@ function showError(message: string): void {
     errorDiv.remove();
   }, 3000);
 }
-
-/*
-
-```
- {
-            ...
-            "number": "C00020",
-            "displayName": "The Pessimist - Chattanooga",
-            "email": "wgao@mba2026.hbs.edu",
-           ...
-```
-*/
