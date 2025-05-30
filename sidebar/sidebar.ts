@@ -1,6 +1,6 @@
 // Sidebar script for Frootful
 
-import { authenticateBusinessCentral } from "../src/businessCentralAuth";
+import { authenticateBusinessCentral } from "../src/businessCentralAuth.js";
 
 interface EmailData {
   id: string;
