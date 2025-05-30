@@ -176,6 +176,22 @@ header {
   box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.1);
 }
 
+.customer-select {
+  width: 100%;
+  padding: 6px 8px;
+  border: 1px solid #e2e8f0;
+  border-radius: 4px;
+  font-size: 14px;
+  margin-bottom: 8px;
+  background-color: white;
+}
+
+.customer-select:focus {
+  outline: none;
+  border-color: #6366F1;
+  box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.1);
+}
+
 /* Items section */
 .items-section {
   margin-top: 16px;
