@@ -183,18 +183,14 @@ window.addEventListener('message', async (event: MessageEvent) => {
       }
 
       // Analyze email content and match items
-      const analyzedItems = await analyzeEmailContent(emailData.body);
+      const analyzedItems = await analyzeEmailContent(emailData.body, items);
       
       // Clear existing items
       itemsContainer.innerHTML = '';
       
       // Add matched items
       analyzedItems.forEach(analyzedItem => {
-        const matchingItem = items.find(item => 
-          item.displayName.toLowerCase().includes(analyzedItem.itemName.toLowerCase())
-        );
-        
-        if (matchingItem) {
+        if (analyzedItem.matchedItem) {
           const itemBox = document.createElement('div');
           itemBox.className = 'item-box';
           itemBox.innerHTML = `
@@ -210,7 +206,7 @@ window.addEventListener('message', async (event: MessageEvent) => {
                   ${items.map(item => `
                     <option value="${item.number}" 
                             data-price="${item.unitPrice}"
-                            ${item.number === matchingItem.number ? 'selected' : ''}>
+                            ${item.number === analyzedItem.matchedItem.number ? 'selected' : ''}>
                       ${item.displayName}
                     </option>
                   `).join('')}
@@ -222,7 +218,7 @@ window.addEventListener('message', async (event: MessageEvent) => {
               </div>
               <div class="item-field">
                 <label>Price</label>
-                <input type="number" min="0" step="0.01" value="${matchingItem.unitPrice}" class="item-price" readonly>
+                <input type="number" min="0" step="0.01" value="${items.find(i => i.number === analyzedItem.matchedItem.number)?.unitPrice || 0}" class="item-price" readonly>
               </div>
             </div>
           `;
