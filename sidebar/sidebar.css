@@ -179,6 +179,7 @@ header {
 /* Items section */
 .items-section {
   margin-top: 16px;
+  margin-bottom: 16px;
 }
 
 .items-header {
@@ -272,6 +273,33 @@ header {
   outline: none;
   border-color: #6366F1;
   box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.1);
+}
+
+/* Import to ERP button */
+.import-erp-btn {
+  width: 100%;
+  background-color: #10B981;
+  color: white;
+  border: none;
+  border-radius: 6px;
+  padding: 12px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background-color 0.2s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+.import-erp-btn:hover {
+  background-color: #059669;
+}
+
+.import-erp-btn:disabled {
+  background-color: #94A3B8;
+  cursor: not-allowed;
 }
 
 /* Footer */

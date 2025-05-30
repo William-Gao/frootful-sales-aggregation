@@ -29,11 +29,12 @@ document.addEventListener('DOMContentLoaded', () => {
   const emailDate = document.getElementById('email-date');
   const addItemBtn = document.getElementById('add-item-btn');
   const itemsContainer = document.getElementById('items-container');
+  const importErpBtn = document.getElementById('import-erp-btn') as HTMLButtonElement;
   
   let items: Item[] = [];
   
   if (!closeBtn || !emailInfo || !emailMetadata || !emailBody || !emailFrom || 
-      !emailSubject || !emailDate || !addItemBtn || !itemsContainer) {
+      !emailSubject || !emailDate || !addItemBtn || !itemsContainer || !importErpBtn) {
     console.error('Required elements not found');
     return;
   }
@@ -46,6 +47,47 @@ document.addEventListener('DOMContentLoaded', () => {
   // Handle add item button click
   addItemBtn.addEventListener('click', () => {
     addItem();
+  });
+
+  // Handle import to ERP button click
+  importErpBtn.addEventListener('click', async () => {
+    try {
+      importErpBtn.disabled = true;
+      importErpBtn.textContent = 'Importing...';
+
+      // Get the token from storage
+      const { bcAccessToken } = await chrome.storage.local.get(['bcAccessToken']);
+      
+      if (!bcAccessToken) {
+        throw new Error('Not authenticated with Business Central');
+      }
+
+      const response = await fetch('https://api.businesscentral.dynamics.com/v2.0/Production/api/v2.0/companies(45dbc5d1-5408-f011-9af6-6045bde9c6b1)/salesOrders/', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${bcAccessToken}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          orderDate: "2015-12-31",
+          customerNumber: "C04417",
+          currencyCode: "USD"
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error(`Failed to import to ERP: ${response.statusText}`);
+      }
+
+      const result = await response.json();
+      showSuccess('Successfully imported to ERP');
+    } catch (error) {
+      console.error('Error importing to ERP:', error);
+      showError(error instanceof Error ? error.message : 'Failed to import to ERP');
+    } finally {
+      importErpBtn.disabled = false;
+      importErpBtn.textContent = 'Import to ERP';
+    }
   });
   
   // Handle messages from content script
@@ -242,15 +284,43 @@ document.addEventListener('DOMContentLoaded', () => {
   
   // Show error message
   function showError(message: string): void {
-    const loadingState = emailInfo.querySelector('.loading-state');
-    if (loadingState) {
-      loadingState.classList.add('hidden');
-    }
-    
     const errorDiv = document.createElement('div');
     errorDiv.className = 'error-message';
+    errorDiv.style.backgroundColor = '#FEE2E2';
+    errorDiv.style.color = '#B91C1C';
+    errorDiv.style.padding = '12px';
+    errorDiv.style.borderRadius = '6px';
+    errorDiv.style.marginBottom = '16px';
     errorDiv.textContent = message;
     
-    emailInfo.appendChild(errorDiv);
+    const content = document.querySelector('.content');
+    if (content) {
+      content.prepend(errorDiv);
+    }
+    
+    setTimeout(() => {
+      errorDiv.remove();
+    }, 5000);
+  }
+
+  // Show success message
+  function showSuccess(message: string): void {
+    const successDiv = document.createElement('div');
+    successDiv.className = 'success-message';
+    successDiv.style.backgroundColor = '#DCFCE7';
+    successDiv.style.color = '#166534';
+    successDiv.style.padding = '12px';
+    successDiv.style.borderRadius = '6px';
+    successDiv.style.marginBottom = '16px';
+    successDiv.textContent = message;
+    
+    const content = document.querySelector('.content');
+    if (content) {
+      content.prepend(successDiv);
+    }
+    
+    setTimeout(() => {
+      successDiv.remove();
+    }, 5000);
   }
 });
