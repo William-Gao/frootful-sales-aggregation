@@ -201,7 +201,9 @@ importErpBtn.addEventListener('click', async () => {
           'Content-Type': 'application/json'
         },
         body: JSON.stringify({
-          itemId: item.itemName, // This should be the actual item ID in production
+          // itemId: item.itemName, // This should be the actual item ID in production
+          lineObjectNumber: 'OY-DAV-SEL', // TODO: replace this with real stuff
+          lineType: 'Item',
           quantity: item.quantity,
           unitPrice: item.price
         })
