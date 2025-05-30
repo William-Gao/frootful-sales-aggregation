@@ -1,3 +1,5 @@
+import { Configuration, PublicClientApplication } from "@azure/msal-browser";
+
 const CLIENT_ID = '4c92a998-6af5-4c2a-b16e-80ba1c6b9b3b';
 const TENANT_ID = 'common';
 const REDIRECT_URI = chrome.identity.getRedirectURL();
@@ -155,4 +157,25 @@ async function generateCodeChallenge(verifier: string): Promise<string> {
     .replace(/\+/g, '-')
     .replace(/\//g, '_')
     .replace(/=+$/, '');
+}
+
+export async function fetchCustomers(token: string): Promise<any[]> {
+  try {
+    const response = await fetch('https://api.businesscentral.dynamics.com/v2.0/Production/api/v2.0/companies(45dbc5d1-5408-f011-9af6-6045bde9c6b1)/customers', {
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json'
+      }
+    });
+
+    if (!response.ok) {
+      throw new Error('Failed to fetch customers');
+    }
+
+    const data = await response.json();
+    return data.value || [];
+  } catch (error) {
+    console.error('Error fetching customers:', error);
+    throw error;
+  }
 }
