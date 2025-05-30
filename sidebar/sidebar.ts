@@ -2,6 +2,13 @@
 
 import { authenticateBusinessCentral } from "../src/businessCentralAuth.js";
 
+interface Customer {
+  id: string;
+  number: string;
+  displayName: string;
+  email: string;
+}
+
 interface EmailData {
   id: string;
   threadId: string;
@@ -20,7 +27,11 @@ interface OrderItem {
   price: number;
 }
 
+let customers: Customer[] = [];
+let currentCustomer: Customer | null = null;
+
 // Initialize DOM elements
+const customerSelect = document.getElementById('customer-select') as HTMLSelectElement;
 const closeBtn = document.getElementById('close-btn') as HTMLButtonElement;
 const emailInfo = document.getElementById('email-info');
 const emailMetadata = document.getElementById('email-metadata');
@@ -85,18 +96,32 @@ addItemBtn.addEventListener('click', () => {
   itemsContainer.appendChild(itemBox);
 });
 
+// Fetch customers and populate dropdown
+async function initializeCustomers(token: string): Promise<void> {
+  try {
+    customers = await fetchCustomers(token);
+    
+    // Populate dropdown
+    customers.forEach(customer => {
+      const option = document.createElement('option');
+      option.value = customer.number;
+      option.textContent = customer.displayName;
+      customerSelect.appendChild(option);
+    });
+  } catch (error) {
+    console.error('Error initializing customers:', error);
+    showError('Failed to load customers');
+  }
+}
+
 // Handle email data
-window.addEventListener('message', (event: MessageEvent) => {
+window.addEventListener('message', async (event: MessageEvent) => {
   if (event.data.action === 'loadEmailData') {
     const emailData: EmailData = event.data.data;
     
-    // Hide loading state
+    // Hide loading state and show sections
     const loadingState = emailInfo.querySelector('.loading-state');
-    if (loadingState) {
-      loadingState.remove();
-    }
-    
-    // Show metadata and body sections
+    if (loadingState) loadingState.remove();
     emailMetadata.classList.remove('hidden');
     emailBody.classList.remove('hidden');
     
@@ -104,7 +129,33 @@ window.addEventListener('message', (event: MessageEvent) => {
     if (emailFrom) emailFrom.textContent = emailData.from;
     if (emailSubject) emailSubject.textContent = emailData.subject;
     if (emailDate) emailDate.textContent = new Date(emailData.date).toLocaleString();
+    
+    try {
+      // Get token and initialize customers
+      const token = await authenticateBusinessCentral();
+      if (!token) throw new Error('Not authenticated');
+      
+      await initializeCustomers(token);
+      
+      // Find matching customer by email
+      const senderEmail = emailData.from.match(/<(.+?)>/)?.[1] || emailData.from;
+      const matchingCustomer = customers.find(c => c.email === senderEmail);
+      
+      if (matchingCustomer) {
+        customerSelect.value = matchingCustomer.number;
+        currentCustomer = matchingCustomer;
+      }
+    } catch (error) {
+      console.error('Error setting up customers:', error);
+      showError('Failed to load customer information');
+    }
   }
+});
+
+// Handle customer selection
+customerSelect.addEventListener('change', (e) => {
+  const selectedNumber = (e.target as HTMLSelectElement).value;
+  currentCustomer = customers.find(c => c.number === selectedNumber) || null;
 });
 
 function getItems(): OrderItem[] {
@@ -149,16 +200,18 @@ function updateStepStatus(step: HTMLElement, status: 'loading' | 'success' | 'er
 // Import to ERP functionality
 importErpBtn.addEventListener('click', async () => {
   try {
+    if (!currentCustomer) {
+      throw new Error('Please select a customer');
+    }
+    
     importErpBtn.disabled = true;
     importProgress.classList.remove('hidden');
     
-    // Get items
     const items = getItems();
     if (items.length === 0) {
       throw new Error('Please add at least one item');
     }
     
-    // Get a fresh token
     const token = await authenticateBusinessCentral();
     if (!token) {
       throw new Error('Not authenticated with Business Central');
@@ -175,7 +228,7 @@ importErpBtn.addEventListener('click', async () => {
         },
         body: JSON.stringify({
           orderDate: new Date().toISOString().split('T')[0],
-          customerNumber: "C04417",
+          customerNumber: currentCustomer.number,
           currencyCode: "USD"
         })
       });
@@ -201,8 +254,7 @@ importErpBtn.addEventListener('click', async () => {
           'Content-Type': 'application/json'
         },
         body: JSON.stringify({
-          // itemId: item.itemName, // This should be the actual item ID in production
-          lineObjectNumber: 'OY-DAV-SEL', // TODO: replace this with real stuff
+          lineObjectNumber: 'OY-DAV-SEL',
           lineType: 'Item',
           quantity: item.quantity,
           unitPrice: item.price
