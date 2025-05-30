@@ -1,5 +1,3 @@
-// Sidebar script for Frootful
-
 import { authenticateBusinessCentral, fetchCustomers, fetchItems, analyzeEmailContent } from "../src/businessCentralAuth.js";
 
 interface Customer {
@@ -35,10 +33,12 @@ interface OrderItem {
 }
 
 let customers: Customer[] = [];
+let filteredCustomers: Customer[] = [];
 let items: Item[] = [];
 let currentCustomer: Customer | null = null;
 
 // Initialize DOM elements
+const customerSearch = document.getElementById('customer-search') as HTMLInputElement;
 const customerSelect = document.getElementById('customer-select') as HTMLSelectElement;
 const closeBtn = document.getElementById('close-btn') as HTMLButtonElement;
 const emailInfo = document.getElementById('email-info');
@@ -53,22 +53,77 @@ const importErpBtn = document.getElementById('import-erp-btn') as HTMLButtonElem
 const importProgress = document.querySelector('.import-progress');
 const createOrderStep = document.getElementById('create-order-step');
 const addItemsStep = document.getElementById('add-items-step');
+const sidebarContainer = document.querySelector('.sidebar-container') as HTMLElement;
+const header = document.querySelector('header') as HTMLElement;
+const resizeHandle = document.querySelector('.resize-handle') as HTMLElement;
 
 if (!closeBtn || !emailInfo || !emailMetadata || !emailBody || !emailFrom || 
     !emailSubject || !emailDate || !addItemBtn || !itemsContainer || !importErpBtn ||
-    !importProgress || !createOrderStep || !addItemsStep) {
+    !importProgress || !createOrderStep || !addItemsStep || !customerSearch ||
+    !sidebarContainer || !header || !resizeHandle) {
   console.error('Required elements not found');
   throw new Error('Required elements not found');
 }
 
 let currentOrderId: string | null = null;
 
+// Make sidebar draggable
+let isDragging = false;
+let startX = 0;
+let startLeft = 0;
+
+header.addEventListener('mousedown', (e) => {
+  isDragging = true;
+  startX = e.clientX;
+  startLeft = sidebarContainer.offsetLeft;
+  
+  document.addEventListener('mousemove', onDrag);
+  document.addEventListener('mouseup', stopDrag);
+});
+
+function onDrag(e: MouseEvent) {
+  if (!isDragging) return;
+  
+  const deltaX = e.clientX - startX;
+  sidebarContainer.style.left = `${startLeft + deltaX}px`;
+}
+
+function stopDrag() {
+  isDragging = false;
+  document.removeEventListener('mousemove', onDrag);
+  document.removeEventListener('mouseup', stopDrag);
+}
+
+// Customer search functionality
+customerSearch.addEventListener('input', (e) => {
+  const searchTerm = (e.target as HTMLInputElement).value.toLowerCase();
+  
+  filteredCustomers = customers.filter(customer => 
+    customer.displayName.toLowerCase().includes(searchTerm) ||
+    customer.email.toLowerCase().includes(searchTerm) ||
+    customer.number.toLowerCase().includes(searchTerm)
+  );
+  
+  updateCustomerSelect();
+});
+
+function updateCustomerSelect() {
+  customerSelect.innerHTML = '<option value="">Select a customer...</option>';
+  
+  filteredCustomers.forEach(customer => {
+    const option = document.createElement('option');
+    option.value = customer.number;
+    option.textContent = `${customer.displayName} (${customer.email})`;
+    customerSelect.appendChild(option);
+  });
+}
+
 // Close sidebar
 closeBtn.addEventListener('click', () => {
   window.parent.postMessage({ action: 'closeSidebar' }, '*');
 });
 
-// Add item with autocomplete
+// Add item with search and autocomplete
 addItemBtn.addEventListener('click', () => {
   const itemBox = document.createElement('div');
   itemBox.className = 'item-box';
@@ -79,6 +134,8 @@ addItemBtn.addEventListener('click', () => {
     </div>
     <div class="item-fields">
       <div class="item-field">
+        <label>Search Item</label>
+        <input type="text" class="item-search search-input" placeholder="Search items...">
         <label>Item Name</label>
         <select class="item-select">
           <option value="">Select an item...</option>
@@ -108,8 +165,31 @@ addItemBtn.addEventListener('click', () => {
     });
   }
 
+  // Add item search functionality
+  const itemSearch = itemBox.querySelector('.item-search') as HTMLInputElement;
+  const itemSelect = itemBox.querySelector('.item-select') as HTMLSelectElement;
+  
+  if (itemSearch && itemSelect) {
+    itemSearch.addEventListener('input', (e) => {
+      const searchTerm = (e.target as HTMLInputElement).value.toLowerCase();
+      
+      const filteredItems = items.filter(item =>
+        item.displayName.toLowerCase().includes(searchTerm) ||
+        item.number.toLowerCase().includes(searchTerm)
+      );
+      
+      itemSelect.innerHTML = '<option value="">Select an item...</option>';
+      filteredItems.forEach(item => {
+        const option = document.createElement('option');
+        option.value = item.number;
+        option.dataset.price = item.unitPrice.toString();
+        option.textContent = item.displayName;
+        itemSelect.appendChild(option);
+      });
+    });
+  }
+
   // Add item selection handler
-  const itemSelect = itemBox.querySelector('.item-select');
   const priceInput = itemBox.querySelector('.item-price') as HTMLInputElement;
   
   if (itemSelect) {
@@ -135,15 +215,10 @@ async function initializeData(token: string): Promise<void> {
     ]);
     
     customers = fetchedCustomers;
+    filteredCustomers = [...customers];
     items = fetchedItems;
     
-    // Populate customer dropdown
-    customers.forEach(customer => {
-      const option = document.createElement('option');
-      option.value = customer.number;
-      option.textContent = customer.displayName;
-      customerSelect.appendChild(option);
-    });
+    updateCustomerSelect();
   } catch (error) {
     console.error('Error initializing data:', error);
     showError('Failed to load customers and items');
