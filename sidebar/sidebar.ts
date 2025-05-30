@@ -32,6 +32,17 @@ interface OrderItem {
   price: number;
 }
 
+interface ResizeState {
+  isResizing: boolean;
+  currentHandle: string | null;
+  startX: number;
+  startY: number;
+  startWidth: number;
+  startHeight: number;
+  startLeft: number;
+  startTop: number;
+}
+
 let customers: Customer[] = [];
 let filteredCustomers: Customer[] = [];
 let items: Item[] = [];
@@ -66,6 +77,114 @@ if (!closeBtn || !emailInfo || !emailMetadata || !emailBody || !emailFrom ||
 }
 
 let currentOrderId: string | null = null;
+
+const resizeState: ResizeState = {
+  isResizing: false,
+  currentHandle: null,
+  startX: 0,
+  startY: 0,
+  startWidth: 0,
+  startHeight: 0,
+  startLeft: 0,
+  startTop: 0
+};
+
+// Add resize functionality
+const resizeHandles = document.querySelectorAll('.resize-handle');
+
+resizeHandles.forEach(handle => {
+  handle.addEventListener('mousedown', initResize);
+});
+
+function initResize(e: MouseEvent) {
+  if (!(e.target instanceof HTMLElement)) return;
+  
+  const handle = e.target;
+  const direction = handle.className.split('resize-handle-')[1];
+  
+  resizeState.isResizing = true;
+  resizeState.currentHandle = direction;
+  resizeState.startX = e.clientX;
+  resizeState.startY = e.clientY;
+  resizeState.startWidth = sidebarContainer.offsetWidth;
+  resizeState.startHeight = sidebarContainer.offsetHeight;
+  resizeState.startLeft = sidebarContainer.offsetLeft;
+  resizeState.startTop = sidebarContainer.offsetTop;
+  
+  document.addEventListener('mousemove', handleResize);
+  document.addEventListener('mouseup', stopResize);
+  
+  e.preventDefault();
+}
+
+function handleResize(e: MouseEvent) {
+  if (!resizeState.isResizing) return;
+  
+  const deltaX = e.clientX - resizeState.startX;
+  const deltaY = e.clientY - resizeState.startY;
+  
+  switch (resizeState.currentHandle) {
+    case 'e':
+      sidebarContainer.style.width = `${resizeState.startWidth + deltaX}px`;
+      break;
+    case 'w':
+      sidebarContainer.style.width = `${resizeState.startWidth - deltaX}px`;
+      sidebarContainer.style.left = `${resizeState.startLeft + deltaX}px`;
+      break;
+    case 'n':
+      sidebarContainer.style.height = `${resizeState.startHeight - deltaY}px`;
+      sidebarContainer.style.top = `${resizeState.startTop + deltaY}px`;
+      break;
+    case 's':
+      sidebarContainer.style.height = `${resizeState.startHeight + deltaY}px`;
+      break;
+    case 'ne':
+      sidebarContainer.style.width = `${resizeState.startWidth + deltaX}px`;
+      sidebarContainer.style.height = `${resizeState.startHeight - deltaY}px`;
+      sidebarContainer.style.top = `${resizeState.startTop + deltaY}px`;
+      break;
+    case 'nw':
+      sidebarContainer.style.width = `${resizeState.startWidth - deltaX}px`;
+      sidebarContainer.style.left = `${resizeState.startLeft + deltaX}px`;
+      sidebarContainer.style.height = `${resizeState.startHeight - deltaY}px`;
+      sidebarContainer.style.top = `${resizeState.startTop + deltaY}px`;
+      break;
+    case 'se':
+      sidebarContainer.style.width = `${resizeState.startWidth + deltaX}px`;
+      sidebarContainer.style.height = `${resizeState.startHeight + deltaY}px`;
+      break;
+    case 'sw':
+      sidebarContainer.style.width = `${resizeState.startWidth - deltaX}px`;
+      sidebarContainer.style.left = `${resizeState.startLeft + deltaX}px`;
+      sidebarContainer.style.height = `${resizeState.startHeight + deltaY}px`;
+      break;
+  }
+  
+  // Enforce minimum dimensions
+  const minWidth = 320;
+  const minHeight = 400;
+  
+  if (parseInt(sidebarContainer.style.width) < minWidth) {
+    sidebarContainer.style.width = `${minWidth}px`;
+    if (['w', 'nw', 'sw'].includes(resizeState.currentHandle)) {
+      sidebarContainer.style.left = `${resizeState.startLeft + (resizeState.startWidth - minWidth)}px`;
+    }
+  }
+  
+  if (parseInt(sidebarContainer.style.height) < minHeight) {
+    sidebarContainer.style.height = `${minHeight}px`;
+    if (['n', 'ne', 'nw'].includes(resizeState.currentHandle)) {
+      sidebarContainer.style.top = `${resizeState.startTop + (resizeState.startHeight - minHeight)}px`;
+    }
+  }
+}
+
+function stopResize() {
+  resizeState.isResizing = false;
+  resizeState.currentHandle = null;
+  document.removeEventListener('mousemove', handleResize);
+  document.removeEventListener('mouseup', stopResize);
+}
 
 // Make sidebar draggable
 let isDragging = false;
@@ -395,37 +514,47 @@ importErpBtn.addEventListener('click', async () => {
       throw new Error('Not authenticated with Business Central');
     }
 
-    // Step 1: Create Order (if not exists)
-    if (!currentOrderId) {
-      updateStepStatus(createOrderStep, 'loading');
-      const orderResponse = await fetch('https://api.businesscentral.dynamics.com/v2.0/Production/api/v2.0/companies(45dbc5d1-5408-f011-9af6-6045bde9c6b1)/salesOrders/', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          orderDate: new Date().toISOString().split('T')[0],
-          customerNumber: currentCustomer.number,
-          currencyCode: "USD"
-        })
-      });
+    // Step 1: Create Order
+    updateStepStatus(createOrderStep, 'loading');
+    const orderResponse = await fetch('https://api.businesscentral.dynamics.com/v2.0/Production/api/v2.0/companies(45dbc5d1-5408-f011-9af6-6045bde9c6b1)/salesOrders/', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        orderDate: new Date().toISOString().split('T')[0],
+        customerNumber: currentCustomer.number,
+        currencyCode: "USD"
+      })
+    });
 
-      if (!orderResponse.ok) {
-        throw new Error(`Failed to create order: ${orderResponse.statusText}`);
-      }
+    if (!orderResponse.ok) {
+      throw new Error(`Failed to create order: ${orderResponse.statusText}`);
+    }
 
-      const order = await orderResponse.json();
-      currentOrderId = order.id;
-      updateStepStatus(createOrderStep, 'success');
-    } else {
-      updateStepStatus(createOrderStep, 'success');
+    const order = await orderResponse.json();
+    const orderId = order.id;
+    const orderNumber = order.number;
+    
+    updateStepStatus(createOrderStep, 'success');
+    
+    // Add order link to step text
+    const orderLink = document.createElement('a');
+    orderLink.href = `https://businesscentral.dynamics.com/Production/sales-order/${orderId}`;
+    orderLink.className = 'order-link';
+    orderLink.target = '_blank';
+    orderLink.textContent = `View Order #${orderNumber}`;
+    
+    const stepText = createOrderStep.querySelector('.step-text');
+    if (stepText) {
+      stepText.appendChild(orderLink);
     }
 
     // Step 2: Add Items
     updateStepStatus(addItemsStep, 'loading');
     for (const item of items) {
-      const lineResponse = await fetch(`https://api.businesscentral.dynamics.com/v2.0/Production/api/v2.0/companies(45dbc5d1-5408-f011-9af6-6045bde9c6b1)/salesOrders(${currentOrderId})/salesOrderLines`, {
+      const lineResponse = await fetch(`https://api.businesscentral.dynamics.com/v2.0/Production/api/v2.0/companies(45dbc5d1-5408-f011-9af6-6045bde9c6b1)/salesOrders(${orderId})/salesOrderLines`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -445,16 +574,16 @@ importErpBtn.addEventListener('click', async () => {
     }
     updateStepStatus(addItemsStep, 'success');
 
-    showSuccess('Successfully imported to ERP');
+    showSuccess('Successfully created order');
   } catch (error) {
-    console.error('Error importing to ERP:', error);
+    console.error('Error creating order:', error);
     if (createOrderStep.querySelector('.step-indicator.loading')) {
       updateStepStatus(createOrderStep, 'error');
     }
     if (addItemsStep.querySelector('.step-indicator.loading')) {
       updateStepStatus(addItemsStep, 'error');
     }
-    showError(error instanceof Error ? error.message : 'Failed to import to ERP');
+    showError(error instanceof Error ? error.message : 'Failed to create order');
   } finally {
     importErpBtn.disabled = false;
     importErpBtn.textContent = 'Import to ERP';
