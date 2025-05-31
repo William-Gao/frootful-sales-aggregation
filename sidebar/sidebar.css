@@ -15,18 +15,21 @@ body {
 }
 
 .sidebar-container {
-  position: absolute;
+  position: fixed;
   top: 20px;
   right: 20px;
   bottom: 20px;
   width: 380px;
   background-color: #fff;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-  border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+  border-radius: 12px;
   display: flex;
   flex-direction: column;
   min-width: 320px;
   min-height: 400px;
+  overflow: hidden;
+  border: 1px solid rgba(0, 0, 0, 0.1);
+  resize: both;
 }
 
 /* Header */
@@ -34,12 +37,13 @@ header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 12px 16px;
-  border-bottom: 1px solid #e0e0e0;
-  background-color: #f9fafb;
+  padding: 16px;
+  background-color: #fff;
+  border-bottom: 1px solid #f1f5f9;
   cursor: move;
-  border-top-left-radius: 8px;
-  border-top-right-radius: 8px;
+  border-top-left-radius: 12px;
+  border-top-right-radius: 12px;
+  user-select: none;
 }
 
 .logo {
@@ -69,13 +73,14 @@ header {
   justify-content: center;
   width: 32px;
   height: 32px;
-  border-radius: 4px;
+  border-radius: 6px;
   color: #64748b;
-  transition: background-color 0.2s ease;
+  transition: all 0.2s ease;
 }
 
 #close-btn:hover {
-  background-color: #e2e8f0;
+  background-color: #f1f5f9;
+  color: #475569;
 }
 
 /* Content area */
@@ -83,6 +88,7 @@ header {
   flex: 1;
   padding: 16px;
   overflow-y: auto;
+  background-color: #fff;
 }
 
 /* Loading state */
@@ -98,7 +104,7 @@ header {
 .spinner {
   width: 24px;
   height: 24px;
-  border: 3px solid rgba(99, 102, 241, 0.2);
+  border: 2px solid rgba(99, 102, 241, 0.2);
   border-radius: 50%;
   border-top-color: #6366F1;
   animation: spin 1s linear infinite;
@@ -126,6 +132,7 @@ header {
   border-radius: 8px;
   padding: 16px;
   margin-bottom: 16px;
+  border: 1px solid #e2e8f0;
 }
 
 .metadata-item {
@@ -151,7 +158,6 @@ header {
   background-color: #fff;
   border-radius: 8px;
   padding: 16px;
-  border: 1px solid #e2e8f0;
 }
 
 #email-body h2 {
@@ -163,56 +169,28 @@ header {
   border-bottom: 1px solid #e2e8f0;
 }
 
+/* Content box */
+.content-box {
+  background-color: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 16px;
+  margin-bottom: 16px;
+}
+
 /* Search inputs */
 .search-input {
   width: 100%;
   padding: 8px 12px;
   border: 1px solid #e2e8f0;
-  border-radius: 4px;
+  border-radius: 6px;
   margin-bottom: 8px;
   font-size: 14px;
   background-color: white;
+  transition: all 0.2s ease;
 }
 
 .search-input:focus {
-  outline: none;
-  border-color: #6366F1;
-  box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.1);
-}
-
-/* Extracted content */
-.extracted-content {
-  margin-bottom: 24px;
-}
-
-.content-box {
-  background-color: #f8fafc;
-  border: 1px solid #e2e8f0;
-  border-radius: 6px;
-  padding: 12px;
-  margin-bottom: 12px;
-}
-
-.content-box label {
-  display: block;
-  font-size: 12px;
-  color: #64748b;
-  margin-bottom: 4px;
-}
-
-.content-box select,
-.content-box input {
-  width: 100%;
-  padding: 6px 8px;
-  border: 1px solid #e2e8f0;
-  border-radius: 4px;
-  font-size: 14px;
-  margin-bottom: 8px;
-  background-color: white;
-}
-
-.content-box select:focus,
-.content-box input:focus {
   outline: none;
   border-color: #6366F1;
   box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.1);
@@ -222,6 +200,10 @@ header {
 .items-section {
   margin-top: 16px;
   margin-bottom: 16px;
+  background-color: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 16px;
 }
 
 .items-header {
@@ -241,11 +223,11 @@ header {
   background-color: #6366F1;
   color: white;
   border: none;
-  border-radius: 4px;
+  border-radius: 6px;
   padding: 6px 12px;
-  font-size: 12px;
+  font-size: 13px;
   cursor: pointer;
-  transition: background-color 0.2s ease;
+  transition: all 0.2s ease;
 }
 
 .add-item-btn:hover {
@@ -253,7 +235,7 @@ header {
 }
 
 .item-box {
-  background-color: white;
+  background-color: #f8fafc;
   border: 1px solid #e2e8f0;
   border-radius: 6px;
   padding: 12px;
@@ -280,7 +262,7 @@ header {
   padding: 4px 8px;
   font-size: 12px;
   cursor: pointer;
-  transition: background-color 0.2s ease;
+  transition: all 0.2s ease;
 }
 
 .delete-item-btn:hover {
@@ -310,9 +292,10 @@ header {
   width: 100%;
   padding: 6px 8px;
   border: 1px solid #e2e8f0;
-  border-radius: 4px;
+  border-radius: 6px;
   font-size: 14px;
   min-width: 0;
+  transition: all 0.2s ease;
 }
 
 .item-field input:focus,
@@ -372,6 +355,8 @@ header {
 .step-text {
   color: #334155;
   font-weight: 500;
+  display: flex;
+  align-items: center;
 }
 
 /* Order link */
@@ -383,9 +368,11 @@ header {
   text-decoration: none;
   font-weight: 500;
   margin-left: 12px;
+  transition: all 0.2s ease;
 }
 
 .order-link:hover {
+  color: #4F46E5;
   text-decoration: underline;
 }
 
@@ -395,12 +382,12 @@ header {
   background-color: #10B981;
   color: white;
   border: none;
-  border-radius: 6px;
+  border-radius: 8px;
   padding: 12px;
   font-size: 14px;
   font-weight: 500;
   cursor: pointer;
-  transition: background-color 0.2s ease;
+  transition: all 0.2s ease;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -419,10 +406,11 @@ header {
 /* Footer */
 footer {
   padding: 12px 16px;
-  border-top: 1px solid #e0e0e0;
+  border-top: 1px solid #e2e8f0;
   text-align: center;
-  color: #64748b;
+  color: #94a3b8;
   font-size: 12px;
+  background-color: #fff;
 }
 
 /* Utility classes */
