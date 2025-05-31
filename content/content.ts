@@ -1,4 +1,4 @@
-// Main content script for Frootful Gmail Extension
+// Background service worker for Frootful Gmail Extension
 
 interface EmailData {
   id: string;
@@ -19,7 +19,7 @@ let observer: MutationObserver | null = null;
 let observerTimeout: number | null = null;
 let lastUrl: string | null = null;
 let extractButton: HTMLDivElement | null = null;
-let windowContainer: HTMLDivElement | null = null;
+let sidebarFrame: HTMLIFrameElement | null = null;
 
 // Initialize connection to background script
 function initializeConnection(): void {
@@ -138,101 +138,6 @@ function injectExtractButton(container: Element): void {
   container.appendChild(extractButton);
 }
 
-// Create and show the window
-function showWindow(emailData: EmailData): void {
-  if (windowContainer) {
-    windowContainer.remove();
-  }
-
-  windowContainer = document.createElement('div');
-  windowContainer.className = 'frootful-window';
-  windowContainer.innerHTML = `
-    <div class="frootful-window-header">
-      <div class="frootful-window-title">
-        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#6366F1" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M12 2a9 9 0 0 1 9 9v4a6 6 0 0 1-6 6v0a6 6 0 0 1-6-6v-4a9 9 0 0 1 9-9Z"></path>
-          <path d="M9 16V8a3 3 0 0 1 6 0v8"></path>
-        </svg>
-        <span>Frootful</span>
-      </div>
-      <button class="frootful-window-close">
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M18 6 6 18"></path>
-          <path d="m6 6 12 12"></path>
-        </svg>
-      </button>
-    </div>
-    <div class="frootful-window-content">
-      <iframe src="${chrome.runtime.getURL('sidebar/sidebar.html')}" style="width: 100%; height: 100%; border: none;"></iframe>
-    </div>
-    <div class="frootful-window-footer">
-      <p>Powered by Frootful</p>
-    </div>
-  `;
-
-  document.body.appendChild(windowContainer);
-
-  // Make window draggable
-  const header = windowContainer.querySelector('.frootful-window-header') as HTMLElement;
-  let isDragging = false;
-  let currentX: number;
-  let currentY: number;
-  let initialX: number;
-  let initialY: number;
-  let xOffset = 0;
-  let yOffset = 0;
-
-  header.addEventListener('mousedown', (e) => {
-    initialX = e.clientX - xOffset;
-    initialY = e.clientY - yOffset;
-
-    if (e.target === header) {
-      isDragging = true;
-    }
-  });
-
-  document.addEventListener('mousemove', (e) => {
-    if (isDragging) {
-      e.preventDefault();
-      currentX = e.clientX - initialX;
-      currentY = e.clientY - initialY;
-
-      xOffset = currentX;
-      yOffset = currentY;
-
-      if (windowContainer) {
-        windowContainer.style.transform = `translate(${currentX}px, ${currentY}px)`;
-      }
-    }
-  });
-
-  document.addEventListener('mouseup', () => {
-    isDragging = false;
-  });
-
-  // Handle close button
-  const closeBtn = windowContainer.querySelector('.frootful-window-close');
-  if (closeBtn) {
-    closeBtn.addEventListener('click', () => {
-      if (windowContainer) {
-        windowContainer.remove();
-        windowContainer = null;
-      }
-    });
-  }
-
-  // Send email data to iframe
-  const iframe = windowContainer.querySelector('iframe');
-  if (iframe) {
-    iframe.onload = () => {
-      iframe.contentWindow?.postMessage({
-        action: 'loadEmailData',
-        data: emailData
-      }, '*');
-    };
-  }
-}
-
 // Handle extract button click
 function handleExtractClick(e: MouseEvent): void {
   e.preventDefault();
@@ -251,6 +156,9 @@ function handleExtractClick(e: MouseEvent): void {
       textElement.textContent = 'Extracting...';
     }
   }
+
+  // Remove existing sidebar
+  removeSidebar();
   
   // Request email extraction
   port.postMessage({
@@ -271,9 +179,41 @@ function handleExtractResponse(response: { success: boolean; data?: EmailData; e
   }
   
   if (response.success && response.data) {
-    showWindow(response.data);
+    showSidebar(response.data);
   } else {
     console.error('Error extracting email:', response.error || 'Unknown error');
+  }
+}
+
+// Show sidebar with email content
+function showSidebar(emailData: EmailData): void {
+  // Create sidebar if it doesn't exist
+  if (!sidebarFrame) {
+    sidebarFrame = document.createElement('iframe');
+    sidebarFrame.id = 'frootful-sidebar';
+    sidebarFrame.src = chrome.runtime.getURL('sidebar/sidebar.html');
+    document.body.appendChild(sidebarFrame);
+    
+    // Wait for iframe to load before sending data
+    sidebarFrame.onload = () => {
+      if (sidebarFrame && sidebarFrame.contentWindow) {
+        sidebarFrame.contentWindow.postMessage({
+          action: 'loadEmailData',
+          data: emailData
+        }, '*');
+      }
+    };
+  } else {
+    // Sidebar already exists, just send new data
+    if (sidebarFrame.contentWindow) {
+      sidebarFrame.contentWindow.postMessage({
+        action: 'loadEmailData',
+        data: emailData
+      }, '*');
+    }
+    
+    // Make sure sidebar is visible
+    sidebarFrame.classList.remove('hidden');
   }
 }
 
@@ -286,3 +226,18 @@ function startUrlWatcher(): void {
     }
   }, 500);
 }
+
+// Remove sidebar from DOM
+function removeSidebar(): void {
+  if (sidebarFrame) {
+    sidebarFrame.remove();
+    sidebarFrame = null;
+  }
+}
+
+// Listen for messages from sidebar
+window.addEventListener('message', (event: MessageEvent) => {
+  if (event.data.action === 'closeSidebar') {
+    removeSidebar();
+  }
+});
