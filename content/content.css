@@ -9,8 +9,10 @@
   box-shadow: 0 4px 24px rgba(0, 0, 0, 0.12);
   display: flex;
   flex-direction: column;
-  min-width: 400px;
-  min-height: 500px;
+  width: 400px;
+  height: 600px;
+  min-width: 320px;
+  min-height: 400px;
   max-width: 90vw;
   max-height: 90vh;
   z-index: 9999;
@@ -76,7 +78,7 @@
   border-bottom-right-radius: 12px;
 }
 
-/* Existing styles */
+/* Extract button styles */
 .frootful-extract-btn {
   display: inline-block;
   margin-left: 8px;
