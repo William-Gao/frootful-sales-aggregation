@@ -32,17 +32,6 @@ interface OrderItem {
   price: number;
 }
 
-interface ResizeState {
-  isResizing: boolean;
-  currentHandle: string | null;
-  startX: number;
-  startY: number;
-  startWidth: number;
-  startHeight: number;
-  startLeft: number;
-  startTop: number;
-}
-
 let customers: Customer[] = [];
 let filteredCustomers: Customer[] = [];
 let items: Item[] = [];
@@ -66,135 +55,30 @@ const createOrderStep = document.getElementById('create-order-step');
 const addItemsStep = document.getElementById('add-items-step');
 const sidebarContainer = document.querySelector('.sidebar-container') as HTMLElement;
 const header = document.querySelector('header') as HTMLElement;
-const resizeHandle = document.querySelector('.resize-handle') as HTMLElement;
 
 if (!closeBtn || !emailInfo || !emailMetadata || !emailBody || !emailFrom || 
     !emailSubject || !emailDate || !addItemBtn || !itemsContainer || !exportErpBtn ||
     !importProgress || !createOrderStep || !addItemsStep || !customerSearch ||
-    !sidebarContainer || !header || !resizeHandle) {
+    !sidebarContainer || !header) {
   console.error('Required elements not found');
   throw new Error('Required elements not found');
 }
 
 let currentOrderId: string | null = null;
 
-const resizeState: ResizeState = {
-  isResizing: false,
-  currentHandle: null,
-  startX: 0,
-  startY: 0,
-  startWidth: 0,
-  startHeight: 0,
-  startLeft: 0,
-  startTop: 0
-};
-
-// Add resize functionality
-const resizeHandles = document.querySelectorAll('.resize-handle');
-
-resizeHandles.forEach(handle => {
-  handle.addEventListener('mousedown', initResize);
-});
-
-function initResize(e: MouseEvent) {
-  if (!(e.target instanceof HTMLElement)) return;
-  
-  const handle = e.target;
-  const direction = handle.className.split('resize-handle-')[1];
-  
-  resizeState.isResizing = true;
-  resizeState.currentHandle = direction;
-  resizeState.startX = e.clientX;
-  resizeState.startY = e.clientY;
-  resizeState.startWidth = sidebarContainer.offsetWidth;
-  resizeState.startHeight = sidebarContainer.offsetHeight;
-  resizeState.startLeft = sidebarContainer.offsetLeft;
-  resizeState.startTop = sidebarContainer.offsetTop;
-  
-  document.addEventListener('mousemove', handleResize);
-  document.addEventListener('mouseup', stopResize);
-  
-  e.preventDefault();
-}
-
-function handleResize(e: MouseEvent) {
-  if (!resizeState.isResizing) return;
-  
-  const deltaX = e.clientX - resizeState.startX;
-  const deltaY = e.clientY - resizeState.startY;
-  
-  switch (resizeState.currentHandle) {
-    case 'e':
-      sidebarContainer.style.width = `${resizeState.startWidth + deltaX}px`;
-      break;
-    case 'w':
-      sidebarContainer.style.width = `${resizeState.startWidth - deltaX}px`;
-      sidebarContainer.style.left = `${resizeState.startLeft + deltaX}px`;
-      break;
-    case 'n':
-      sidebarContainer.style.height = `${resizeState.startHeight - deltaY}px`;
-      sidebarContainer.style.top = `${resizeState.startTop + deltaY}px`;
-      break;
-    case 's':
-      sidebarContainer.style.height = `${resizeState.startHeight + deltaY}px`;
-      break;
-    case 'ne':
-      sidebarContainer.style.width = `${resizeState.startWidth + deltaX}px`;
-      sidebarContainer.style.height = `${resizeState.startHeight - deltaY}px`;
-      sidebarContainer.style.top = `${resizeState.startTop + deltaY}px`;
-      break;
-    case 'nw':
-      sidebarContainer.style.width = `${resizeState.startWidth - deltaX}px`;
-      sidebarContainer.style.left = `${resizeState.startLeft + deltaX}px`;
-      sidebarContainer.style.height = `${resizeState.startHeight - deltaY}px`;
-      sidebarContainer.style.top = `${resizeState.startTop + deltaY}px`;
-      break;
-    case 'se':
-      sidebarContainer.style.width = `${resizeState.startWidth + deltaX}px`;
-      sidebarContainer.style.height = `${resizeState.startHeight + deltaY}px`;
-      break;
-    case 'sw':
-      sidebarContainer.style.width = `${resizeState.startWidth - deltaX}px`;
-      sidebarContainer.style.left = `${resizeState.startLeft + deltaX}px`;
-      sidebarContainer.style.height = `${resizeState.startHeight + deltaY}px`;
-      break;
-  }
-  
-  // Enforce minimum dimensions
-  const minWidth = 320;
-  const minHeight = 400;
-  
-  if (parseInt(sidebarContainer.style.width) < minWidth) {
-    sidebarContainer.style.width = `${minWidth}px`;
-    if (['w', 'nw', 'sw'].includes(resizeState.currentHandle)) {
-      sidebarContainer.style.left = `${resizeState.startLeft + (resizeState.startWidth - minWidth)}px`;
-    }
-  }
-  
-  if (parseInt(sidebarContainer.style.height) < minHeight) {
-    sidebarContainer.style.height = `${minHeight}px`;
-    if (['n', 'ne', 'nw'].includes(resizeState.currentHandle)) {
-      sidebarContainer.style.top = `${resizeState.startTop + (resizeState.startHeight - minHeight)}px`;
-    }
-  }
-}
-
-function stopResize() {
-  resizeState.isResizing = false;
-  resizeState.currentHandle = null;
-  document.removeEventListener('mousemove', handleResize);
-  document.removeEventListener('mouseup', stopResize);
-}
-
 // Make sidebar draggable
 let isDragging = false;
 let startX = 0;
+let startY = 0;
 let startLeft = 0;
+let startTop = 0;
 
 header.addEventListener('mousedown', (e) => {
   isDragging = true;
   startX = e.clientX;
+  startY = e.clientY;
   startLeft = sidebarContainer.offsetLeft;
+  startTop = sidebarContainer.offsetTop;
   
   document.addEventListener('mousemove', onDrag);
   document.addEventListener('mouseup', stopDrag);
@@ -204,7 +88,10 @@ function onDrag(e: MouseEvent) {
   if (!isDragging) return;
   
   const deltaX = e.clientX - startX;
+  const deltaY = e.clientY - startY;
+  
   sidebarContainer.style.left = `${startLeft + deltaX}px`;
+  sidebarContainer.style.top = `${startTop + deltaY}px`;
 }
 
 function stopDrag() {
