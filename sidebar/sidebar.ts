@@ -66,15 +66,19 @@ if (!closeBtn || !emailInfo || !emailMetadata || !emailBody || !emailFrom ||
 
 let currentOrderId: string | null = null;
 
-// Add dragging functionality
+// Make sidebar draggable
 let isDragging = false;
 let startX = 0;
+let startY = 0;
 let startLeft = 0;
+let startTop = 0;
 
 header.addEventListener('mousedown', (e) => {
   isDragging = true;
   startX = e.clientX;
+  startY = e.clientY;
   startLeft = sidebarContainer.offsetLeft;
+  startTop = sidebarContainer.offsetTop;
   
   document.addEventListener('mousemove', onDrag);
   document.addEventListener('mouseup', stopDrag);
@@ -84,7 +88,10 @@ function onDrag(e: MouseEvent) {
   if (!isDragging) return;
   
   const deltaX = e.clientX - startX;
+  const deltaY = e.clientY - startY;
+  
   sidebarContainer.style.left = `${startLeft + deltaX}px`;
+  sidebarContainer.style.top = `${startTop + deltaY}px`;
 }
 
 function stopDrag() {
@@ -204,20 +211,9 @@ addItemBtn.addEventListener('click', () => {
   itemsContainer.appendChild(itemBox);
 });
 
-// Initialize data with loading states
+// Fetch customers and items, populate dropdowns
 async function initializeData(token: string): Promise<void> {
-  const customerSection = document.getElementById('customer-section');
-  const customerContent = customerSection?.querySelector('.customer-content');
-  const itemsSection = document.getElementById('items-section');
-  const itemsContent = itemsSection?.querySelector('.items-content');
-  
   try {
-    // Show loading states
-    customerSection?.classList.add('loading');
-    itemsSection?.classList.add('loading');
-    customerContent?.classList.add('hidden');
-    itemsContent?.classList.add('hidden');
-    
     // Fetch customers and items in parallel
     const [fetchedCustomers, fetchedItems] = await Promise.all([
       fetchCustomers(token),
@@ -229,21 +225,9 @@ async function initializeData(token: string): Promise<void> {
     items = fetchedItems;
     
     updateCustomerSelect();
-    
-    // Hide loading states
-    customerSection?.classList.remove('loading');
-    itemsSection?.classList.remove('loading');
-    customerContent?.classList.remove('hidden');
-    itemsContent?.classList.remove('hidden');
   } catch (error) {
     console.error('Error initializing data:', error);
     showError('Failed to load customers and items');
-    
-    // Hide loading states on error
-    customerSection?.classList.remove('loading');
-    itemsSection?.classList.remove('loading');
-    customerContent?.classList.remove('hidden');
-    itemsContent?.classList.remove('hidden');
   }
 }
 
@@ -252,24 +236,23 @@ window.addEventListener('message', async (event: MessageEvent) => {
   if (event.data.action === 'loadEmailData') {
     const emailData: EmailData = event.data.data;
     
+    // Hide loading state and show sections
+    const loadingState = emailInfo.querySelector('.loading-state');
+    if (loadingState) loadingState.remove();
+    emailMetadata.classList.remove('hidden');
+    emailBody.classList.remove('hidden');
+    
+    // Populate metadata
+    if (emailFrom) emailFrom.textContent = emailData.from;
+    if (emailSubject) emailSubject.textContent = emailData.subject;
+    if (emailDate) emailDate.textContent = new Date(emailData.date).toLocaleString();
+    
     try {
       // Get token and initialize data
       const token = await authenticateBusinessCentral();
       if (!token) throw new Error('Not authenticated');
       
-      // Initialize data (this will show loading states)
       await initializeData(token);
-      
-      // Update email metadata after data is loaded
-      if (emailFrom) emailFrom.textContent = emailData.from;
-      if (emailSubject) emailSubject.textContent = emailData.subject;
-      if (emailDate) emailDate.textContent = new Date(emailData.date).toLocaleString();
-      
-      // Hide loading state and show sections
-      const loadingState = emailInfo.querySelector('.loading-state');
-      if (loadingState) loadingState.remove();
-      emailMetadata.classList.remove('hidden');
-      emailBody.classList.remove('hidden');
       
       // Find matching customer by email
       const senderEmail = emailData.from.match(/<(.+?)>/)?.[1] || emailData.from;
@@ -349,12 +332,6 @@ window.addEventListener('message', async (event: MessageEvent) => {
     } catch (error) {
       console.error('Error setting up data:', error);
       showError('Failed to load data');
-      
-      // Hide loading state and show error
-      const loadingState = emailInfo.querySelector('.loading-state');
-      if (loadingState) loadingState.remove();
-      emailMetadata.classList.remove('hidden');
-      emailBody.classList.remove('hidden');
     }
   }
 });

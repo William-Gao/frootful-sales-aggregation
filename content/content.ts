@@ -1,4 +1,4 @@
-// Background service worker for Frootful Gmail Extension
+// Main content script for Frootful Gmail Extension
 
 interface EmailData {
   id: string;
@@ -12,14 +12,21 @@ interface EmailData {
   body: string;
 }
 
+interface Port {
+  postMessage: (message: any) => void;
+  onMessage: {
+    addListener: (callback: (message: any) => void) => void;
+  };
+}
+
+let sidebarFrame: HTMLIFrameElement | null = null;
+let extractButton: HTMLDivElement | null = null;
 let currentEmailId: string | null = null;
 let isAuthenticated = false;
-let port: chrome.runtime.Port | null = null;
+let port: Port | null = null;
 let observer: MutationObserver | null = null;
 let observerTimeout: number | null = null;
 let lastUrl: string | null = null;
-let extractButton: HTMLDivElement | null = null;
-let sidebarFrame: HTMLIFrameElement | null = null;
 
 // Initialize connection to background script
 function initializeConnection(): void {
@@ -157,7 +164,7 @@ function handleExtractClick(e: MouseEvent): void {
     }
   }
 
-  // Remove existing sidebar
+  // Remove existing sidebar for new extraction
   removeSidebar();
   
   // Request email extraction

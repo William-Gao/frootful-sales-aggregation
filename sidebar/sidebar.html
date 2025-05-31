@@ -51,34 +51,23 @@
         <h2>Extracted Content</h2>
         
         <div class="extracted-content">
-          <div id="customer-section" class="content-box loading">
-            <div class="loading-state">
-              <div class="spinner"></div>
-              <p>Loading customers...</p>
-            </div>
-            <div class="customer-content hidden">
-              <label for="customer-search">Search Customer</label>
-              <input type="text" id="customer-search" class="search-input" placeholder="Search customers...">
-              <label for="customer-select">Customer</label>
-              <select id="customer-select" class="customer-select">
-                <option value="">Select a customer...</option>
-              </select>
-            </div>
+          <div class="content-box">
+            <label for="customer-search">Search Customer</label>
+            <input type="text" id="customer-search" class="search-input" placeholder="Search customers...">
+            <label for="customer-select">Customer</label>
+            <select id="customer-select" class="customer-select">
+              <option value="">Select a customer...</option>
+            </select>
           </div>
           
-          <div id="items-section" class="items-section loading">
-            <div class="loading-state">
-              <div class="spinner"></div>
-              <p>Loading items...</p>
+          <div class="items-section">
+            <div class="items-header">
+              <h3>Items</h3>
+              <button id="add-item-btn" class="add-item-btn">Add Item</button>
             </div>
-            <div class="items-content hidden">
-              <div class="items-header">
-                <h3>Items</h3>
-                <button id="add-item-btn" class="add-item-btn">Add Item</button>
-              </div>
-              <div id="items-container">
-                <!-- Items will be dynamically added here -->
-              </div>
+            
+            <div id="items-container">
+              <!-- Items will be dynamically added here -->
             </div>
           </div>
 
