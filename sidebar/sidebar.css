@@ -450,8 +450,8 @@ header {
   text-decoration: underline;
 }
 
-/* Import to ERP button */
-.import-erp-btn {
+/* Export to ERP button */
+.export-erp-btn {
   width: 100%;
   background-color: #10B981;
   color: white;
@@ -468,11 +468,11 @@ header {
   gap: 8px;
 }
 
-.import-erp-btn:hover {
+.export-erp-btn:hover {
   background-color: #059669;
 }
 
-.import-erp-btn:disabled {
+.export-erp-btn:disabled {
   background-color: #94A3B8;
   cursor: not-allowed;
 }

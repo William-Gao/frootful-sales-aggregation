@@ -60,7 +60,7 @@ const emailSubject = document.getElementById('email-subject');
 const emailDate = document.getElementById('email-date');
 const addItemBtn = document.getElementById('add-item-btn') as HTMLButtonElement;
 const itemsContainer = document.getElementById('items-container');
-const importErpBtn = document.getElementById('import-erp-btn') as HTMLButtonElement;
+const exportErpBtn = document.getElementById('export-erp-btn') as HTMLButtonElement;
 const importProgress = document.querySelector('.import-progress');
 const createOrderStep = document.getElementById('create-order-step');
 const addItemsStep = document.getElementById('add-items-step');
@@ -69,7 +69,7 @@ const header = document.querySelector('header') as HTMLElement;
 const resizeHandle = document.querySelector('.resize-handle') as HTMLElement;
 
 if (!closeBtn || !emailInfo || !emailMetadata || !emailBody || !emailFrom || 
-    !emailSubject || !emailDate || !addItemBtn || !itemsContainer || !importErpBtn ||
+    !emailSubject || !emailDate || !addItemBtn || !itemsContainer || !exportErpBtn ||
     !importProgress || !createOrderStep || !addItemsStep || !customerSearch ||
     !sidebarContainer || !header || !resizeHandle) {
   console.error('Required elements not found');
@@ -494,14 +494,14 @@ function updateStepStatus(step: HTMLElement, status: 'loading' | 'success' | 'er
   }
 }
 
-// Import to ERP functionality
-importErpBtn.addEventListener('click', async () => {
+// Export to ERP functionality
+exportErpBtn.addEventListener('click', async () => {
   try {
     if (!currentCustomer) {
       throw new Error('Please select a customer');
     }
     
-    importErpBtn.disabled = true;
+    exportErpBtn.disabled = true;
     importProgress.classList.remove('hidden');
     
     const items = getItems();
@@ -585,8 +585,8 @@ importErpBtn.addEventListener('click', async () => {
     }
     showError(error instanceof Error ? error.message : 'Failed to create order');
   } finally {
-    importErpBtn.disabled = false;
-    importErpBtn.textContent = 'Import to ERP';
+    exportErpBtn.disabled = false;
+    exportErpBtn.textContent = 'Export to ERP';
   }
 });
 
