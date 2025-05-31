@@ -91,22 +91,33 @@ header {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  padding: 48px 0;
+  padding: 24px 0;
   color: #64748b;
 }
 
 .spinner {
-  width: 32px;
-  height: 32px;
+  width: 24px;
+  height: 24px;
   border: 3px solid rgba(99, 102, 241, 0.2);
   border-radius: 50%;
   border-top-color: #6366F1;
   animation: spin 1s linear infinite;
-  margin-bottom: 16px;
+  margin-bottom: 12px;
 }
 
 @keyframes spin {
   to { transform: rotate(360deg); }
+}
+
+/* Loading sections */
+.content-box.loading .customer-content,
+.items-section.loading .items-content {
+  display: none;
+}
+
+.content-box:not(.loading) .loading-state,
+.items-section:not(.loading) .loading-state {
+  display: none;
 }
 
 /* Email metadata */
