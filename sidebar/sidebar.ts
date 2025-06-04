@@ -158,7 +158,7 @@ addItemBtn.addEventListener('click', () => {
       </div>
       <div class="item-field">
         <label>Price</label>
-        <input type="number" min="0" step="0.01" value="0.00" class="item-price" readonly>
+        <input type="number" min="0.00" step="0.01" value="0.00" class="item-price">
       </div>
     </div>
   `;
