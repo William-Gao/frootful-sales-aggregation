@@ -423,12 +423,13 @@ exportErpBtn.addEventListener('click', async () => {
     const order = await orderResponse.json();
     const orderId = order.id;
     const orderNumber = order.number;
+    const TENANT_ID = '85c99cac-48fe-49bf-bc6a-08230d81b8de'
     
     updateStepStatus(createOrderStep, 'success');
     
     // Add order link to step text with the correct format
     const orderLink = document.createElement('a');
-    orderLink.href = `https://businesscentral.dynamics.com/45dbc5d1-5408-f011-9af6-6045bde9c6b1/Production/?company=CRONUS%20USA%2C%20Inc.&page=42&filter='Sales Header'.'No.' IS '${orderNumber}'`;
+    orderLink.href = `https://businesscentral.dynamics.com/${TENANT_ID}/Production/?company=My%20Company&page=42&filter='Sales Header'.'No.' IS '${orderNumber}'`;
     orderLink.className = 'order-link';
     orderLink.target = '_blank';
     orderLink.textContent = `View Order #${orderNumber}`;
