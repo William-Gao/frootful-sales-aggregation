@@ -299,7 +299,7 @@ window.addEventListener('message', async (event: MessageEvent) => {
               </div>
               <div class="item-field">
                 <label>Price</label>
-                <input type="number" min="0" step="0.01" value="${items.find(i => i.number === analyzedItem.matchedItem.number)?.unitPrice || 0}" class="item-price" readonly>
+                <input type="number" min="0" step="0.01" value="${items.find(i => i.number === analyzedItem.matchedItem.number)?.unitPrice || 0}" class="item-price">
               </div>
             </div>
           `;
