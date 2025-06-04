@@ -278,7 +278,7 @@ header {
 
 .item-fields {
   display: grid;
-  grid-template-columns: 3fr 1fr 1fr;
+  grid-template-columns: 2fr 1.5fr 1fr;
   gap: 8px;
   max-width: 100%;
 }
@@ -302,6 +302,11 @@ header {
   border-radius: 4px;
   font-size: 14px;
   min-width: 0;
+}
+
+.item-field input[type="number"] {
+  text-align: right;
+  padding-right: 4px;
 }
 
 .item-field input:focus,
