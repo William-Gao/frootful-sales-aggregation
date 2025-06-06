@@ -34,7 +34,7 @@ document.addEventListener('DOMContentLoaded', () => {
       
       const token = await authenticateBusinessCentral();
       
-      // Store the token and fetch companies
+      // Store the token and fetch companies ONLY after successful authentication
       chrome.storage.local.set({ bcAccessToken: token }, async () => {
         try {
           await loadCompanies(token);
@@ -62,7 +62,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
 
-  // Load companies function
+  // Load companies function - only called AFTER authentication
   async function loadCompanies(token: string): Promise<void> {
     try {
       companySelect.innerHTML = '<option value="">Loading companies...</option>';
@@ -94,15 +94,30 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   }
   
-  // Check if already connected to BC
+  // Check if already connected to BC - only try to load companies if we have a valid token
   chrome.storage.local.get(['bcAccessToken'], async (result) => {
     if (result.bcAccessToken) {
       try {
-        await loadCompanies(result.bcAccessToken);
-        bcLoginBtn.classList.add('hidden');
-        bcConnected.classList.remove('hidden');
+        // Test if the token is still valid by making a simple API call
+        const testResponse = await fetch('https://api.businesscentral.dynamics.com/v2.0/Production/api/v2.0/companies', {
+          headers: {
+            'Authorization': `Bearer ${result.bcAccessToken}`,
+            'Content-Type': 'application/json'
+          }
+        });
+        
+        if (testResponse.ok) {
+          await loadCompanies(result.bcAccessToken);
+          bcLoginBtn.classList.add('hidden');
+          bcConnected.classList.remove('hidden');
+        } else {
+          // Token is invalid, clear it and show login button
+          chrome.storage.local.remove(['bcAccessToken', 'bcRefreshToken', 'bcTokenExpiry', 'selectedCompanyId']);
+          bcLoginBtn.classList.remove('hidden');
+          bcConnected.classList.add('hidden');
+        }
       } catch (error) {
-        console.error('Error loading companies on startup:', error);
+        console.error('Error validating BC token:', error);
         // Token might be expired, show login button
         bcLoginBtn.classList.remove('hidden');
         bcConnected.classList.add('hidden');

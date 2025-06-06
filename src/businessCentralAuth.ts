@@ -156,8 +156,26 @@ export async function getSelectedCompanyId(): Promise<string> {
   return selectedCompanyId || '45dbc5d1-5408-f011-9af6-6045bde9c6b1'; // fallback to hardcoded ID
 }
 
+export async function getSelectedCompanyName(): Promise<string> {
+  const { selectedCompanyName } = await chrome.storage.local.get(['selectedCompanyName']);
+  return selectedCompanyName || 'My Company'; // fallback to hardcoded name
+}
+
 export async function setSelectedCompanyId(companyId: string): Promise<void> {
-  await chrome.storage.local.set({ selectedCompanyId: companyId });
+  // Also store the company name for deep link generation
+  try {
+    const token = await authenticateBusinessCentral();
+    const companies = await fetchCompanies(token);
+    const selectedCompany = companies.find(c => c.id === companyId);
+    
+    await chrome.storage.local.set({ 
+      selectedCompanyId: companyId,
+      selectedCompanyName: selectedCompany?.displayName || selectedCompany?.name || 'My Company'
+    });
+  } catch (error) {
+    console.error('Error setting company info:', error);
+    await chrome.storage.local.set({ selectedCompanyId: companyId });
+  }
 }
 
 export async function signOut(): Promise<void> {
@@ -165,7 +183,8 @@ export async function signOut(): Promise<void> {
     'bcAccessToken', 
     'bcRefreshToken', 
     'bcTokenExpiry',
-    'selectedCompanyId'
+    'selectedCompanyId',
+    'selectedCompanyName'
   ]);
   
   // Clear session storage

@@ -1,4 +1,4 @@
-import { authenticateBusinessCentral, fetchCustomers, fetchItems, analyzeEmailContent, getSelectedCompanyId } from "../src/businessCentralAuth.js";
+import { authenticateBusinessCentral, fetchCustomers, fetchItems, analyzeEmailContent, getSelectedCompanyId, getSelectedCompanyName } from "../src/businessCentralAuth.js";
 
 interface Customer {
   id: string;
@@ -401,8 +401,9 @@ exportErpBtn.addEventListener('click', async () => {
       throw new Error('Not authenticated with Business Central');
     }
 
-    // Get the selected company ID
+    // Get the selected company ID and name
     const companyId = await getSelectedCompanyId();
+    const companyName = await getSelectedCompanyName();
 
     // Step 1: Create Order
     updateStepStatus(createOrderStep, 'loading');
@@ -430,9 +431,9 @@ exportErpBtn.addEventListener('click', async () => {
     
     updateStepStatus(createOrderStep, 'success');
     
-    // Add order link to step text with the correct format
+    // Add order link to step text with the correct format using the actual company name
     const orderLink = document.createElement('a');
-    orderLink.href = `https://businesscentral.dynamics.com/${TENANT_ID}/Production/?company=My%20Company&page=42&filter='Sales Header'.'No.' IS '${orderNumber}'`;
+    orderLink.href = `https://businesscentral.dynamics.com/${TENANT_ID}/Production/?company=${encodeURIComponent(companyName)}&page=42&filter='Sales Header'.'No.' IS '${orderNumber}'`;
     orderLink.className = 'order-link';
     orderLink.target = '_blank';
     orderLink.textContent = `View Order #${orderNumber}`;
