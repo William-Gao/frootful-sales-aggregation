@@ -86,11 +86,15 @@ export async function authenticateBusinessCentral(): Promise<string> {
       throw new Error('Failed to get access token');
     }
 
-    // Store tokens and expiry
+    // Parse and store tenant ID from the token
+    const tenantId = await parseTenantIdFromToken(tokens.access_token);
+    
+    // Store tokens, expiry, and tenant ID
     await chrome.storage.local.set({ 
       bcAccessToken: tokens.access_token,
       bcRefreshToken: tokens.refresh_token,
-      bcTokenExpiry: Date.now() + (tokens.expires_in * 1000)
+      bcTokenExpiry: Date.now() + (tokens.expires_in * 1000),
+      bcTenantId: tenantId
     });
 
     return tokens.access_token;
@@ -120,14 +124,62 @@ async function refreshToken(refreshToken: string): Promise<string> {
 
   const tokens = await response.json();
 
-  // Store new tokens and expiry
+  // Parse and store tenant ID from the refreshed token
+  const tenantId = await parseTenantIdFromToken(tokens.access_token);
+
+  // Store new tokens, expiry, and tenant ID
   await chrome.storage.local.set({
     bcAccessToken: tokens.access_token,
     bcRefreshToken: tokens.refresh_token,
-    bcTokenExpiry: Date.now() + (tokens.expires_in * 1000)
+    bcTokenExpiry: Date.now() + (tokens.expires_in * 1000),
+    bcTenantId: tenantId
   });
 
   return tokens.access_token;
+}
+
+// Parse tenant ID from JWT token
+async function parseTenantIdFromToken(token: string): Promise<string> {
+  try {
+    // JWT tokens have 3 parts separated by dots: header.payload.signature
+    const parts = token.split('.');
+    if (parts.length !== 3) {
+      throw new Error('Invalid JWT token format');
+    }
+
+    // Decode the payload (second part)
+    const payload = parts[1];
+    
+    // Add padding if needed for base64 decoding
+    const paddedPayload = payload + '='.repeat((4 - payload.length % 4) % 4);
+    
+    // Decode base64
+    const decodedPayload = atob(paddedPayload.replace(/-/g, '+').replace(/_/g, '/'));
+    
+    // Parse JSON
+    const tokenData = JSON.parse(decodedPayload);
+    
+    // Extract tenant ID (tid claim)
+    const tenantId = tokenData.tid;
+    
+    if (!tenantId) {
+      throw new Error('Tenant ID not found in token');
+    }
+    
+    return tenantId;
+  } catch (error) {
+    console.error('Error parsing tenant ID from token:', error);
+    // Fallback to a default tenant ID or throw error
+    throw new Error('Failed to parse tenant ID from token');
+  }
+}
+
+export async function getTenantId(): Promise<string> {
+  const { bcTenantId } = await chrome.storage.local.get(['bcTenantId']);
+  if (!bcTenantId) {
+    throw new Error('Tenant ID not found. Please re-authenticate with Business Central.');
+  }
+  return bcTenantId;
 }
 
 export async function fetchCompanies(token: string): Promise<Company[]> {
@@ -184,7 +236,8 @@ export async function signOut(): Promise<void> {
     'bcRefreshToken', 
     'bcTokenExpiry',
     'selectedCompanyId',
-    'selectedCompanyName'
+    'selectedCompanyName',
+    'bcTenantId'
   ]);
   
   // Clear session storage

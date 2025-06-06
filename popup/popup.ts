@@ -95,7 +95,7 @@ document.addEventListener('DOMContentLoaded', () => {
   }
   
   // Check if already connected to BC - only try to load companies if we have a valid token
-  chrome.storage.local.get(['bcAccessToken'], async (result) => {
+  chrome.storage.local.get(['bcAccessToken', 'bcTenantId'], async (result) => {
     if (result.bcAccessToken) {
       try {
         // Test if the token is still valid by making a simple API call
@@ -112,7 +112,7 @@ document.addEventListener('DOMContentLoaded', () => {
           bcConnected.classList.remove('hidden');
         } else {
           // Token is invalid, clear it and show login button
-          chrome.storage.local.remove(['bcAccessToken', 'bcRefreshToken', 'bcTokenExpiry', 'selectedCompanyId']);
+          chrome.storage.local.remove(['bcAccessToken', 'bcRefreshToken', 'bcTokenExpiry', 'selectedCompanyId', 'selectedCompanyName', 'bcTenantId']);
           bcLoginBtn.classList.remove('hidden');
           bcConnected.classList.add('hidden');
         }
