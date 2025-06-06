@@ -3,6 +3,13 @@ const TENANT_ID = 'common';
 const REDIRECT_URI = chrome.identity.getRedirectURL();
 const SCOPE = 'https://api.businesscentral.dynamics.com/user_impersonation offline_access';
 
+export interface Company {
+  id: string;
+  name: string;
+  displayName: string;
+  businessProfileId: string;
+}
+
 export async function authenticateBusinessCentral(): Promise<string> {
   try {
     // Check if we have a valid token
@@ -123,8 +130,43 @@ async function refreshToken(refreshToken: string): Promise<string> {
   return tokens.access_token;
 }
 
+export async function fetchCompanies(token: string): Promise<Company[]> {
+  try {
+    const response = await fetch('https://api.businesscentral.dynamics.com/v2.0/Production/api/v2.0/companies', {
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json'
+      }
+    });
+
+    if (!response.ok) {
+      throw new Error('Failed to fetch companies');
+    }
+
+    const data = await response.json();
+    return data.value || [];
+  } catch (error) {
+    console.error('Error fetching companies:', error);
+    throw error;
+  }
+}
+
+export async function getSelectedCompanyId(): Promise<string> {
+  const { selectedCompanyId } = await chrome.storage.local.get(['selectedCompanyId']);
+  return selectedCompanyId || '45dbc5d1-5408-f011-9af6-6045bde9c6b1'; // fallback to hardcoded ID
+}
+
+export async function setSelectedCompanyId(companyId: string): Promise<void> {
+  await chrome.storage.local.set({ selectedCompanyId: companyId });
+}
+
 export async function signOut(): Promise<void> {
-  await chrome.storage.local.remove(['bcAccessToken', 'bcRefreshToken', 'bcTokenExpiry']);
+  await chrome.storage.local.remove([
+    'bcAccessToken', 
+    'bcRefreshToken', 
+    'bcTokenExpiry',
+    'selectedCompanyId'
+  ]);
   
   // Clear session storage
   sessionStorage.clear();
@@ -159,7 +201,8 @@ async function generateCodeChallenge(verifier: string): Promise<string> {
 
 export async function fetchCustomers(token: string): Promise<any[]> {
   try {
-    const response = await fetch('https://api.businesscentral.dynamics.com/v2.0/Production/api/v2.0/companies(45dbc5d1-5408-f011-9af6-6045bde9c6b1)/customers', {
+    const companyId = await getSelectedCompanyId();
+    const response = await fetch(`https://api.businesscentral.dynamics.com/v2.0/Production/api/v2.0/companies(${companyId})/customers`, {
       headers: {
         'Authorization': `Bearer ${token}`,
         'Content-Type': 'application/json'
@@ -180,7 +223,8 @@ export async function fetchCustomers(token: string): Promise<any[]> {
 
 export async function fetchItems(token: string): Promise<any[]> {
   try {
-    const response = await fetch('https://api.businesscentral.dynamics.com/v2.0/Production/api/v2.0/companies(45dbc5d1-5408-f011-9af6-6045bde9c6b1)/items', {
+    const companyId = await getSelectedCompanyId();
+    const response = await fetch(`https://api.businesscentral.dynamics.com/v2.0/Production/api/v2.0/companies(${companyId})/items`, {
       headers: {
         'Authorization': `Bearer ${token}`,
         'Content-Type': 'application/json'

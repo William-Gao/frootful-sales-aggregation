@@ -1,4 +1,4 @@
-import { authenticateBusinessCentral, fetchCustomers, fetchItems, analyzeEmailContent } from "../src/businessCentralAuth.js";
+import { authenticateBusinessCentral, fetchCustomers, fetchItems, analyzeEmailContent, getSelectedCompanyId } from "../src/businessCentralAuth.js";
 
 interface Customer {
   id: string;
@@ -401,9 +401,12 @@ exportErpBtn.addEventListener('click', async () => {
       throw new Error('Not authenticated with Business Central');
     }
 
+    // Get the selected company ID
+    const companyId = await getSelectedCompanyId();
+
     // Step 1: Create Order
     updateStepStatus(createOrderStep, 'loading');
-    const orderResponse = await fetch('https://api.businesscentral.dynamics.com/v2.0/Production/api/v2.0/companies(45dbc5d1-5408-f011-9af6-6045bde9c6b1)/salesOrders/', {
+    const orderResponse = await fetch(`https://api.businesscentral.dynamics.com/v2.0/Production/api/v2.0/companies(${companyId})/salesOrders/`, {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${token}`,
@@ -442,7 +445,7 @@ exportErpBtn.addEventListener('click', async () => {
     // Step 2: Add Items
     updateStepStatus(addItemsStep, 'loading');
     for (const item of items) {
-      const lineResponse = await fetch(`https://api.businesscentral.dynamics.com/v2.0/Production/api/v2.0/companies(45dbc5d1-5408-f011-9af6-6045bde9c6b1)/salesOrders(${orderId})/salesOrderLines`, {
+      const lineResponse = await fetch(`https://api.businesscentral.dynamics.com/v2.0/Production/api/v2.0/companies(${companyId})/salesOrders(${orderId})/salesOrderLines`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${token}`,

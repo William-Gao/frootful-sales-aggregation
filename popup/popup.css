@@ -112,6 +112,33 @@ header {
   border-radius: 8px;
 }
 
+.company-selection {
+  margin-top: 12px;
+}
+
+.company-selection label {
+  display: block;
+  margin-bottom: 4px;
+  font-weight: 500;
+  color: #334155;
+}
+
+.company-select {
+  width: 100%;
+  padding: 8px 12px;
+  border: 1px solid #e2e8f0;
+  border-radius: 4px;
+  font-size: 14px;
+  background-color: white;
+  color: #334155;
+}
+
+.company-select:focus {
+  outline: none;
+  border-color: #6366F1;
+  box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.1);
+}
+
 /* Buttons */
 .primary-btn, .secondary-btn {
   width: 100%;

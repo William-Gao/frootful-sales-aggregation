@@ -49,7 +49,15 @@
           <button id="bc-login-btn" class="secondary-btn mb-4">
             Connect to Business Central
           </button>
-          <p id="bc-status" class="text-sm text-gray-600 hidden">Connected to Business Central</p>
+          <div id="bc-connected" class="hidden">
+            <p class="text-sm text-gray-600 mb-4">Connected to Business Central</p>
+            <div class="company-selection">
+              <label for="company-select" class="text-sm text-gray-600">Select Company:</label>
+              <select id="company-select" class="company-select">
+                <option value="">Loading companies...</option>
+              </select>
+            </div>
+          </div>
         </div>
         
         <div class="stats">
