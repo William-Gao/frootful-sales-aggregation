@@ -8,8 +8,18 @@ async function initializeSupabase() {
   if (supabase) return supabase;
 
   try {
-    // Dynamic import to avoid build-time issues
-    const { createClient } = await import('@supabase/supabase-js');
+    // Use CDN import for Chrome extension compatibility
+    const script = document.createElement('script');
+    script.src = 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.39.7/dist/umd/supabase.min.js';
+    
+    await new Promise((resolve, reject) => {
+      script.onload = resolve;
+      script.onerror = reject;
+      document.head.appendChild(script);
+    });
+
+    // Access Supabase from global scope
+    const { createClient } = (window as any).supabase;
     
     const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
     const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
