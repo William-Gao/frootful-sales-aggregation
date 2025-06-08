@@ -33,7 +33,7 @@ class TokenManager {
     return new Promise((resolve, reject) => {
       chrome.identity.getAuthToken({ interactive: false }, (token) => {
         if (chrome.runtime.lastError || !token) {
-          reject(new Error('User not authenticated'));
+          reject(new Error('User not authenticated with Google'));
           return;
         }
         resolve(token);
@@ -41,9 +41,27 @@ class TokenManager {
     });
   }
 
+  private async authenticateUser(): Promise<string> {
+    // Try to get existing token first
+    try {
+      return await this.getAuthToken();
+    } catch (error) {
+      // If no token exists, prompt for interactive authentication
+      return new Promise((resolve, reject) => {
+        chrome.identity.getAuthToken({ interactive: true }, (token) => {
+          if (chrome.runtime.lastError || !token) {
+            reject(new Error('Failed to authenticate user'));
+            return;
+          }
+          resolve(token);
+        });
+      });
+    }
+  }
+
   async storeTokens(tokenData: TokenData): Promise<void> {
     try {
-      const authToken = await this.getAuthToken();
+      const authToken = await this.authenticateUser();
       
       const response = await fetch(`${this.supabaseUrl}/functions/v1/token-manager`, {
         method: 'POST',
@@ -55,7 +73,8 @@ class TokenManager {
       });
 
       if (!response.ok) {
-        throw new Error('Failed to store tokens');
+        const errorText = await response.text();
+        throw new Error(`Failed to store tokens: ${response.status} ${errorText}`);
       }
 
       const result = await response.json();
@@ -86,7 +105,11 @@ class TokenManager {
       });
 
       if (!response.ok) {
-        throw new Error('Failed to retrieve tokens');
+        if (response.status === 401) {
+          throw new Error('User not authenticated');
+        }
+        const errorText = await response.text();
+        throw new Error(`Failed to retrieve tokens: ${response.status} ${errorText}`);
       }
 
       const result = await response.json();
@@ -118,7 +141,8 @@ class TokenManager {
       });
 
       if (!response.ok) {
-        throw new Error('Failed to update tokens');
+        const errorText = await response.text();
+        throw new Error(`Failed to update tokens: ${response.status} ${errorText}`);
       }
 
       const result = await response.json();
@@ -149,7 +173,8 @@ class TokenManager {
       });
 
       if (!response.ok) {
-        throw new Error('Failed to delete tokens');
+        const errorText = await response.text();
+        throw new Error(`Failed to delete tokens: ${response.status} ${errorText}`);
       }
 
       const result = await response.json();
@@ -164,18 +189,41 @@ class TokenManager {
 
   // Helper methods for specific token operations
   async getBusinessCentralToken(): Promise<StoredToken | null> {
-    const tokens = await this.getTokens('business_central');
-    return tokens.length > 0 ? tokens[0] : null;
+    try {
+      const tokens = await this.getTokens('business_central');
+      return tokens.length > 0 ? tokens[0] : null;
+    } catch (error) {
+      if (error instanceof Error && error.message.includes('not authenticated')) {
+        return null; // User not logged in, return null instead of throwing
+      }
+      throw error;
+    }
   }
 
   async getGoogleToken(): Promise<StoredToken | null> {
-    const tokens = await this.getTokens('google');
-    return tokens.length > 0 ? tokens[0] : null;
+    try {
+      const tokens = await this.getTokens('google');
+      return tokens.length > 0 ? tokens[0] : null;
+    } catch (error) {
+      if (error instanceof Error && error.message.includes('not authenticated')) {
+        return null; // User not logged in, return null instead of throwing
+      }
+      throw error;
+    }
   }
 
   async isTokenValid(token: StoredToken): Promise<boolean> {
     if (!token.token_expires_at) return true; // No expiry set
     return new Date(token.token_expires_at) > new Date();
+  }
+
+  async isUserAuthenticated(): Promise<boolean> {
+    try {
+      await this.getAuthToken();
+      return true;
+    } catch (error) {
+      return false;
+    }
   }
 
   async refreshBusinessCentralToken(): Promise<string> {

@@ -12,7 +12,7 @@ const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
 const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
 // Encryption key from environment
-const ENCRYPTION_KEY = Deno.env.get('TOKEN_ENCRYPTION_KEY')!;
+const ENCRYPTION_KEY = Deno.env.get('TOKEN_ENCRYPTION_KEY') || 'default-key-for-development-only';
 
 interface TokenData {
   provider: 'google' | 'business_central';
@@ -37,14 +37,51 @@ Deno.serve(async (req) => {
     // Get user from JWT token
     const authHeader = req.headers.get('Authorization');
     if (!authHeader) {
-      throw new Error('No authorization header');
+      return new Response(
+        JSON.stringify({ success: false, error: 'No authorization header' }),
+        {
+          status: 401,
+          headers: {
+            'Content-Type': 'application/json',
+            ...corsHeaders
+          }
+        }
+      );
     }
 
     const token = authHeader.replace('Bearer ', '');
-    const { data: { user }, error: authError } = await supabase.auth.getUser(token);
     
-    if (authError || !user) {
-      throw new Error('Invalid token');
+    // For Google OAuth tokens, we need to verify them differently
+    // Let's verify the token with Google's tokeninfo endpoint
+    const tokenInfoResponse = await fetch(`https://oauth2.googleapis.com/tokeninfo?access_token=${token}`);
+    
+    if (!tokenInfoResponse.ok) {
+      return new Response(
+        JSON.stringify({ success: false, error: 'Invalid Google token' }),
+        {
+          status: 401,
+          headers: {
+            'Content-Type': 'application/json',
+            ...corsHeaders
+          }
+        }
+      );
+    }
+
+    const tokenInfo = await tokenInfoResponse.json();
+    const userId = tokenInfo.sub; // Google user ID
+
+    if (!userId) {
+      return new Response(
+        JSON.stringify({ success: false, error: 'Invalid token - no user ID' }),
+        {
+          status: 401,
+          headers: {
+            'Content-Type': 'application/json',
+            ...corsHeaders
+          }
+        }
+      );
     }
 
     const url = new URL(req.url);
@@ -53,21 +90,30 @@ Deno.serve(async (req) => {
 
     switch (method) {
       case 'GET':
-        return await getTokens(user.id, provider);
+        return await getTokens(userId, provider);
       
       case 'POST':
         const tokenData: TokenData = await req.json();
-        return await storeTokens(user.id, tokenData);
+        return await storeTokens(userId, tokenData);
       
       case 'PUT':
         const updateData: Partial<TokenData> = await req.json();
-        return await updateTokens(user.id, provider, updateData);
+        return await updateTokens(userId, provider, updateData);
       
       case 'DELETE':
-        return await deleteTokens(user.id, provider);
+        return await deleteTokens(userId, provider);
       
       default:
-        throw new Error('Method not allowed');
+        return new Response(
+          JSON.stringify({ success: false, error: 'Method not allowed' }),
+          {
+            status: 405,
+            headers: {
+              'Content-Type': 'application/json',
+              ...corsHeaders
+            }
+          }
+        );
     }
   } catch (error) {
     console.error('Token manager error:', error);
@@ -81,7 +127,7 @@ Deno.serve(async (req) => {
           'Content-Type': 'application/json',
           ...corsHeaders
         },
-        status: 400
+        status: 500
       }
     );
   }

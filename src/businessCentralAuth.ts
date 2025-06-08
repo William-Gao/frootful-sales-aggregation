@@ -14,6 +14,12 @@ export interface Company {
 
 export async function authenticateBusinessCentral(): Promise<string> {
   try {
+    // First check if user is authenticated with Google
+    const isGoogleAuthenticated = await tokenManager.isUserAuthenticated();
+    if (!isGoogleAuthenticated) {
+      throw new Error('Please sign in with Google first');
+    }
+
     // Check if we have a valid token stored
     const storedToken = await tokenManager.getBusinessCentralToken();
     if (storedToken && await tokenManager.isTokenValid(storedToken)) {
