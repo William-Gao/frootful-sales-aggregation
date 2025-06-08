@@ -1,0 +1,308 @@
+import { createClient } from 'npm:@supabase/supabase-js@2.39.7';
+
+const corsHeaders = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
+  'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+};
+
+// Initialize Supabase client
+const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
+const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+const supabase = createClient(supabaseUrl, supabaseServiceKey);
+
+// Encryption key from environment
+const ENCRYPTION_KEY = Deno.env.get('TOKEN_ENCRYPTION_KEY')!;
+
+interface TokenData {
+  provider: 'google' | 'business_central';
+  accessToken: string;
+  refreshToken?: string;
+  expiresAt?: string;
+  tenantId?: string;
+  companyId?: string;
+  companyName?: string;
+}
+
+Deno.serve(async (req) => {
+  // Handle CORS preflight requests
+  if (req.method === 'OPTIONS') {
+    return new Response(null, {
+      status: 204,
+      headers: corsHeaders
+    });
+  }
+
+  try {
+    // Get user from JWT token
+    const authHeader = req.headers.get('Authorization');
+    if (!authHeader) {
+      throw new Error('No authorization header');
+    }
+
+    const token = authHeader.replace('Bearer ', '');
+    const { data: { user }, error: authError } = await supabase.auth.getUser(token);
+    
+    if (authError || !user) {
+      throw new Error('Invalid token');
+    }
+
+    const url = new URL(req.url);
+    const method = req.method;
+    const provider = url.searchParams.get('provider') as 'google' | 'business_central';
+
+    switch (method) {
+      case 'GET':
+        return await getTokens(user.id, provider);
+      
+      case 'POST':
+        const tokenData: TokenData = await req.json();
+        return await storeTokens(user.id, tokenData);
+      
+      case 'PUT':
+        const updateData: Partial<TokenData> = await req.json();
+        return await updateTokens(user.id, provider, updateData);
+      
+      case 'DELETE':
+        return await deleteTokens(user.id, provider);
+      
+      default:
+        throw new Error('Method not allowed');
+    }
+  } catch (error) {
+    console.error('Token manager error:', error);
+    return new Response(
+      JSON.stringify({ 
+        success: false, 
+        error: error instanceof Error ? error.message : 'Unknown error'
+      }),
+      {
+        headers: {
+          'Content-Type': 'application/json',
+          ...corsHeaders
+        },
+        status: 400
+      }
+    );
+  }
+});
+
+// Encrypt sensitive data
+async function encrypt(text: string): Promise<string> {
+  const encoder = new TextEncoder();
+  const data = encoder.encode(text);
+  
+  // Generate a random IV
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  
+  // Import the encryption key
+  const key = await crypto.subtle.importKey(
+    'raw',
+    encoder.encode(ENCRYPTION_KEY),
+    { name: 'AES-GCM' },
+    false,
+    ['encrypt']
+  );
+  
+  // Encrypt the data
+  const encrypted = await crypto.subtle.encrypt(
+    { name: 'AES-GCM', iv },
+    key,
+    data
+  );
+  
+  // Combine IV and encrypted data
+  const combined = new Uint8Array(iv.length + encrypted.byteLength);
+  combined.set(iv);
+  combined.set(new Uint8Array(encrypted), iv.length);
+  
+  // Return base64 encoded result
+  return btoa(String.fromCharCode(...combined));
+}
+
+// Decrypt sensitive data
+async function decrypt(encryptedText: string): Promise<string> {
+  const encoder = new TextEncoder();
+  const decoder = new TextDecoder();
+  
+  // Decode from base64
+  const combined = new Uint8Array(
+    atob(encryptedText).split('').map(char => char.charCodeAt(0))
+  );
+  
+  // Extract IV and encrypted data
+  const iv = combined.slice(0, 12);
+  const encrypted = combined.slice(12);
+  
+  // Import the decryption key
+  const key = await crypto.subtle.importKey(
+    'raw',
+    encoder.encode(ENCRYPTION_KEY),
+    { name: 'AES-GCM' },
+    false,
+    ['decrypt']
+  );
+  
+  // Decrypt the data
+  const decrypted = await crypto.subtle.decrypt(
+    { name: 'AES-GCM', iv },
+    key,
+    encrypted
+  );
+  
+  return decoder.decode(decrypted);
+}
+
+// Store tokens securely
+async function storeTokens(userId: string, tokenData: TokenData): Promise<Response> {
+  const encryptedAccessToken = await encrypt(tokenData.accessToken);
+  const encryptedRefreshToken = tokenData.refreshToken ? await encrypt(tokenData.refreshToken) : null;
+  
+  const { data, error } = await supabase
+    .from('user_tokens')
+    .upsert({
+      user_id: userId,
+      provider: tokenData.provider,
+      encrypted_access_token: encryptedAccessToken,
+      encrypted_refresh_token: encryptedRefreshToken,
+      token_expires_at: tokenData.expiresAt,
+      tenant_id: tokenData.tenantId,
+      company_id: tokenData.companyId,
+      company_name: tokenData.companyName
+    }, {
+      onConflict: 'user_id,provider'
+    })
+    .select();
+
+  if (error) {
+    throw new Error(`Failed to store tokens: ${error.message}`);
+  }
+
+  return new Response(
+    JSON.stringify({ success: true, data }),
+    {
+      headers: {
+        'Content-Type': 'application/json',
+        ...corsHeaders
+      }
+    }
+  );
+}
+
+// Retrieve and decrypt tokens
+async function getTokens(userId: string, provider?: string): Promise<Response> {
+  let query = supabase
+    .from('user_tokens')
+    .select('*')
+    .eq('user_id', userId);
+
+  if (provider) {
+    query = query.eq('provider', provider);
+  }
+
+  const { data, error } = await query;
+
+  if (error) {
+    throw new Error(`Failed to retrieve tokens: ${error.message}`);
+  }
+
+  // Decrypt tokens
+  const decryptedTokens = await Promise.all(
+    data.map(async (token) => ({
+      ...token,
+      access_token: token.encrypted_access_token ? await decrypt(token.encrypted_access_token) : null,
+      refresh_token: token.encrypted_refresh_token ? await decrypt(token.encrypted_refresh_token) : null,
+      // Remove encrypted fields from response
+      encrypted_access_token: undefined,
+      encrypted_refresh_token: undefined
+    }))
+  );
+
+  return new Response(
+    JSON.stringify({ success: true, tokens: decryptedTokens }),
+    {
+      headers: {
+        'Content-Type': 'application/json',
+        ...corsHeaders
+      }
+    }
+  );
+}
+
+// Update tokens
+async function updateTokens(userId: string, provider: string, updateData: Partial<TokenData>): Promise<Response> {
+  const updateFields: any = {};
+
+  if (updateData.accessToken) {
+    updateFields.encrypted_access_token = await encrypt(updateData.accessToken);
+  }
+  
+  if (updateData.refreshToken) {
+    updateFields.encrypted_refresh_token = await encrypt(updateData.refreshToken);
+  }
+
+  if (updateData.expiresAt) {
+    updateFields.token_expires_at = updateData.expiresAt;
+  }
+
+  if (updateData.tenantId) {
+    updateFields.tenant_id = updateData.tenantId;
+  }
+
+  if (updateData.companyId) {
+    updateFields.company_id = updateData.companyId;
+  }
+
+  if (updateData.companyName) {
+    updateFields.company_name = updateData.companyName;
+  }
+
+  const { data, error } = await supabase
+    .from('user_tokens')
+    .update(updateFields)
+    .eq('user_id', userId)
+    .eq('provider', provider)
+    .select();
+
+  if (error) {
+    throw new Error(`Failed to update tokens: ${error.message}`);
+  }
+
+  return new Response(
+    JSON.stringify({ success: true, data }),
+    {
+      headers: {
+        'Content-Type': 'application/json',
+        ...corsHeaders
+      }
+    }
+  );
+}
+
+// Delete tokens
+async function deleteTokens(userId: string, provider?: string): Promise<Response> {
+  let query = supabase
+    .from('user_tokens')
+    .delete()
+    .eq('user_id', userId);
+
+  if (provider) {
+    query = query.eq('provider', provider);
+  }
+
+  const { error } = await query;
+
+  if (error) {
+    throw new Error(`Failed to delete tokens: ${error.message}`);
+  }
+
+  return new Response(
+    JSON.stringify({ success: true }),
+    {
+      headers: {
+        'Content-Type': 'application/json',
+        ...corsHeaders
+      }
+    }
+  );
+}

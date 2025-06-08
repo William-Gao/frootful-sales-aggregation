@@ -1,3 +1,6 @@
+import { tokenManager, type TokenData } from './tokenManager.js';
+import { supabaseAuth } from './supabaseAuth.js';
+
 const CLIENT_ID = '4c92a998-6af5-4c2a-b16e-80ba1c6b9b3b';
 const TENANT_ID = 'common';
 const REDIRECT_URI = chrome.identity.getRedirectURL();
@@ -12,22 +15,22 @@ export interface Company {
 
 export async function authenticateBusinessCentral(): Promise<string> {
   try {
-    // Check if we have a valid token
-    const { bcAccessToken, bcTokenExpiry, bcRefreshToken } = await chrome.storage.local.get([
-      'bcAccessToken',
-      'bcTokenExpiry',
-      'bcRefreshToken'
-    ]);
+    // Ensure user is authenticated with Supabase first
+    const user = await supabaseAuth.getCurrentUser();
+    if (!user) {
+      throw new Error('Please sign in with Google first');
+    }
 
-    // If we have a valid token, return it
-    if (bcAccessToken && bcTokenExpiry && Date.now() < bcTokenExpiry) {
-      return bcAccessToken;
+    // Check if we have a valid token stored
+    const storedToken = await tokenManager.getBusinessCentralToken();
+    if (storedToken && await tokenManager.isTokenValid(storedToken)) {
+      return storedToken.access_token;
     }
 
     // If we have a refresh token, try to refresh
-    if (bcRefreshToken) {
+    if (storedToken?.refresh_token) {
       try {
-        return await refreshToken(bcRefreshToken);
+        return await refreshToken(storedToken.refresh_token);
       } catch (error) {
         console.error('Token refresh failed:', error);
         // If refresh fails, proceed with new authentication
@@ -86,15 +89,16 @@ export async function authenticateBusinessCentral(): Promise<string> {
       throw new Error('Failed to get access token');
     }
 
-    // Parse and store tenant ID from the token
+    // Parse tenant ID from token
     const tenantId = await parseTenantIdFromToken(tokens.access_token);
     
-    // Store tokens, expiry, and tenant ID
-    await chrome.storage.local.set({ 
-      bcAccessToken: tokens.access_token,
-      bcRefreshToken: tokens.refresh_token,
-      bcTokenExpiry: Date.now() + (tokens.expires_in * 1000),
-      bcTenantId: tenantId
+    // Store tokens securely in backend
+    await tokenManager.storeTokens({
+      provider: 'business_central',
+      accessToken: tokens.access_token,
+      refreshToken: tokens.refresh_token,
+      expiresAt: new Date(Date.now() + (tokens.expires_in * 1000)).toISOString(),
+      tenantId: tenantId
     });
 
     return tokens.access_token;
@@ -124,15 +128,15 @@ async function refreshToken(refreshToken: string): Promise<string> {
 
   const tokens = await response.json();
 
-  // Parse and store tenant ID from the refreshed token
+  // Parse tenant ID from refreshed token
   const tenantId = await parseTenantIdFromToken(tokens.access_token);
 
-  // Store new tokens, expiry, and tenant ID
-  await chrome.storage.local.set({
-    bcAccessToken: tokens.access_token,
-    bcRefreshToken: tokens.refresh_token,
-    bcTokenExpiry: Date.now() + (tokens.expires_in * 1000),
-    bcTenantId: tenantId
+  // Update stored tokens
+  await tokenManager.updateTokens('business_central', {
+    accessToken: tokens.access_token,
+    refreshToken: tokens.refresh_token,
+    expiresAt: new Date(Date.now() + (tokens.expires_in * 1000)).toISOString(),
+    tenantId: tenantId
   });
 
   return tokens.access_token;
@@ -141,27 +145,17 @@ async function refreshToken(refreshToken: string): Promise<string> {
 // Parse tenant ID from JWT token
 async function parseTenantIdFromToken(token: string): Promise<string> {
   try {
-    // JWT tokens have 3 parts separated by dots: header.payload.signature
     const parts = token.split('.');
     if (parts.length !== 3) {
       throw new Error('Invalid JWT token format');
     }
 
-    // Decode the payload (second part)
     const payload = parts[1];
-    
-    // Add padding if needed for base64 decoding
     const paddedPayload = payload + '='.repeat((4 - payload.length % 4) % 4);
-    
-    // Decode base64
     const decodedPayload = atob(paddedPayload.replace(/-/g, '+').replace(/_/g, '/'));
-    
-    // Parse JSON
     const tokenData = JSON.parse(decodedPayload);
     
-    // Extract tenant ID (tid claim)
     const tenantId = tokenData.tid;
-    
     if (!tenantId) {
       throw new Error('Tenant ID not found in token');
     }
@@ -169,17 +163,16 @@ async function parseTenantIdFromToken(token: string): Promise<string> {
     return tenantId;
   } catch (error) {
     console.error('Error parsing tenant ID from token:', error);
-    // Fallback to a default tenant ID or throw error
     throw new Error('Failed to parse tenant ID from token');
   }
 }
 
 export async function getTenantId(): Promise<string> {
-  const { bcTenantId } = await chrome.storage.local.get(['bcTenantId']);
-  if (!bcTenantId) {
+  const tokenData = await tokenManager.getBusinessCentralToken();
+  if (!tokenData?.tenant_id) {
     throw new Error('Tenant ID not found. Please re-authenticate with Business Central.');
   }
-  return bcTenantId;
+  return tokenData.tenant_id;
 }
 
 export async function fetchCompanies(token: string): Promise<Company[]> {
@@ -204,54 +197,33 @@ export async function fetchCompanies(token: string): Promise<Company[]> {
 }
 
 export async function getSelectedCompanyId(): Promise<string> {
-  const { selectedCompanyId } = await chrome.storage.local.get(['selectedCompanyId']);
-  return selectedCompanyId || '45dbc5d1-5408-f011-9af6-6045bde9c6b1'; // fallback to hardcoded ID
+  const tokenData = await tokenManager.getBusinessCentralToken();
+  return tokenData?.company_id || '45dbc5d1-5408-f011-9af6-6045bde9c6b1'; // fallback
 }
 
 export async function getSelectedCompanyName(): Promise<string> {
-  const { selectedCompanyName } = await chrome.storage.local.get(['selectedCompanyName']);
-  return selectedCompanyName || 'My Company'; // fallback to hardcoded name
+  const tokenData = await tokenManager.getBusinessCentralToken();
+  return tokenData?.company_name || 'My Company'; // fallback
 }
 
 export async function setSelectedCompanyId(companyId: string): Promise<void> {
-  // Also store the company name for deep link generation
   try {
     const token = await authenticateBusinessCentral();
     const companies = await fetchCompanies(token);
     const selectedCompany = companies.find(c => c.id === companyId);
     
-    await chrome.storage.local.set({ 
-      selectedCompanyId: companyId,
-      selectedCompanyName: selectedCompany?.displayName || selectedCompany?.name || 'My Company'
+    await tokenManager.updateTokens('business_central', {
+      companyId: companyId,
+      companyName: selectedCompany?.displayName || selectedCompany?.name || 'My Company'
     });
   } catch (error) {
     console.error('Error setting company info:', error);
-    await chrome.storage.local.set({ selectedCompanyId: companyId });
+    throw error;
   }
 }
 
 export async function signOut(): Promise<void> {
-  await chrome.storage.local.remove([
-    'bcAccessToken', 
-    'bcRefreshToken', 
-    'bcTokenExpiry',
-    'selectedCompanyId',
-    'selectedCompanyName',
-    'bcTenantId'
-  ]);
-  
-  // Clear session storage
-  sessionStorage.clear();
-  
-  // Redirect to logout URL
-  const logoutUrl = `https://login.microsoftonline.com/${TENANT_ID}/oauth2/v2.0/logout?` +
-    `client_id=${CLIENT_ID}` +
-    `&post_logout_redirect_uri=${encodeURIComponent(REDIRECT_URI)}`;
-    
-  await chrome.identity.launchWebAuthFlow({
-    url: logoutUrl,
-    interactive: false
-  });
+  await tokenManager.deleteTokens('business_central');
 }
 
 // Helper functions for PKCE
