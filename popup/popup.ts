@@ -1,5 +1,5 @@
 import { authenticateBusinessCentral, signOut, fetchCompanies, getSelectedCompanyId, setSelectedCompanyId, type Company } from '../src/businessCentralAuth.js';
-import { tokenManager } from '../src/tokenManager.js';
+import { authManager } from '../src/authManager.js';
 
 interface Port {
   postMessage: (message: any) => void;
@@ -24,34 +24,18 @@ document.addEventListener('DOMContentLoaded', () => {
     return;
   }
   
-  // Initialize connection to background script
-  const port: Port = chrome.runtime.connect({ name: 'frootful-popup' });
-  
   // Handle Google authentication
   loginBtn.addEventListener('click', async () => {
     try {
       loginBtn.disabled = true;
       loginBtn.textContent = 'Signing in...';
       
-      // Use Chrome identity API for Google authentication
-      const token = await new Promise<string>((resolve, reject) => {
-        chrome.identity.getAuthToken({ interactive: true }, (token) => {
-          if (chrome.runtime.lastError || !token) {
-            reject(new Error('Failed to authenticate with Google'));
-            return;
-          }
-          resolve(token);
-        });
-      });
-
-      // Store Google token
-      await tokenManager.storeTokens({
-        provider: 'google',
-        accessToken: token
-      });
-
+      const user = await authManager.signInWithGoogle();
+      
       updateUI(true);
-      fetchUserInfo();
+      if (userEmail instanceof HTMLElement) {
+        userEmail.textContent = user.email;
+      }
       showSuccess('Successfully signed in with Google!');
     } catch (error) {
       console.error('Google auth error:', error);
@@ -115,19 +99,7 @@ document.addEventListener('DOMContentLoaded', () => {
       logoutBtn.disabled = true;
       logoutBtn.textContent = 'Signing out...';
       
-      // Sign out from Business Central
-      await signOut();
-      
-      // Revoke Google token
-      const googleToken = await tokenManager.getGoogleToken();
-      if (googleToken) {
-        chrome.identity.removeCachedAuthToken({ token: googleToken.access_token }, () => {
-          // Token removed from cache
-        });
-      }
-      
-      // Clear all stored tokens
-      await tokenManager.deleteTokens();
+      await authManager.signOut();
       
       updateUI(false);
       // Reset BC connection state
@@ -185,22 +157,29 @@ document.addEventListener('DOMContentLoaded', () => {
   // Check initial authentication state
   async function checkAuthState(): Promise<void> {
     try {
-      const isAuthenticated = await tokenManager.isUserAuthenticated();
+      const isAuthenticated = await authManager.isAuthenticated();
       updateUI(isAuthenticated);
       
       if (isAuthenticated) {
-        fetchUserInfo();
+        const user = await authManager.getCurrentUser();
+        if (user && userEmail instanceof HTMLElement) {
+          userEmail.textContent = user.email;
+        }
         
         // Check if Business Central is also connected
-        const bcToken = await tokenManager.getBusinessCentralToken();
-        if (bcToken && await tokenManager.isTokenValid(bcToken)) {
+        const bcToken = await authManager.getGoogleAccessToken();
+        if (bcToken) {
           try {
-            await loadCompanies(bcToken.access_token);
-            bcLoginBtn.classList.add('hidden');
-            bcConnected.classList.remove('hidden');
+            // Try to load companies to test BC connection
+            const companies = await fetchCompanies(bcToken);
+            if (companies.length > 0) {
+              await loadCompanies(bcToken);
+              bcLoginBtn.classList.add('hidden');
+              bcConnected.classList.remove('hidden');
+            }
           } catch (error) {
             console.error('Error loading BC companies:', error);
-            // BC token might be invalid, show login button
+            // BC not connected, show login button
             bcLoginBtn.classList.remove('hidden');
             bcConnected.classList.add('hidden');
           }
@@ -224,17 +203,6 @@ document.addEventListener('DOMContentLoaded', () => {
       notAuthenticatedSection.classList.remove('hidden');
       authenticatedSection.classList.add('hidden');
     }
-  }
-  
-  // Fetch user info
-  function fetchUserInfo(): void {
-    chrome.identity.getProfileUserInfo({ accountStatus: 'ANY' }, (userInfo) => {
-      if (userInfo && userInfo.email && userEmail instanceof HTMLElement) {
-        userEmail.textContent = userInfo.email;
-      } else if (userEmail instanceof HTMLElement) {
-        userEmail.textContent = 'Gmail User';
-      }
-    });
   }
   
   // Show success message

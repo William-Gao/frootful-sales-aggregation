@@ -1,5 +1,7 @@
 // Main content script for Frootful Gmail Extension
 
+import { authManager } from '../src/authManager.js';
+
 interface EmailData {
   id: string;
   threadId: string;
@@ -59,8 +61,20 @@ function initializeConnection(): void {
     });
   }
   
-  // Check if user is authenticated
-  port.postMessage({ action: 'checkAuthState' });
+  // Check authentication state using authManager
+  checkAuthState();
+}
+
+// Check authentication state
+async function checkAuthState(): Promise<void> {
+  try {
+    isAuthenticated = await authManager.isAuthenticated();
+    init();
+  } catch (error) {
+    console.error('Error checking auth state:', error);
+    isAuthenticated = false;
+    init();
+  }
 }
 
 // Initialize connection when script loads

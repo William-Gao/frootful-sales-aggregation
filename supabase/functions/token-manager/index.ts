@@ -12,7 +12,7 @@ const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
 const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
 // Encryption key from environment
-const ENCRYPTION_KEY = Deno.env.get('TOKEN_ENCRYPTION_KEY') || 'default-key-for-development-only';
+const ENCRYPTION_KEY = Deno.env.get('TOKEN_ENCRYPTION_KEY') || 'default-key-for-development-only-change-in-production';
 
 interface TokenData {
   provider: 'google' | 'business_central';
@@ -50,38 +50,61 @@ Deno.serve(async (req) => {
     }
 
     const token = authHeader.replace('Bearer ', '');
-    
-    // For Google OAuth tokens, we need to verify them differently
-    // Let's verify the token with Google's tokeninfo endpoint
-    const tokenInfoResponse = await fetch(`https://oauth2.googleapis.com/tokeninfo?access_token=${token}`);
-    
-    if (!tokenInfoResponse.ok) {
-      return new Response(
-        JSON.stringify({ success: false, error: 'Invalid Google token' }),
-        {
-          status: 401,
-          headers: {
-            'Content-Type': 'application/json',
-            ...corsHeaders
-          }
-        }
-      );
-    }
+    let userId: string;
 
-    const tokenInfo = await tokenInfoResponse.json();
-    const userId = tokenInfo.sub; // Google user ID
-
-    if (!userId) {
-      return new Response(
-        JSON.stringify({ success: false, error: 'Invalid token - no user ID' }),
-        {
-          status: 401,
-          headers: {
-            'Content-Type': 'application/json',
-            ...corsHeaders
-          }
+    // Try to verify as Supabase JWT first
+    try {
+      const { data: { user }, error } = await supabase.auth.getUser(token);
+      if (user && !error) {
+        userId = user.id;
+      } else {
+        throw new Error('Invalid Supabase token');
+      }
+    } catch (supabaseError) {
+      // Fallback to Google token verification for Chrome extension
+      try {
+        const tokenInfoResponse = await fetch(`https://oauth2.googleapis.com/tokeninfo?access_token=${token}`);
+        
+        if (!tokenInfoResponse.ok) {
+          return new Response(
+            JSON.stringify({ success: false, error: 'Invalid token' }),
+            {
+              status: 401,
+              headers: {
+                'Content-Type': 'application/json',
+                ...corsHeaders
+              }
+            }
+          );
         }
-      );
+
+        const tokenInfo = await tokenInfoResponse.json();
+        userId = tokenInfo.sub; // Google user ID
+
+        if (!userId) {
+          return new Response(
+            JSON.stringify({ success: false, error: 'Invalid token - no user ID' }),
+            {
+              status: 401,
+              headers: {
+                'Content-Type': 'application/json',
+                ...corsHeaders
+              }
+            }
+          );
+        }
+      } catch (googleError) {
+        return new Response(
+          JSON.stringify({ success: false, error: 'Token verification failed' }),
+          {
+            status: 401,
+            headers: {
+              'Content-Type': 'application/json',
+              ...corsHeaders
+            }
+          }
+        );
+      }
     }
 
     const url = new URL(req.url);
@@ -144,7 +167,7 @@ async function encrypt(text: string): Promise<string> {
   // Import the encryption key
   const key = await crypto.subtle.importKey(
     'raw',
-    encoder.encode(ENCRYPTION_KEY),
+    encoder.encode(ENCRYPTION_KEY.padEnd(32, '0').slice(0, 32)), // Ensure 32 bytes
     { name: 'AES-GCM' },
     false,
     ['encrypt']
@@ -183,7 +206,7 @@ async function decrypt(encryptedText: string): Promise<string> {
   // Import the decryption key
   const key = await crypto.subtle.importKey(
     'raw',
-    encoder.encode(ENCRYPTION_KEY),
+    encoder.encode(ENCRYPTION_KEY.padEnd(32, '0').slice(0, 32)), // Ensure 32 bytes
     { name: 'AES-GCM' },
     false,
     ['decrypt']

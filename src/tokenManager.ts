@@ -1,6 +1,8 @@
 // Token Manager for secure backend storage
 // This module handles all token operations through Supabase Edge Functions
 
+import { supabase } from './supabaseClient.js';
+
 export interface TokenData {
   provider: 'google' | 'business_central';
   accessToken: string;
@@ -25,15 +27,18 @@ export interface StoredToken {
 }
 
 class TokenManager {
-  private supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-  private supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
-
   private async getAuthToken(): Promise<string> {
-    // For Chrome extension, we'll use the Google OAuth token
+    // First try to get Supabase session token
+    const { data: { session } } = await supabase.auth.getSession();
+    if (session?.access_token) {
+      return session.access_token;
+    }
+
+    // Fallback to Google OAuth token for Chrome extension
     return new Promise((resolve, reject) => {
       chrome.identity.getAuthToken({ interactive: false }, (token) => {
         if (chrome.runtime.lastError || !token) {
-          reject(new Error('User not authenticated with Google'));
+          reject(new Error('User not authenticated'));
           return;
         }
         resolve(token);
@@ -61,25 +66,37 @@ class TokenManager {
 
   async storeTokens(tokenData: TokenData): Promise<void> {
     try {
-      const authToken = await this.authenticateUser();
-      
-      const response = await fetch(`${this.supabaseUrl}/functions/v1/token-manager`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${authToken}`,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify(tokenData)
-      });
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        throw new Error(`Failed to store tokens: ${response.status} ${errorText}`);
+      // For Google tokens, we'll store them locally and in Supabase if authenticated
+      if (tokenData.provider === 'google') {
+        // Store Google token locally for immediate access
+        await chrome.storage.local.set({
+          googleAccessToken: tokenData.accessToken,
+          googleTokenExpiry: tokenData.expiresAt
+        });
       }
 
-      const result = await response.json();
-      if (!result.success) {
-        throw new Error(result.error || 'Failed to store tokens');
+      // Try to store in Supabase backend if we have a session
+      try {
+        const authToken = await this.getAuthToken();
+        
+        const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/token-manager`, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${authToken}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify(tokenData)
+        });
+
+        if (!response.ok) {
+          console.warn('Failed to store tokens in backend, using local storage');
+        }
+      } catch (error) {
+        console.warn('Backend storage failed, using local storage:', error);
+        // Store locally as fallback
+        await chrome.storage.local.set({
+          [`${tokenData.provider}_token`]: JSON.stringify(tokenData)
+        });
       }
     } catch (error) {
       console.error('Error storing tokens:', error);
@@ -89,35 +106,74 @@ class TokenManager {
 
   async getTokens(provider?: 'google' | 'business_central'): Promise<StoredToken[]> {
     try {
-      const authToken = await this.getAuthToken();
+      // Try backend first
+      try {
+        const authToken = await this.getAuthToken();
+        
+        const url = new URL(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/token-manager`);
+        if (provider) {
+          url.searchParams.set('provider', provider);
+        }
+
+        const response = await fetch(url.toString(), {
+          method: 'GET',
+          headers: {
+            'Authorization': `Bearer ${authToken}`,
+            'Content-Type': 'application/json'
+          }
+        });
+
+        if (response.ok) {
+          const result = await response.json();
+          if (result.success) {
+            return result.tokens || [];
+          }
+        }
+      } catch (error) {
+        console.warn('Backend retrieval failed, using local storage:', error);
+      }
+
+      // Fallback to local storage
+      const tokens: StoredToken[] = [];
       
-      const url = new URL(`${this.supabaseUrl}/functions/v1/token-manager`);
-      if (provider) {
-        url.searchParams.set('provider', provider);
-      }
-
-      const response = await fetch(url.toString(), {
-        method: 'GET',
-        headers: {
-          'Authorization': `Bearer ${authToken}`,
-          'Content-Type': 'application/json'
+      if (!provider || provider === 'google') {
+        const { googleAccessToken, googleTokenExpiry } = await chrome.storage.local.get([
+          'googleAccessToken', 'googleTokenExpiry'
+        ]);
+        
+        if (googleAccessToken) {
+          tokens.push({
+            id: 'google-local',
+            provider: 'google',
+            access_token: googleAccessToken,
+            token_expires_at: googleTokenExpiry,
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString()
+          });
         }
-      });
+      }
 
-      if (!response.ok) {
-        if (response.status === 401) {
-          throw new Error('User not authenticated');
+      if (!provider || provider === 'business_central') {
+        const { business_central_token } = await chrome.storage.local.get(['business_central_token']);
+        
+        if (business_central_token) {
+          const tokenData = JSON.parse(business_central_token);
+          tokens.push({
+            id: 'bc-local',
+            provider: 'business_central',
+            access_token: tokenData.accessToken,
+            refresh_token: tokenData.refreshToken,
+            token_expires_at: tokenData.expiresAt,
+            tenant_id: tokenData.tenantId,
+            company_id: tokenData.companyId,
+            company_name: tokenData.companyName,
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString()
+          });
         }
-        const errorText = await response.text();
-        throw new Error(`Failed to retrieve tokens: ${response.status} ${errorText}`);
       }
 
-      const result = await response.json();
-      if (!result.success) {
-        throw new Error(result.error || 'Failed to retrieve tokens');
-      }
-
-      return result.tokens || [];
+      return tokens;
     } catch (error) {
       console.error('Error retrieving tokens:', error);
       throw error;
@@ -126,28 +182,46 @@ class TokenManager {
 
   async updateTokens(provider: 'google' | 'business_central', updateData: Partial<TokenData>): Promise<void> {
     try {
-      const authToken = await this.getAuthToken();
-      
-      const url = new URL(`${this.supabaseUrl}/functions/v1/token-manager`);
-      url.searchParams.set('provider', provider);
+      // Try backend first
+      try {
+        const authToken = await this.getAuthToken();
+        
+        const url = new URL(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/token-manager`);
+        url.searchParams.set('provider', provider);
 
-      const response = await fetch(url.toString(), {
-        method: 'PUT',
-        headers: {
-          'Authorization': `Bearer ${authToken}`,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify(updateData)
-      });
+        const response = await fetch(url.toString(), {
+          method: 'PUT',
+          headers: {
+            'Authorization': `Bearer ${authToken}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify(updateData)
+        });
 
-      if (!response.ok) {
-        const errorText = await response.text();
-        throw new Error(`Failed to update tokens: ${response.status} ${errorText}`);
+        if (response.ok) {
+          const result = await response.json();
+          if (result.success) {
+            return;
+          }
+        }
+      } catch (error) {
+        console.warn('Backend update failed, using local storage:', error);
       }
 
-      const result = await response.json();
-      if (!result.success) {
-        throw new Error(result.error || 'Failed to update tokens');
+      // Fallback to local storage
+      if (provider === 'google') {
+        const updates: any = {};
+        if (updateData.accessToken) updates.googleAccessToken = updateData.accessToken;
+        if (updateData.expiresAt) updates.googleTokenExpiry = updateData.expiresAt;
+        await chrome.storage.local.set(updates);
+      } else if (provider === 'business_central') {
+        const existing = await chrome.storage.local.get(['business_central_token']);
+        const tokenData = existing.business_central_token ? JSON.parse(existing.business_central_token) : {};
+        
+        Object.assign(tokenData, updateData);
+        await chrome.storage.local.set({
+          business_central_token: JSON.stringify(tokenData)
+        });
       }
     } catch (error) {
       console.error('Error updating tokens:', error);
@@ -157,29 +231,47 @@ class TokenManager {
 
   async deleteTokens(provider?: 'google' | 'business_central'): Promise<void> {
     try {
-      const authToken = await this.getAuthToken();
-      
-      const url = new URL(`${this.supabaseUrl}/functions/v1/token-manager`);
-      if (provider) {
-        url.searchParams.set('provider', provider);
-      }
-
-      const response = await fetch(url.toString(), {
-        method: 'DELETE',
-        headers: {
-          'Authorization': `Bearer ${authToken}`,
-          'Content-Type': 'application/json'
+      // Try backend first
+      try {
+        const authToken = await this.getAuthToken();
+        
+        const url = new URL(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/token-manager`);
+        if (provider) {
+          url.searchParams.set('provider', provider);
         }
-      });
 
-      if (!response.ok) {
-        const errorText = await response.text();
-        throw new Error(`Failed to delete tokens: ${response.status} ${errorText}`);
+        const response = await fetch(url.toString(), {
+          method: 'DELETE',
+          headers: {
+            'Authorization': `Bearer ${authToken}`,
+            'Content-Type': 'application/json'
+          }
+        });
+
+        if (response.ok) {
+          const result = await response.json();
+          if (result.success) {
+            // Also clear local storage
+            if (!provider || provider === 'google') {
+              await chrome.storage.local.remove(['googleAccessToken', 'googleTokenExpiry']);
+            }
+            if (!provider || provider === 'business_central') {
+              await chrome.storage.local.remove(['business_central_token']);
+            }
+            return;
+          }
+        }
+      } catch (error) {
+        console.warn('Backend deletion failed, clearing local storage:', error);
       }
 
-      const result = await response.json();
-      if (!result.success) {
-        throw new Error(result.error || 'Failed to delete tokens');
+      // Fallback to local storage cleanup
+      if (!provider) {
+        await chrome.storage.local.clear();
+      } else if (provider === 'google') {
+        await chrome.storage.local.remove(['googleAccessToken', 'googleTokenExpiry']);
+      } else if (provider === 'business_central') {
+        await chrome.storage.local.remove(['business_central_token']);
       }
     } catch (error) {
       console.error('Error deleting tokens:', error);
@@ -219,8 +311,15 @@ class TokenManager {
 
   async isUserAuthenticated(): Promise<boolean> {
     try {
-      await this.getAuthToken();
-      return true;
+      // Check if we have a valid Google token
+      const googleToken = await this.getGoogleToken();
+      if (googleToken && await this.isTokenValid(googleToken)) {
+        return true;
+      }
+
+      // Check Supabase session
+      const { data: { session } } = await supabase.auth.getSession();
+      return session !== null;
     } catch (error) {
       return false;
     }
