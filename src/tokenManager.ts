@@ -1,8 +1,5 @@
-import { createClient } from '@supabase/supabase-js';
-
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
-const supabase = createClient(supabaseUrl, supabaseAnonKey);
+// Token Manager for secure backend storage
+// This module handles all token operations through Supabase Edge Functions
 
 export interface TokenData {
   provider: 'google' | 'business_central';
@@ -28,19 +25,27 @@ export interface StoredToken {
 }
 
 class TokenManager {
+  private supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+  private supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+
   private async getAuthToken(): Promise<string> {
-    const { data: { session } } = await supabase.auth.getSession();
-    if (!session?.access_token) {
-      throw new Error('User not authenticated');
-    }
-    return session.access_token;
+    // For Chrome extension, we'll use the Google OAuth token
+    return new Promise((resolve, reject) => {
+      chrome.identity.getAuthToken({ interactive: false }, (token) => {
+        if (chrome.runtime.lastError || !token) {
+          reject(new Error('User not authenticated'));
+          return;
+        }
+        resolve(token);
+      });
+    });
   }
 
   async storeTokens(tokenData: TokenData): Promise<void> {
     try {
       const authToken = await this.getAuthToken();
       
-      const response = await fetch(`${supabaseUrl}/functions/v1/token-manager`, {
+      const response = await fetch(`${this.supabaseUrl}/functions/v1/token-manager`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${authToken}`,
@@ -67,7 +72,7 @@ class TokenManager {
     try {
       const authToken = await this.getAuthToken();
       
-      const url = new URL(`${supabaseUrl}/functions/v1/token-manager`);
+      const url = new URL(`${this.supabaseUrl}/functions/v1/token-manager`);
       if (provider) {
         url.searchParams.set('provider', provider);
       }
@@ -100,7 +105,7 @@ class TokenManager {
     try {
       const authToken = await this.getAuthToken();
       
-      const url = new URL(`${supabaseUrl}/functions/v1/token-manager`);
+      const url = new URL(`${this.supabaseUrl}/functions/v1/token-manager`);
       url.searchParams.set('provider', provider);
 
       const response = await fetch(url.toString(), {
@@ -130,7 +135,7 @@ class TokenManager {
     try {
       const authToken = await this.getAuthToken();
       
-      const url = new URL(`${supabaseUrl}/functions/v1/token-manager`);
+      const url = new URL(`${this.supabaseUrl}/functions/v1/token-manager`);
       if (provider) {
         url.searchParams.set('provider', provider);
       }

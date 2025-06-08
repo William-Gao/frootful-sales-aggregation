@@ -1,5 +1,4 @@
 import { tokenManager, type TokenData } from './tokenManager.js';
-import { supabaseAuth } from './supabaseAuth.js';
 
 const CLIENT_ID = '4c92a998-6af5-4c2a-b16e-80ba1c6b9b3b';
 const TENANT_ID = 'common';
@@ -15,12 +14,6 @@ export interface Company {
 
 export async function authenticateBusinessCentral(): Promise<string> {
   try {
-    // Ensure user is authenticated with Supabase first
-    const user = await supabaseAuth.getCurrentUser();
-    if (!user) {
-      throw new Error('Please sign in with Google first');
-    }
-
     // Check if we have a valid token stored
     const storedToken = await tokenManager.getBusinessCentralToken();
     if (storedToken && await tokenManager.isTokenValid(storedToken)) {
