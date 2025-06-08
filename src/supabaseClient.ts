@@ -1,59 +1,92 @@
-import { createClient } from '@supabase/supabase-js';
+// Supabase client configuration for Chrome Extension
+// This file handles Supabase initialization with Chrome extension compatibility
 
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+let supabase: any = null;
 
-if (!supabaseUrl || !supabaseAnonKey) {
-  throw new Error('Missing Supabase environment variables');
+// Initialize Supabase client lazily to avoid build issues
+async function initializeSupabase() {
+  if (supabase) return supabase;
+
+  try {
+    // Dynamic import to avoid build-time issues
+    const { createClient } = await import('@supabase/supabase-js');
+    
+    const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+    const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+
+    if (!supabaseUrl || !supabaseAnonKey) {
+      throw new Error('Missing Supabase environment variables');
+    }
+
+    // Chrome extension storage adapter for Supabase
+    const chromeStorageAdapter = {
+      getItem: (key: string): Promise<string | null> => {
+        return new Promise((resolve) => {
+          if (typeof chrome !== 'undefined' && chrome.storage) {
+            chrome.storage.local.get([key], (result) => {
+              resolve(result[key] || null);
+            });
+          } else {
+            // Fallback to localStorage for non-extension environments
+            resolve(localStorage.getItem(key));
+          }
+        });
+      },
+      setItem: (key: string, value: string): Promise<void> => {
+        return new Promise((resolve) => {
+          if (typeof chrome !== 'undefined' && chrome.storage) {
+            chrome.storage.local.set({ [key]: value }, () => {
+              resolve();
+            });
+          } else {
+            // Fallback to localStorage for non-extension environments
+            localStorage.setItem(key, value);
+            resolve();
+          }
+        });
+      },
+      removeItem: (key: string): Promise<void> => {
+        return new Promise((resolve) => {
+          if (typeof chrome !== 'undefined' && chrome.storage) {
+            chrome.storage.local.remove([key], () => {
+              resolve();
+            });
+          } else {
+            // Fallback to localStorage for non-extension environments
+            localStorage.removeItem(key);
+            resolve();
+          }
+        });
+      }
+    };
+
+    supabase = createClient(supabaseUrl, supabaseAnonKey, {
+      auth: {
+        storage: chromeStorageAdapter,
+        autoRefreshToken: true,
+        persistSession: true,
+        detectSessionInUrl: false
+      }
+    });
+
+    return supabase;
+  } catch (error) {
+    console.error('Failed to initialize Supabase:', error);
+    // Return a mock client that gracefully handles failures
+    return {
+      auth: {
+        getSession: () => Promise.resolve({ data: { session: null }, error: null }),
+        signInWithIdToken: () => Promise.resolve({ data: null, error: new Error('Supabase not available') }),
+        signOut: () => Promise.resolve({ error: null })
+      }
+    };
+  }
 }
 
-// Chrome extension storage adapter for Supabase
-const chromeStorageAdapter = {
-  getItem: (key: string): Promise<string | null> => {
-    return new Promise((resolve) => {
-      if (typeof chrome !== 'undefined' && chrome.storage) {
-        chrome.storage.local.get([key], (result) => {
-          resolve(result[key] || null);
-        });
-      } else {
-        // Fallback to localStorage for non-extension environments
-        resolve(localStorage.getItem(key));
-      }
-    });
-  },
-  setItem: (key: string, value: string): Promise<void> => {
-    return new Promise((resolve) => {
-      if (typeof chrome !== 'undefined' && chrome.storage) {
-        chrome.storage.local.set({ [key]: value }, () => {
-          resolve();
-        });
-      } else {
-        // Fallback to localStorage for non-extension environments
-        localStorage.setItem(key, value);
-        resolve();
-      }
-    });
-  },
-  removeItem: (key: string): Promise<void> => {
-    return new Promise((resolve) => {
-      if (typeof chrome !== 'undefined' && chrome.storage) {
-        chrome.storage.local.remove([key], () => {
-          resolve();
-        });
-      } else {
-        // Fallback to localStorage for non-extension environments
-        localStorage.removeItem(key);
-        resolve();
-      }
-    });
-  }
-};
+// Export a function that returns the initialized client
+export async function getSupabaseClient() {
+  return await initializeSupabase();
+}
 
-export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
-  auth: {
-    storage: chromeStorageAdapter,
-    autoRefreshToken: true,
-    persistSession: true,
-    detectSessionInUrl: false
-  }
-});
+// For backward compatibility, export a promise that resolves to the client
+export const supabasePromise = initializeSupabase();

@@ -1,4 +1,4 @@
-import { supabase } from './supabaseClient.js';
+import { getSupabaseClient } from './supabaseClient.js';
 import { tokenManager } from './tokenManager.js';
 
 export interface GoogleUser {
@@ -21,6 +21,7 @@ class AuthManager {
       
       // Try to sign in to Supabase with the Google token
       try {
+        const supabase = await getSupabaseClient();
         const { data, error } = await supabase.auth.signInWithIdToken({
           provider: 'google',
           token: googleToken,
@@ -89,6 +90,7 @@ class AuthManager {
     try {
       // Sign out from Supabase
       try {
+        const supabase = await getSupabaseClient();
         await supabase.auth.signOut();
       } catch (error) {
         console.warn('Supabase sign out failed:', error);
@@ -135,6 +137,7 @@ class AuthManager {
 
       // Check Supabase session
       try {
+        const supabase = await getSupabaseClient();
         const { data: { session } } = await supabase.auth.getSession();
         if (session?.user) {
           this.currentUser = {
@@ -164,6 +167,7 @@ class AuthManager {
   // Get Supabase session for backend API calls
   async getSupabaseSession() {
     try {
+      const supabase = await getSupabaseClient();
       const { data: { session } } = await supabase.auth.getSession();
       return session;
     } catch (error) {

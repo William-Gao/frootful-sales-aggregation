@@ -1,7 +1,7 @@
 // Token Manager for secure backend storage
 // This module handles all token operations through Supabase Edge Functions
 
-import { supabase } from './supabaseClient.js';
+import { getSupabaseClient } from './supabaseClient.js';
 
 export interface TokenData {
   provider: 'google' | 'business_central';
@@ -30,6 +30,7 @@ class TokenManager {
   private async getAuthToken(): Promise<string> {
     // First try to get Supabase session token
     try {
+      const supabase = await getSupabaseClient();
       const { data: { session } } = await supabase.auth.getSession();
       if (session?.access_token) {
         return session.access_token;
@@ -320,6 +321,7 @@ class TokenManager {
 
       // Check Supabase session
       try {
+        const supabase = await getSupabaseClient();
         const { data: { session } } = await supabase.auth.getSession();
         return session !== null;
       } catch (error) {
