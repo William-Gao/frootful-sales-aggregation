@@ -9,9 +9,6 @@ export default defineConfig({
   },
   build: {
     rollupOptions: {
-      external: [
-        '@supabase/supabase-js'
-      ],
       input: {
         main: resolve(__dirname, 'index.html'),
         background: resolve(__dirname, 'background/background.ts'),
@@ -57,9 +54,6 @@ export default defineConfig({
             }
           }
           return '[name][extname]';
-        },
-        globals: {
-          '@supabase/supabase-js': 'supabase'
         }
       }
     },

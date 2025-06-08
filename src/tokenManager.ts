@@ -29,13 +29,22 @@ export interface StoredToken {
 class TokenManager {
   private async getAuthToken(): Promise<string> {
     // First try to get Supabase session token
-    const { data: { session } } = await supabase.auth.getSession();
-    if (session?.access_token) {
-      return session.access_token;
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session?.access_token) {
+        return session.access_token;
+      }
+    } catch (error) {
+      console.warn('Failed to get Supabase session:', error);
     }
 
     // Fallback to Google OAuth token for Chrome extension
     return new Promise((resolve, reject) => {
+      if (typeof chrome === 'undefined' || !chrome.identity) {
+        reject(new Error('Chrome Identity API not available'));
+        return;
+      }
+
       chrome.identity.getAuthToken({ interactive: false }, (token) => {
         if (chrome.runtime.lastError || !token) {
           reject(new Error('User not authenticated'));
@@ -46,33 +55,17 @@ class TokenManager {
     });
   }
 
-  private async authenticateUser(): Promise<string> {
-    // Try to get existing token first
-    try {
-      return await this.getAuthToken();
-    } catch (error) {
-      // If no token exists, prompt for interactive authentication
-      return new Promise((resolve, reject) => {
-        chrome.identity.getAuthToken({ interactive: true }, (token) => {
-          if (chrome.runtime.lastError || !token) {
-            reject(new Error('Failed to authenticate user'));
-            return;
-          }
-          resolve(token);
-        });
-      });
-    }
-  }
-
   async storeTokens(tokenData: TokenData): Promise<void> {
     try {
       // For Google tokens, we'll store them locally and in Supabase if authenticated
       if (tokenData.provider === 'google') {
         // Store Google token locally for immediate access
-        await chrome.storage.local.set({
-          googleAccessToken: tokenData.accessToken,
-          googleTokenExpiry: tokenData.expiresAt
-        });
+        if (typeof chrome !== 'undefined' && chrome.storage) {
+          await chrome.storage.local.set({
+            googleAccessToken: tokenData.accessToken,
+            googleTokenExpiry: tokenData.expiresAt
+          });
+        }
       }
 
       // Try to store in Supabase backend if we have a session
@@ -94,9 +87,11 @@ class TokenManager {
       } catch (error) {
         console.warn('Backend storage failed, using local storage:', error);
         // Store locally as fallback
-        await chrome.storage.local.set({
-          [`${tokenData.provider}_token`]: JSON.stringify(tokenData)
-        });
+        if (typeof chrome !== 'undefined' && chrome.storage) {
+          await chrome.storage.local.set({
+            [`${tokenData.provider}_token`]: JSON.stringify(tokenData)
+          });
+        }
       }
     } catch (error) {
       console.error('Error storing tokens:', error);
@@ -136,40 +131,40 @@ class TokenManager {
       // Fallback to local storage
       const tokens: StoredToken[] = [];
       
-      if (!provider || provider === 'google') {
-        const { googleAccessToken, googleTokenExpiry } = await chrome.storage.local.get([
-          'googleAccessToken', 'googleTokenExpiry'
-        ]);
-        
-        if (googleAccessToken) {
-          tokens.push({
-            id: 'google-local',
-            provider: 'google',
-            access_token: googleAccessToken,
-            token_expires_at: googleTokenExpiry,
-            created_at: new Date().toISOString(),
-            updated_at: new Date().toISOString()
-          });
+      if (typeof chrome !== 'undefined' && chrome.storage) {
+        if (!provider || provider === 'google') {
+          const result = await chrome.storage.local.get(['googleAccessToken', 'googleTokenExpiry']);
+          
+          if (result.googleAccessToken) {
+            tokens.push({
+              id: 'google-local',
+              provider: 'google',
+              access_token: result.googleAccessToken,
+              token_expires_at: result.googleTokenExpiry,
+              created_at: new Date().toISOString(),
+              updated_at: new Date().toISOString()
+            });
+          }
         }
-      }
 
-      if (!provider || provider === 'business_central') {
-        const { business_central_token } = await chrome.storage.local.get(['business_central_token']);
-        
-        if (business_central_token) {
-          const tokenData = JSON.parse(business_central_token);
-          tokens.push({
-            id: 'bc-local',
-            provider: 'business_central',
-            access_token: tokenData.accessToken,
-            refresh_token: tokenData.refreshToken,
-            token_expires_at: tokenData.expiresAt,
-            tenant_id: tokenData.tenantId,
-            company_id: tokenData.companyId,
-            company_name: tokenData.companyName,
-            created_at: new Date().toISOString(),
-            updated_at: new Date().toISOString()
-          });
+        if (!provider || provider === 'business_central') {
+          const result = await chrome.storage.local.get(['business_central_token']);
+          
+          if (result.business_central_token) {
+            const tokenData = JSON.parse(result.business_central_token);
+            tokens.push({
+              id: 'bc-local',
+              provider: 'business_central',
+              access_token: tokenData.accessToken,
+              refresh_token: tokenData.refreshToken,
+              token_expires_at: tokenData.expiresAt,
+              tenant_id: tokenData.tenantId,
+              company_id: tokenData.companyId,
+              company_name: tokenData.companyName,
+              created_at: new Date().toISOString(),
+              updated_at: new Date().toISOString()
+            });
+          }
         }
       }
 
@@ -209,19 +204,21 @@ class TokenManager {
       }
 
       // Fallback to local storage
-      if (provider === 'google') {
-        const updates: any = {};
-        if (updateData.accessToken) updates.googleAccessToken = updateData.accessToken;
-        if (updateData.expiresAt) updates.googleTokenExpiry = updateData.expiresAt;
-        await chrome.storage.local.set(updates);
-      } else if (provider === 'business_central') {
-        const existing = await chrome.storage.local.get(['business_central_token']);
-        const tokenData = existing.business_central_token ? JSON.parse(existing.business_central_token) : {};
-        
-        Object.assign(tokenData, updateData);
-        await chrome.storage.local.set({
-          business_central_token: JSON.stringify(tokenData)
-        });
+      if (typeof chrome !== 'undefined' && chrome.storage) {
+        if (provider === 'google') {
+          const updates: any = {};
+          if (updateData.accessToken) updates.googleAccessToken = updateData.accessToken;
+          if (updateData.expiresAt) updates.googleTokenExpiry = updateData.expiresAt;
+          await chrome.storage.local.set(updates);
+        } else if (provider === 'business_central') {
+          const existing = await chrome.storage.local.get(['business_central_token']);
+          const tokenData = existing.business_central_token ? JSON.parse(existing.business_central_token) : {};
+          
+          Object.assign(tokenData, updateData);
+          await chrome.storage.local.set({
+            business_central_token: JSON.stringify(tokenData)
+          });
+        }
       }
     } catch (error) {
       console.error('Error updating tokens:', error);
@@ -252,11 +249,13 @@ class TokenManager {
           const result = await response.json();
           if (result.success) {
             // Also clear local storage
-            if (!provider || provider === 'google') {
-              await chrome.storage.local.remove(['googleAccessToken', 'googleTokenExpiry']);
-            }
-            if (!provider || provider === 'business_central') {
-              await chrome.storage.local.remove(['business_central_token']);
+            if (typeof chrome !== 'undefined' && chrome.storage) {
+              if (!provider || provider === 'google') {
+                await chrome.storage.local.remove(['googleAccessToken', 'googleTokenExpiry']);
+              }
+              if (!provider || provider === 'business_central') {
+                await chrome.storage.local.remove(['business_central_token']);
+              }
             }
             return;
           }
@@ -266,12 +265,14 @@ class TokenManager {
       }
 
       // Fallback to local storage cleanup
-      if (!provider) {
-        await chrome.storage.local.clear();
-      } else if (provider === 'google') {
-        await chrome.storage.local.remove(['googleAccessToken', 'googleTokenExpiry']);
-      } else if (provider === 'business_central') {
-        await chrome.storage.local.remove(['business_central_token']);
+      if (typeof chrome !== 'undefined' && chrome.storage) {
+        if (!provider) {
+          await chrome.storage.local.clear();
+        } else if (provider === 'google') {
+          await chrome.storage.local.remove(['googleAccessToken', 'googleTokenExpiry']);
+        } else if (provider === 'business_central') {
+          await chrome.storage.local.remove(['business_central_token']);
+        }
       }
     } catch (error) {
       console.error('Error deleting tokens:', error);
@@ -318,8 +319,13 @@ class TokenManager {
       }
 
       // Check Supabase session
-      const { data: { session } } = await supabase.auth.getSession();
-      return session !== null;
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        return session !== null;
+      } catch (error) {
+        console.warn('Supabase session check failed:', error);
+        return false;
+      }
     } catch (error) {
       return false;
     }

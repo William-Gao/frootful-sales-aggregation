@@ -19,34 +19,30 @@ class AuthManager {
       // Get user info from Google
       const userInfo = await this.getGoogleUserInfo(googleToken);
       
-      // Sign in to Supabase with the Google token
-      const { data, error } = await supabase.auth.signInWithIdToken({
+      // Try to sign in to Supabase with the Google token
+      try {
+        const { data, error } = await supabase.auth.signInWithIdToken({
+          provider: 'google',
+          token: googleToken,
+          access_token: googleToken
+        });
+
+        if (error) {
+          console.warn('Supabase auth failed, proceeding with Google-only auth:', error);
+        } else if (data.session) {
+          console.log('Successfully authenticated with Supabase');
+        }
+      } catch (supabaseError) {
+        console.warn('Supabase authentication failed, proceeding with Google-only auth:', supabaseError);
+      }
+
+      // Store the Google token for API access
+      await tokenManager.storeTokens({
         provider: 'google',
-        token: googleToken,
-        access_token: googleToken
+        accessToken: googleToken,
+        expiresAt: new Date(Date.now() + 3600000).toISOString() // 1 hour from now
       });
-
-      if (error) {
-        console.error('Supabase auth error:', error);
-        // If Supabase auth fails, we can still proceed with Google-only auth
-        // Store the Google token for API access
-        await tokenManager.storeTokens({
-          provider: 'google',
-          accessToken: googleToken
-        });
-        
-        this.currentUser = userInfo;
-        return userInfo;
-      }
-
-      // Store both Supabase session and Google token
-      if (data.session) {
-        await tokenManager.storeTokens({
-          provider: 'google',
-          accessToken: googleToken
-        });
-      }
-
+      
       this.currentUser = userInfo;
       return userInfo;
     } catch (error) {
@@ -57,6 +53,11 @@ class AuthManager {
 
   private async getGoogleToken(): Promise<string> {
     return new Promise((resolve, reject) => {
+      if (typeof chrome === 'undefined' || !chrome.identity) {
+        reject(new Error('Chrome Identity API not available'));
+        return;
+      }
+
       chrome.identity.getAuthToken({ interactive: true }, (token) => {
         if (chrome.runtime.lastError || !token) {
           reject(new Error('Failed to get Google token'));
@@ -87,11 +88,15 @@ class AuthManager {
   async signOut(): Promise<void> {
     try {
       // Sign out from Supabase
-      await supabase.auth.signOut();
+      try {
+        await supabase.auth.signOut();
+      } catch (error) {
+        console.warn('Supabase sign out failed:', error);
+      }
       
       // Revoke Google token
       const googleToken = await tokenManager.getGoogleToken();
-      if (googleToken) {
+      if (googleToken && typeof chrome !== 'undefined' && chrome.identity) {
         chrome.identity.removeCachedAuthToken({ token: googleToken.access_token }, () => {
           // Token removed from cache
         });
@@ -129,15 +134,19 @@ class AuthManager {
       }
 
       // Check Supabase session
-      const { data: { session } } = await supabase.auth.getSession();
-      if (session?.user) {
-        this.currentUser = {
-          id: session.user.id,
-          email: session.user.email || '',
-          name: session.user.user_metadata?.full_name || session.user.email || '',
-          picture: session.user.user_metadata?.avatar_url
-        };
-        return this.currentUser;
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (session?.user) {
+          this.currentUser = {
+            id: session.user.id,
+            email: session.user.email || '',
+            name: session.user.user_metadata?.full_name || session.user.email || '',
+            picture: session.user.user_metadata?.avatar_url
+          };
+          return this.currentUser;
+        }
+      } catch (error) {
+        console.warn('Supabase session check failed:', error);
       }
 
       return null;
@@ -154,8 +163,13 @@ class AuthManager {
 
   // Get Supabase session for backend API calls
   async getSupabaseSession() {
-    const { data: { session } } = await supabase.auth.getSession();
-    return session;
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      return session;
+    } catch (error) {
+      console.warn('Failed to get Supabase session:', error);
+      return null;
+    }
   }
 
   // Get Google token for Gmail API calls
