@@ -117,6 +117,12 @@ function checkForEmailView(): void {
     if (parent) {
       injectExtractButton(parent);
     }
+  } else if (currentEmailId && !isAuthenticated) {
+    // Show a different button that prompts for authentication
+    const parent = senderSpan.parentElement;
+    if (parent) {
+      injectSignInButton(parent);
+    }
   }
 }
 
@@ -143,6 +149,41 @@ function injectExtractButton(container: Element): void {
 
   extractButton.addEventListener('click', handleExtractClick);
   container.appendChild(extractButton);
+}
+
+// Inject sign-in button when user is not authenticated
+function injectSignInButton(container: Element): void {
+  if (container.querySelector('.frootful-extract-btn')) return;
+
+  extractButton = document.createElement('div');
+  extractButton.className = 'frootful-extract-btn';
+  extractButton.innerHTML = `
+    <div class="frootful-btn-container">
+      <button class="frootful-btn frootful-signin-btn" title="Sign in to use Frootful">
+        <span class="frootful-icon">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+            stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"></path>
+            <polyline points="10 17 15 12 10 7"></polyline>
+            <line x1="15" y1="12" x2="3" y2="12"></line>
+          </svg>
+        </span>
+        <span class="frootful-text">Sign in</span>
+      </button>
+    </div>
+  `;
+
+  extractButton.addEventListener('click', handleSignInClick);
+  container.appendChild(extractButton);
+}
+
+// Handle sign-in button click
+function handleSignInClick(e: MouseEvent): void {
+  e.preventDefault();
+  e.stopPropagation();
+  
+  // Open the extension popup
+  chrome.runtime.sendMessage({ action: 'openPopup' });
 }
 
 // Handle extract button click
@@ -189,7 +230,37 @@ function handleExtractResponse(response: { success: boolean; data?: EmailData; e
     showSidebar(response.data);
   } else {
     console.error('Error extracting email:', response.error || 'Unknown error');
+    showErrorNotification(response.error || 'Failed to extract email');
   }
+}
+
+// Show error notification
+function showErrorNotification(message: string): void {
+  const notification = document.createElement('div');
+  notification.style.cssText = `
+    position: fixed;
+    top: 20px;
+    right: 20px;
+    background-color: #fee2e2;
+    color: #991b1b;
+    padding: 12px 16px;
+    border-radius: 6px;
+    border: 1px solid #fecaca;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    font-size: 14px;
+    font-weight: 500;
+    z-index: 10000;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+    max-width: 300px;
+  `;
+  notification.textContent = message;
+  
+  document.body.appendChild(notification);
+  
+  // Remove after 5 seconds
+  setTimeout(() => {
+    notification.remove();
+  }, 5000);
 }
 
 // Show sidebar with email content

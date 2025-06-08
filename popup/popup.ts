@@ -1,4 +1,5 @@
 import { authenticateBusinessCentral, signOut, fetchCompanies, getSelectedCompanyId, setSelectedCompanyId, type Company } from '../src/businessCentralAuth.js';
+import { tokenManager } from '../src/tokenManager.js';
 
 interface Port {
   postMessage: (message: any) => void;
@@ -26,6 +27,48 @@ document.addEventListener('DOMContentLoaded', () => {
   // Initialize connection to background script
   const port: Port = chrome.runtime.connect({ name: 'frootful-popup' });
   
+  // Handle Google authentication
+  loginBtn.addEventListener('click', async () => {
+    try {
+      loginBtn.disabled = true;
+      loginBtn.textContent = 'Signing in...';
+      
+      // Use Chrome identity API for Google authentication
+      const token = await new Promise<string>((resolve, reject) => {
+        chrome.identity.getAuthToken({ interactive: true }, (token) => {
+          if (chrome.runtime.lastError || !token) {
+            reject(new Error('Failed to authenticate with Google'));
+            return;
+          }
+          resolve(token);
+        });
+      });
+
+      // Store Google token
+      await tokenManager.storeTokens({
+        provider: 'google',
+        accessToken: token
+      });
+
+      updateUI(true);
+      fetchUserInfo();
+      showSuccess('Successfully signed in with Google!');
+    } catch (error) {
+      console.error('Google auth error:', error);
+      showError('Failed to sign in with Google');
+    } finally {
+      loginBtn.disabled = false;
+      loginBtn.innerHTML = `
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"></path>
+          <polyline points="10 17 15 12 10 7"></polyline>
+          <line x1="15" y1="12" x2="3" y2="12"></line>
+        </svg>
+        Sign in with Google
+      `;
+    }
+  });
+
   // Handle Business Central authentication
   bcLoginBtn.addEventListener('click', async () => {
     try {
@@ -34,20 +77,18 @@ document.addEventListener('DOMContentLoaded', () => {
       
       const token = await authenticateBusinessCentral();
       
-      // Store the token and fetch companies ONLY after successful authentication
-      chrome.storage.local.set({ bcAccessToken: token }, async () => {
-        try {
-          await loadCompanies(token);
-          bcLoginBtn.classList.add('hidden');
-          bcConnected.classList.remove('hidden');
-        } catch (error) {
-          console.error('Error loading companies:', error);
-          showError('Connected but failed to load companies');
-        }
-      });
+      // Load companies after successful authentication
+      await loadCompanies(token);
+      bcLoginBtn.classList.add('hidden');
+      bcConnected.classList.remove('hidden');
+      showSuccess('Successfully connected to Business Central!');
     } catch (error) {
       console.error('BC auth error:', error);
-      showError('Failed to connect to Business Central');
+      if (error instanceof Error && error.message.includes('sign in with Google')) {
+        showError('Please sign in with Google first before connecting to Business Central');
+      } else {
+        showError('Failed to connect to Business Central');
+      }
     } finally {
       bcLoginBtn.disabled = false;
       bcLoginBtn.textContent = 'Connect to Business Central';
@@ -58,7 +99,54 @@ document.addEventListener('DOMContentLoaded', () => {
   companySelect.addEventListener('change', async (e) => {
     const selectedCompanyId = (e.target as HTMLSelectElement).value;
     if (selectedCompanyId) {
-      await setSelectedCompanyId(selectedCompanyId);
+      try {
+        await setSelectedCompanyId(selectedCompanyId);
+        showSuccess('Company selected successfully!');
+      } catch (error) {
+        console.error('Error setting company:', error);
+        showError('Failed to select company');
+      }
+    }
+  });
+
+  // Handle logout
+  logoutBtn.addEventListener('click', async () => {
+    try {
+      logoutBtn.disabled = true;
+      logoutBtn.textContent = 'Signing out...';
+      
+      // Sign out from Business Central
+      await signOut();
+      
+      // Revoke Google token
+      const googleToken = await tokenManager.getGoogleToken();
+      if (googleToken) {
+        chrome.identity.removeCachedAuthToken({ token: googleToken.access_token }, () => {
+          // Token removed from cache
+        });
+      }
+      
+      // Clear all stored tokens
+      await tokenManager.deleteTokens();
+      
+      updateUI(false);
+      // Reset BC connection state
+      bcLoginBtn.classList.remove('hidden');
+      bcConnected.classList.add('hidden');
+      showSuccess('Successfully signed out!');
+    } catch (error) {
+      console.error('Logout error:', error);
+      showError('Failed to sign out completely');
+    } finally {
+      logoutBtn.disabled = false;
+      logoutBtn.innerHTML = `
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path>
+          <polyline points="16 17 21 12 16 7"></polyline>
+          <line x1="21" y1="12" x2="9" y2="12"></line>
+        </svg>
+        Sign out
+      `;
     }
   });
 
@@ -94,106 +182,38 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   }
   
-  // Check if already connected to BC - only try to load companies if we have a valid token
-  chrome.storage.local.get(['bcAccessToken', 'bcTenantId'], async (result) => {
-    if (result.bcAccessToken) {
-      try {
-        // Test if the token is still valid by making a simple API call
-        const testResponse = await fetch('https://api.businesscentral.dynamics.com/v2.0/Production/api/v2.0/companies', {
-          headers: {
-            'Authorization': `Bearer ${result.bcAccessToken}`,
-            'Content-Type': 'application/json'
-          }
-        });
+  // Check initial authentication state
+  async function checkAuthState(): Promise<void> {
+    try {
+      const isAuthenticated = await tokenManager.isUserAuthenticated();
+      updateUI(isAuthenticated);
+      
+      if (isAuthenticated) {
+        fetchUserInfo();
         
-        if (testResponse.ok) {
-          await loadCompanies(result.bcAccessToken);
-          bcLoginBtn.classList.add('hidden');
-          bcConnected.classList.remove('hidden');
-        } else {
-          // Token is invalid, clear it and show login button
-          chrome.storage.local.remove(['bcAccessToken', 'bcRefreshToken', 'bcTokenExpiry', 'selectedCompanyId', 'selectedCompanyName', 'bcTenantId']);
-          bcLoginBtn.classList.remove('hidden');
-          bcConnected.classList.add('hidden');
+        // Check if Business Central is also connected
+        const bcToken = await tokenManager.getBusinessCentralToken();
+        if (bcToken && await tokenManager.isTokenValid(bcToken)) {
+          try {
+            await loadCompanies(bcToken.access_token);
+            bcLoginBtn.classList.add('hidden');
+            bcConnected.classList.remove('hidden');
+          } catch (error) {
+            console.error('Error loading BC companies:', error);
+            // BC token might be invalid, show login button
+            bcLoginBtn.classList.remove('hidden');
+            bcConnected.classList.add('hidden');
+          }
         }
-      } catch (error) {
-        console.error('Error validating BC token:', error);
-        // Token might be expired, show login button
-        bcLoginBtn.classList.remove('hidden');
-        bcConnected.classList.add('hidden');
       }
+    } catch (error) {
+      console.error('Error checking auth state:', error);
+      updateUI(false);
     }
-  });
+  }
   
-  // Handle messages from background script
-  port.onMessage.addListener((message: any) => {
-    if (message.action === 'checkAuthState') {
-      updateUI(message.isAuthenticated);
-      
-      if (message.isAuthenticated) {
-        fetchUserInfo();
-      }
-    }
-    
-    if (message.action === 'authenticate') {
-      loginBtn.disabled = false;
-      loginBtn.innerHTML = `
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"></path>
-          <polyline points="10 17 15 12 10 7"></polyline>
-          <line x1="15" y1="12" x2="3" y2="12"></line>
-        </svg>
-        Sign in with Google
-      `;
-      
-      if (message.success) {
-        updateUI(true);
-        fetchUserInfo();
-      } else {
-        showError('Failed to authenticate. Please try again.');
-      }
-    }
-    
-    if (message.action === 'revokeAuthentication') {
-      logoutBtn.disabled = false;
-      logoutBtn.innerHTML = `
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path>
-          <polyline points="16 17 21 12 16 7"></polyline>
-          <line x1="21" y1="12" x2="9" y2="12"></line>
-        </svg>
-        Sign out
-      `;
-      
-      if (message.success) {
-        updateUI(false);
-        // Reset BC connection state
-        bcLoginBtn.classList.remove('hidden');
-        bcConnected.classList.add('hidden');
-      } else {
-        showError('Failed to sign out. Please try again.');
-      }
-    }
-  });
-  
-  // Check initial auth state
-  port.postMessage({ action: 'checkAuthState' });
-  
-  // Handle login button click
-  loginBtn.addEventListener('click', () => {
-    loginBtn.disabled = true;
-    loginBtn.textContent = 'Signing in...';
-    
-    port.postMessage({ action: 'authenticate' });
-  });
-  
-  // Handle logout button click
-  logoutBtn.addEventListener('click', () => {
-    logoutBtn.disabled = true;
-    logoutBtn.textContent = 'Signing out...';
-    
-    port.postMessage({ action: 'revokeAuthentication' });
-  });
+  // Initialize auth state check
+  checkAuthState();
   
   // Update UI based on authentication state
   function updateUI(isAuthenticated: boolean): void {
@@ -217,6 +237,29 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
   
+  // Show success message
+  function showSuccess(message: string): void {
+    const successDiv = document.createElement('div');
+    successDiv.className = 'success-message';
+    successDiv.style.backgroundColor = '#DEF7EC';
+    successDiv.style.color = '#03543F';
+    successDiv.style.padding = '12px';
+    successDiv.style.borderRadius = '6px';
+    successDiv.style.marginBottom = '16px';
+    successDiv.style.fontSize = '14px';
+    successDiv.textContent = message;
+    
+    const content = document.querySelector('.content');
+    if (content) {
+      content.prepend(successDiv);
+    }
+    
+    // Remove after 3 seconds
+    setTimeout(() => {
+      successDiv.remove();
+    }, 3000);
+  }
+  
   // Show error message
   function showError(message: string): void {
     const errorDiv = document.createElement('div');
@@ -226,6 +269,7 @@ document.addEventListener('DOMContentLoaded', () => {
     errorDiv.style.padding = '12px';
     errorDiv.style.borderRadius = '6px';
     errorDiv.style.marginBottom = '16px';
+    errorDiv.style.fontSize = '14px';
     errorDiv.textContent = message;
     
     const content = document.querySelector('.content');
@@ -233,9 +277,9 @@ document.addEventListener('DOMContentLoaded', () => {
       content.prepend(errorDiv);
     }
     
-    // Remove after 3 seconds
+    // Remove after 5 seconds
     setTimeout(() => {
       errorDiv.remove();
-    }, 3000);
+    }, 5000);
   }
 });

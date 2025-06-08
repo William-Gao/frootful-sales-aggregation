@@ -20,39 +20,70 @@
     
     <div class="content">
       <div id="not-authenticated">
-        <p>Sign in with Google to start extracting your emails.</p>
-        <button id="login-btn" class="primary-btn">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"></path>
-            <polyline points="10 17 15 12 10 7"></polyline>
-            <line x1="15" y1="12" x2="3" y2="12"></line>
-          </svg>
-          Sign in with Google
-        </button>
+        <div class="welcome-section">
+          <h2>Welcome to Frootful!</h2>
+          <p>Extract and analyze email content from Gmail and integrate with Business Central ERP systems.</p>
+        </div>
+        
+        <div class="auth-section">
+          <h3>Get Started</h3>
+          <p>Sign in with your Google account to start extracting emails.</p>
+          <button id="login-btn" class="primary-btn">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"></path>
+              <polyline points="10 17 15 12 10 7"></polyline>
+              <line x1="15" y1="12" x2="3" y2="12"></line>
+            </svg>
+            Sign in with Google
+          </button>
+        </div>
+        
+        <div class="features-section">
+          <h4>Features:</h4>
+          <ul>
+            <li>Extract email content from Gmail</li>
+            <li>AI-powered content analysis</li>
+            <li>Business Central integration</li>
+            <li>Automated order creation</li>
+          </ul>
+        </div>
       </div>
       
       <div id="authenticated" class="hidden">
         <div class="user-info">
           <div class="avatar">
-            <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="#6366F1" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#6366F1" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
               <path d="M18 20a6 6 0 0 0-12 0"></path>
               <circle cx="12" cy="10" r="4"></circle>
             </svg>
           </div>
           <div class="user-details">
             <p class="user-email">user@example.com</p>
-            <p class="user-status">Connected to Gmail</p>
+            <p class="user-status">✓ Connected to Gmail</p>
           </div>
         </div>
         
         <div class="bc-auth-section">
+          <h3>Business Central</h3>
+          <p class="section-description">Connect to your Business Central environment to create orders directly from emails.</p>
+          
           <button id="bc-login-btn" class="secondary-btn mb-4">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"></path>
+            </svg>
             Connect to Business Central
           </button>
+          
           <div id="bc-connected" class="hidden">
-            <p class="text-sm text-gray-600 mb-4">Connected to Business Central</p>
+            <div class="bc-status">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#10B981" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="20 6 9 17 4 12"></polyline>
+              </svg>
+              <span>Connected to Business Central</span>
+            </div>
+            
             <div class="company-selection">
-              <label for="company-select" class="text-sm text-gray-600">Select Company:</label>
+              <label for="company-select">Select Company:</label>
               <select id="company-select" class="company-select">
                 <option value="">Loading companies...</option>
               </select>
@@ -60,8 +91,14 @@
           </div>
         </div>
         
-        <div class="stats">
-          <p>Open a Gmail message and click the "Extract" button to get started.</p>
+        <div class="usage-section">
+          <h4>How to use:</h4>
+          <ol>
+            <li>Open Gmail and select an email</li>
+            <li>Click the "Extract" button in the email toolbar</li>
+            <li>Review and edit the extracted content</li>
+            <li>Export to Business Central (if connected)</li>
+          </ol>
         </div>
         
         <button id="logout-btn" class="secondary-btn">

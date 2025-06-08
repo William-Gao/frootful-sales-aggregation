@@ -24,17 +24,32 @@
   display: flex;
   align-items: center;
   gap: 6px;
-  transition: background-color 0.2s ease;
+  transition: all 0.2s ease;
   height: 32px;
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
 }
 
 .frootful-btn:hover {
   background-color: #4F46E5;
+  transform: translateY(-1px);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.15);
 }
 
 .frootful-btn:active {
   background-color: #4338CA;
+  transform: translateY(0);
+}
+
+.frootful-signin-btn {
+  background: linear-gradient(135deg, #10B981 0%, #059669 100%);
+}
+
+.frootful-signin-btn:hover {
+  background: linear-gradient(135deg, #059669 0%, #047857 100%);
+}
+
+.frootful-signin-btn:active {
+  background: linear-gradient(135deg, #047857 0%, #065f46 100%);
 }
 
 .frootful-icon {
@@ -46,6 +61,7 @@
 .frootful-extract-btn.loading .frootful-btn {
   background-color: #818CF8;
   cursor: default;
+  transform: none;
 }
 
 .frootful-extract-btn.loading .frootful-icon svg {
@@ -86,5 +102,35 @@
   
   .frootful-btn {
     padding: 6px;
+  }
+}
+
+/* Notification styles */
+.frootful-notification {
+  position: fixed;
+  top: 20px;
+  right: 20px;
+  background-color: #fee2e2;
+  color: #991b1b;
+  padding: 12px 16px;
+  border-radius: 6px;
+  border: 1px solid #fecaca;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-size: 14px;
+  font-weight: 500;
+  z-index: 10000;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  max-width: 300px;
+  animation: slideIn 0.3s ease-out;
+}
+
+@keyframes slideIn {
+  from {
+    transform: translateX(100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
   }
 }

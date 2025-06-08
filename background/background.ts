@@ -53,14 +53,12 @@ const ports: Set<Port> = new Set();
 // Handle installation
 chrome.runtime.onInstalled.addListener((details) => {
   if (details.reason === 'install') {
-    // Open onboarding page on install
-    chrome.tabs.create({
-      url: 'onboarding/welcome.html'
-    });
+    // Open popup to prompt for sign-in instead of onboarding page
+    chrome.action.openPopup();
   }
 });
 
-// Handle connection from content scripts
+// Handle connection from content scripts and popup
 chrome.runtime.onConnect.addListener((port: Port) => {
   ports.add(port);
   
@@ -126,17 +124,14 @@ async function authenticate(): Promise<string> {
       }
       
       if (token) {
-        // Store token
-        chrome.storage.local.set({ accessToken: token }, () => {
-          // Notify all connected ports about authentication state
-          ports.forEach(port => {
-            port.postMessage({ 
-              action: 'authStateChanged',
-              isAuthenticated: true 
-            });
+        // Notify all connected ports about authentication state
+        ports.forEach(port => {
+          port.postMessage({ 
+            action: 'authStateChanged',
+            isAuthenticated: true 
           });
-          resolve(token);
         });
+        resolve(token);
       } else {
         reject(new Error('Failed to get auth token'));
       }
@@ -147,24 +142,22 @@ async function authenticate(): Promise<string> {
 // Revoke authentication
 async function revokeAuthentication(): Promise<void> {
   return new Promise((resolve, reject) => {
-    chrome.storage.local.get(['accessToken'], async (result) => {
-      if (result.accessToken) {
+    chrome.identity.getAuthToken({ interactive: false }, async (token) => {
+      if (token) {
         try {
           // Revoke token with Google
-          await fetch(`https://accounts.google.com/o/oauth2/revoke?token=${result.accessToken}`);
+          await fetch(`https://accounts.google.com/o/oauth2/revoke?token=${token}`);
           
-          // Remove token from storage
-          chrome.identity.removeCachedAuthToken({ token: result.accessToken }, () => {
-            chrome.storage.local.remove('accessToken', () => {
-              // Notify all connected ports about authentication state
-              ports.forEach(port => {
-                port.postMessage({ 
-                  action: 'authStateChanged',
-                  isAuthenticated: false 
-                });
+          // Remove token from cache
+          chrome.identity.removeCachedAuthToken({ token: token }, () => {
+            // Notify all connected ports about authentication state
+            ports.forEach(port => {
+              port.postMessage({ 
+                action: 'authStateChanged',
+                isAuthenticated: false 
               });
-              resolve();
             });
+            resolve();
           });
         } catch (error) {
           reject(error);
@@ -189,8 +182,7 @@ async function extractEmail(emailId: string, token: string | null): Promise<{ su
         Authorization: `Bearer ${token}`
       }
     });
-    console.log('This is the response: ')
-    console.log(response)
+    
     if (!response.ok) {
       throw new Error(`Failed to fetch email: ${response.status}`);
     }
