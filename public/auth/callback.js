@@ -11,7 +11,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   // Get extension ID from URL parameters
   const urlParams = new URLSearchParams(window.location.search);
   const extensionId = urlParams.get('extensionId');
-  console.log('This is window.location: ', window.location)
+  // console.log('This is window.location: ', window.location)
   // if (!extensionId) {
   //   showError('Invalid callback - missing extension ID');
   //   return;
@@ -27,7 +27,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     // Get the session from the URL hash (Supabase OAuth callback)
     const { data: { session }, error } = await supabase.auth.getSession();
-
+    console.log('This is session in callback.js: ', session);
     if (error) {
       console.error('Session error:', error);
       throw error;
@@ -45,12 +45,9 @@ document.addEventListener('DOMContentLoaded', async () => {
       access_token: session.access_token,
       refresh_token: session.refresh_token,
       expires_at: session.expires_at,
-      user: {
-        id: session.user.id,
-        email: session.user.email,
-        name: session.user.user_metadata?.full_name || session.user.email,
-        picture: session.user.user_metadata?.avatar_url
-      }
+      user: session.user,
+      provider_token: session.provider_token,
+      provider_refresh_token: session.provider_refresh_token
     };
 
     console.log('Sending session data to extension:', extensionId);
@@ -102,9 +99,9 @@ document.addEventListener('DOMContentLoaded', async () => {
     successState.style.display = 'block';
     
     // Auto-close window after 2 seconds
-    setTimeout(() => {
-      window.close();
-    }, 2000);
+    // setTimeout(() => {
+    //   window.close();
+    // }, 2000);
   }
 
   function showError(message) {

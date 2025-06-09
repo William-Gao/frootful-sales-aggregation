@@ -83,6 +83,9 @@ function createSupabaseClient(url, anonKey) {
       const refreshToken = params.get('refresh_token');
       const expiresIn   = params.get('expires_in');
       const tokenType   = params.get('token_type') || 'bearer';
+      const providerToken = params.get('provider_token');
+      const providerRefreshToken = params.get('provider_refresh_token');
+      console.log('This is hash: ', hash);
 
       if (accessToken) {
         // 2) Fetch the user record
@@ -103,6 +106,8 @@ function createSupabaseClient(url, anonKey) {
             : null,
           token_type: tokenType,
           user,
+          provider_token: providerToken,
+          provider_refresh_token: providerRefreshToken
         };
 
         // 3) Store and clean up

@@ -7,12 +7,9 @@ export interface AuthSession {
   access_token: string;
   refresh_token?: string;
   expires_at?: number;
-  user: {
-    id: string;
-    email: string;
-    name: string;
-    picture?: string;
-  };
+  user: any;
+  provider_token: string;
+  provder_refresh_token: string;
 }
 
 interface AuthMessage {
@@ -260,10 +257,10 @@ class HybridAuthManager {
   }
 
   private cleanup(): void {
-    if (this.authWindow) {
-      this.authWindow.close();
-      this.authWindow = null;
-    }
+    // if (this.authWindow) {
+    //   this.authWindow.close();
+    //   this.authWindow = null;
+    // }
     
     // Clean up global handlers
     delete window.frootfulAuthSuccess;
