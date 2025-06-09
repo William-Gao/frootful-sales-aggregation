@@ -1,4 +1,4 @@
-// Direct Google OAuth with authorization code flow
+// Direct Google OAuth with authorization code flow - No external dependencies
 document.addEventListener('DOMContentLoaded', async () => {
   const googleSigninBtn = document.getElementById('google-signin');
   const loading = document.getElementById('loading');
@@ -30,7 +30,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       const supabaseUrl = 'https://zkglvdfppodwlgzhfgqs.supabase.co';
       const redirectUri = `${window.location.origin}/auth/callback.html`;
       
-      // Construct Supabase OAuth URL with proper parameters
+      // Construct Supabase OAuth URL with proper parameters for authorization code flow
       const params = new URLSearchParams({
         provider: 'google',
         redirect_to: redirectUri,

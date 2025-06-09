@@ -1,4 +1,4 @@
-// Callback handler for Supabase OAuth
+// Callback handler for Supabase OAuth - No external dependencies
 document.addEventListener('DOMContentLoaded', async () => {
   const loadingState = document.getElementById('loading-state');
   const successState = document.getElementById('success-state');
@@ -17,39 +17,66 @@ document.addEventListener('DOMContentLoaded', async () => {
   try {
     console.log('Callback page loaded, processing Supabase OAuth response...');
     
-    // Initialize Supabase client
-    const supabase = await initializeSupabase();
+    // Check URL for session data (Supabase redirects with hash fragments)
+    const hashParams = new URLSearchParams(window.location.hash.substring(1));
+    const urlParams = new URLSearchParams(window.location.search);
     
-    console.log('Supabase initialized, getting session...');
+    // Look for access token in hash or query parameters
+    let accessToken = hashParams.get('access_token') || urlParams.get('access_token');
+    let refreshToken = hashParams.get('refresh_token') || urlParams.get('refresh_token');
+    let expiresIn = hashParams.get('expires_in') || urlParams.get('expires_in');
+    let tokenType = hashParams.get('token_type') || urlParams.get('token_type');
+    
+    console.log('URL hash:', window.location.hash);
+    console.log('URL search:', window.location.search);
+    console.log('Access token found:', !!accessToken);
 
-    // Get the session from Supabase (it handles the code exchange automatically)
-    const { data: { session }, error } = await supabase.auth.getSession();
+    if (!accessToken) {
+      // Try to get session from Supabase API directly
+      console.log('No access token in URL, trying to fetch session from Supabase...');
+      
+      try {
+        // Make a request to Supabase to get the current session
+        const response = await fetch('https://zkglvdfppodwlgzhfgqs.supabase.co/auth/v1/user', {
+          method: 'GET',
+          headers: {
+            'apikey': 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InprZ2x2ZGZwcG9kd2xnemhmZ3FzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDYxOTQ5MjgsImV4cCI6MjA2MTc3MDkyOH0.qzyywdy4k6A0DucETls_YT32YvAxuwDV6eBFjs89BRg',
+            'Authorization': `Bearer ${accessToken || ''}`
+          }
+        });
 
-    if (error) {
-      console.error('Session error:', error);
-      throw error;
+        if (response.ok) {
+          const userData = await response.json();
+          console.log('User data from Supabase:', userData);
+        }
+      } catch (apiError) {
+        console.error('Supabase API error:', apiError);
+      }
+      
+      throw new Error('No access token found in OAuth callback');
     }
 
-    if (!session) {
-      console.error('No session found');
-      throw new Error('No session found after authentication');
+    console.log('Processing OAuth tokens...');
+
+    // Get user info from Google using the access token
+    const userResponse = await fetch(`https://www.googleapis.com/oauth2/v2/userinfo?access_token=${accessToken}`);
+    
+    if (!userResponse.ok) {
+      throw new Error('Failed to get user info from Google');
     }
 
-    console.log('Session found:', session.user.email);
-
-    // Get user info
-    const user = session.user;
-    const accessToken = session.access_token;
+    const userInfo = await userResponse.json();
+    console.log('User info from Google:', userInfo);
 
     const sessionData = {
       access_token: accessToken,
-      refresh_token: session.refresh_token,
-      expires_at: session.expires_at,
+      refresh_token: refreshToken,
+      expires_at: expiresIn ? Math.floor(Date.now() / 1000) + parseInt(expiresIn) : null,
       user: {
-        id: user.id,
-        email: user.email,
-        name: user.user_metadata?.full_name || user.email,
-        picture: user.user_metadata?.avatar_url
+        id: userInfo.id,
+        email: userInfo.email,
+        name: userInfo.name || userInfo.email,
+        picture: userInfo.picture
       }
     };
 
@@ -117,42 +144,3 @@ document.addEventListener('DOMContentLoaded', async () => {
     window.close();
   });
 });
-
-// Initialize Supabase client for callback processing
-async function initializeSupabase() {
-  try {
-    // Load Supabase from CDN
-    if (!window.supabase) {
-      await loadSupabaseScript();
-    }
-
-    const { createClient } = window.supabase;
-    
-    const supabaseUrl = 'https://zkglvdfppodwlgzhfgqs.supabase.co';
-    const supabaseAnonKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InprZ2x2ZGZwcG9kd2xnemhmZ3FzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDYxOTQ5MjgsImV4cCI6MjA2MTc3MDkyOH0.qzyywdy4k6A0DucETls_YT32YvAxuwDV6eBFjs89BRg';
-
-    const supabase = createClient(supabaseUrl, supabaseAnonKey, {
-      auth: {
-        autoRefreshToken: true,
-        persistSession: true,
-        detectSessionInUrl: true
-      }
-    });
-
-    return supabase;
-  } catch (error) {
-    console.error('Failed to initialize Supabase:', error);
-    throw error;
-  }
-}
-
-// Load Supabase script dynamically
-function loadSupabaseScript() {
-  return new Promise((resolve, reject) => {
-    const script = document.createElement('script');
-    script.src = 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.39.7/dist/umd/supabase.min.js';
-    script.onload = resolve;
-    script.onerror = reject;
-    document.head.appendChild(script);
-  });
-}
