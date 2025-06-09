@@ -1,4 +1,5 @@
-import { getSupabaseClient } from '/src/supabaseClient.js';
+// Import from the local supabaseClient
+import { getSupabaseClient } from './supabaseClient.js';
 
 document.addEventListener('DOMContentLoaded', async () => {
   const googleSigninBtn = document.getElementById('google-signin');
@@ -20,8 +21,12 @@ document.addEventListener('DOMContentLoaded', async () => {
       loading.style.display = 'block';
       errorDiv.style.display = 'none';
 
+      console.log('Initializing Supabase...');
+      
       // Initialize Supabase
       const supabase = await getSupabaseClient();
+      
+      console.log('Supabase initialized, starting OAuth flow...');
 
       // Sign in with Google using Supabase Auth
       const { data, error } = await supabase.auth.signInWithOAuth({
@@ -37,9 +42,11 @@ document.addEventListener('DOMContentLoaded', async () => {
       });
 
       if (error) {
+        console.error('OAuth error:', error);
         throw error;
       }
 
+      console.log('OAuth initiated successfully');
       // The redirect will happen automatically
     } catch (error) {
       console.error('Sign-in error:', error);
