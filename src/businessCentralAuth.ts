@@ -1,4 +1,5 @@
-import { hybridAuth } from './hybridAuth.js';
+import { supabaseClient } from './supabaseClient.js';
+import { providerTokenManager } from './tokenManager.js';
 
 const CLIENT_ID = '4c92a998-6af5-4c2a-b16e-80ba1c6b9b3b';
 const TENANT_ID = 'common';
@@ -14,13 +15,17 @@ export interface Company {
 
 export async function authenticateBusinessCentral(): Promise<string> {
   try {
-    // First check if user is authenticated with Google
-    const isGoogleAuthenticated = await hybridAuth.isAuthenticated();
-    if (!isGoogleAuthenticated) {
-      throw new Error('Please sign in with Google first');
+    // First check if user is authenticated with Google using Supabase
+    const supabase = await supabaseClient;
+    const { data: { session }, error } = await supabase.auth.getSession();
+    
+    if (!session || error) {
+      throw new Error('Please sign in with Google first before connecting to Business Central');
     }
 
-    // Check if we have a valid token stored
+    console.log('Google authentication verified via Supabase session');
+
+    // Check if we have a valid Business Central token stored
     const storedToken = await getBusinessCentralToken();
     if (storedToken && await isTokenValid(storedToken)) {
       return storedToken.access_token;
@@ -91,13 +96,27 @@ export async function authenticateBusinessCentral(): Promise<string> {
     // Parse and store tenant ID from the token
     const tenantId = await parseTenantIdFromToken(tokens.access_token);
     
-    // Store tokens securely
+    // Store tokens securely in local storage
     await storeBusinessCentralTokens({
       access_token: tokens.access_token,
       refresh_token: tokens.refresh_token,
       expires_at: Date.now() + (tokens.expires_in * 1000),
       tenant_id: tenantId
     });
+
+    // Also store in backend using token manager
+    try {
+      await providerTokenManager.storeTokens({
+        provider: 'business_central',
+        accessToken: tokens.access_token,
+        refreshToken: tokens.refresh_token,
+        expiresAt: new Date(Date.now() + (tokens.expires_in * 1000)).toISOString(),
+        tenantId: tenantId
+      });
+      console.log('Successfully stored Business Central tokens in backend');
+    } catch (backendError) {
+      console.warn('Failed to store tokens in backend, using local storage only:', backendError);
+    }
 
     return tokens.access_token;
   } catch (error) {
@@ -129,13 +148,26 @@ async function refreshToken(refreshToken: string): Promise<string> {
   // Parse and store tenant ID from the refreshed token
   const tenantId = await parseTenantIdFromToken(tokens.access_token);
 
-  // Update stored tokens
+  // Update stored tokens locally
   await storeBusinessCentralTokens({
     access_token: tokens.access_token,
     refresh_token: tokens.refresh_token,
     expires_at: Date.now() + (tokens.expires_in * 1000),
     tenant_id: tenantId
   });
+
+  // Update tokens in backend
+  try {
+    await providerTokenManager.updateTokens('business_central', {
+      accessToken: tokens.access_token,
+      refreshToken: tokens.refresh_token,
+      expiresAt: new Date(Date.now() + (tokens.expires_in * 1000)).toISOString(),
+      tenantId: tenantId
+    });
+    console.log('Successfully updated Business Central tokens in backend');
+  } catch (backendError) {
+    console.warn('Failed to update tokens in backend:', backendError);
+  }
 
   return tokens.access_token;
 }
@@ -239,6 +271,17 @@ export async function setSelectedCompanyId(companyId: string): Promise<void> {
       tokenData.company_id = companyId;
       tokenData.company_name = selectedCompany?.displayName || selectedCompany?.name || 'My Company';
       await storeBusinessCentralTokens(tokenData);
+
+      // Update in backend too
+      try {
+        await providerTokenManager.updateTokens('business_central', {
+          companyId: companyId,
+          companyName: selectedCompany?.displayName || selectedCompany?.name || 'My Company'
+        });
+        console.log('Successfully updated company info in backend');
+      } catch (backendError) {
+        console.warn('Failed to update company info in backend:', backendError);
+      }
     }
   } catch (error) {
     console.error('Error setting company info:', error);
@@ -247,8 +290,17 @@ export async function setSelectedCompanyId(companyId: string): Promise<void> {
 }
 
 export async function signOut(): Promise<void> {
+  // Clear local storage
   if (typeof chrome !== 'undefined' && chrome.storage) {
     await chrome.storage.local.remove(['bc_tokens']);
+  }
+
+  // Clear from backend
+  try {
+    await providerTokenManager.deleteTokens('business_central');
+    console.log('Successfully cleared Business Central tokens from backend');
+  } catch (error) {
+    console.warn('Failed to clear Business Central tokens from backend:', error);
   }
 }
 

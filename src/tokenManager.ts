@@ -1,7 +1,7 @@
 // Token Manager for secure backend storage
 // This module handles all token operations through Supabase Edge Functions
 
-import { getSupabaseClient } from './supabaseClient.js';
+import { supabaseClient } from './supabaseClient.js';
 
 export interface ProviderTokenData {
   provider: 'google' | 'business_central';
@@ -29,10 +29,10 @@ export interface StoredToken {
 // This is for Provider Tokens
 class ProviderTokenManager {
   private async getAuthToken(): Promise<string> {
-    // First try to get token from localStorage: Supabase session token
+    // First try to get token from Supabase session
     try {
-      console.log('Trying to get supabase in getAuthToken()');
-      const supabase = await getSupabaseClient();
+      console.log('Trying to get supabase session in getAuthToken()');
+      const supabase = await supabaseClient;
       console.log('Got supabase client in getAuthToken()');
       const { data: { session } } = await supabase.auth.getSession();
       console.log('This is the session in getAuthToken() method in TokenManager: ', session);
@@ -55,7 +55,7 @@ class ProviderTokenManager {
           reject(new Error('User not authenticated'));
           return;
         }
-        console.log('Am I sindie here????');
+        console.log('Got Chrome identity token as fallback');
         resolve(token);
       });
     });
@@ -77,7 +77,7 @@ class ProviderTokenManager {
       // Try to store in Supabase backend if we have a session
       try {
         const supabaseAuthToken = await this.getAuthToken();
-        console.log('This is auth Token within storeTOkens method trying to store in backend: ', supabaseAuthToken);
+        console.log('This is auth Token within storeTokens method trying to store in backend: ', supabaseAuthToken);
         const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/token-manager`, {
           method: 'POST',
           headers: {
@@ -89,6 +89,8 @@ class ProviderTokenManager {
 
         if (!response.ok) {
           console.warn('Failed to store tokens in backend, using local storage');
+        } else {
+          console.log('Successfully stored tokens in backend');
         }
       } catch (error) {
         console.warn('Backend storage failed, using local storage:', error);
@@ -202,6 +204,7 @@ class ProviderTokenManager {
         if (response.ok) {
           const result = await response.json();
           if (result.success) {
+            console.log('Successfully updated tokens in backend');
             return;
           }
         }
@@ -254,6 +257,7 @@ class ProviderTokenManager {
         if (response.ok) {
           const result = await response.json();
           if (result.success) {
+            console.log('Successfully deleted tokens from backend');
             // Also clear local storage
             if (typeof chrome !== 'undefined' && chrome.storage) {
               if (!provider || provider === 'google') {
@@ -326,7 +330,7 @@ class ProviderTokenManager {
 
       // Check Supabase session
       try {
-        const supabase = await getSupabaseClient();
+        const supabase = await supabaseClient;
         const { data: { session } } = await supabase.auth.getSession();
         return session !== null;
       } catch (error) {
