@@ -1,5 +1,3 @@
-import { authenticateBusinessCentral, fetchCustomers, fetchItems, analyzeEmailContent, getSelectedCompanyId, getSelectedCompanyName, getTenantId } from "../src/businessCentralAuth.js";
-
 interface Customer {
   id: string;
   number: string;
@@ -211,23 +209,76 @@ addItemBtn.addEventListener('click', () => {
   itemsContainer.appendChild(itemBox);
 });
 
-// Fetch customers and items, populate dropdowns
-async function initializeData(token: string): Promise<void> {
+// Fetch customers and items from backend
+async function initializeData(): Promise<void> {
   try {
-    // Fetch customers and items in parallel
-    const [fetchedCustomers, fetchedItems] = await Promise.all([
-      fetchCustomers(token),
-      fetchItems(token)
+    // Get auth token from parent window
+    const authToken = await getAuthToken();
+    if (!authToken) {
+      throw new Error('Not authenticated');
+    }
+
+    // Fetch customers and items in parallel from backend
+    const [customersResponse, itemsResponse] = await Promise.all([
+      fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/business-central-data?type=customers`, {
+        headers: {
+          'Authorization': `Bearer ${authToken}`,
+          'Content-Type': 'application/json'
+        }
+      }),
+      fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/business-central-data?type=items`, {
+        headers: {
+          'Authorization': `Bearer ${authToken}`,
+          'Content-Type': 'application/json'
+        }
+      })
     ]);
-    
-    customers = fetchedCustomers;
+
+    const customersResult = await customersResponse.json();
+    const itemsResult = await itemsResponse.json();
+
+    if (!customersResult.success) {
+      throw new Error(customersResult.error || 'Failed to fetch customers');
+    }
+
+    if (!itemsResult.success) {
+      throw new Error(itemsResult.error || 'Failed to fetch items');
+    }
+
+    customers = customersResult.data;
     filteredCustomers = [...customers];
-    items = fetchedItems;
+    items = itemsResult.data;
     
     updateCustomerSelect();
   } catch (error) {
     console.error('Error initializing data:', error);
-    showError('Failed to load customers and items');
+    showError('Failed to load customers and items: ' + (error instanceof Error ? error.message : 'Unknown error'));
+  }
+}
+
+// Get auth token from extension storage or session
+async function getAuthToken(): Promise<string | null> {
+  try {
+    // Try to get from Chrome storage first
+    if (typeof chrome !== 'undefined' && chrome.storage) {
+      const result = await chrome.storage.local.get(['frootful_session']);
+      if (result.frootful_session) {
+        const session = JSON.parse(result.frootful_session);
+        return session.provider_token || session.access_token;
+      }
+    }
+
+    // Fallback to localStorage
+    const sessionData = localStorage.getItem('frootful_session');
+    if (sessionData) {
+      const session = JSON.parse(sessionData);
+      return session.provider_token || session.access_token;
+    }
+
+    return null;
+  } catch (error) {
+    console.error('Error getting auth token:', error);
+    return null;
   }
 }
 
@@ -248,11 +299,8 @@ window.addEventListener('message', async (event: MessageEvent) => {
     if (emailDate) emailDate.textContent = new Date(emailData.date).toLocaleString();
     
     try {
-      // Get token and initialize data
-      const token = await authenticateBusinessCentral();
-      if (!token) throw new Error('Not authenticated');
-      
-      await initializeData(token);
+      // Initialize data from backend
+      await initializeData();
       
       // Find matching customer by email
       const senderEmail = emailData.from.match(/<(.+?)>/)?.[1] || emailData.from;
@@ -263,75 +311,92 @@ window.addEventListener('message', async (event: MessageEvent) => {
         currentCustomer = matchingCustomer;
       }
 
-      // Analyze email content and match items
-      const analyzedItems = await analyzeEmailContent(emailData.body, items);
-      
-      // Clear existing items
-      itemsContainer.innerHTML = '';
-      
-      // Add matched items
-      analyzedItems.forEach(analyzedItem => {
-        if (analyzedItem.matchedItem) {
-          const itemBox = document.createElement('div');
-          itemBox.className = 'item-box';
-          itemBox.innerHTML = `
-            <div class="item-header">
-              <span class="item-title">Item ${itemsContainer.children.length + 1}</span>
-              <button class="delete-item-btn">Delete</button>
-            </div>
-            <div class="item-fields">
-              <div class="item-field">
-                <label>Item Name</label>
-                <select class="item-select">
-                  <option value="">Select an item...</option>
-                  ${items.map(item => `
-                    <option value="${item.number}" 
-                            data-price="${item.unitPrice}"
-                            ${item.number === analyzedItem.matchedItem.number ? 'selected' : ''}>
-                      ${item.displayName}
-                    </option>
-                  `).join('')}
-                </select>
-              </div>
-              <div class="item-field">
-                <label>Quantity</label>
-                <input type="number" min="1" value="${analyzedItem.quantity}" class="item-quantity">
-              </div>
-              <div class="item-field">
-                <label>Price</label>
-                <input type="number" min="0" step="0.01" value="${items.find(i => i.number === analyzedItem.matchedItem.number)?.unitPrice || 0}" class="item-price">
-              </div>
-            </div>
-          `;
+      // Analyze email content and match items using backend
+      const authToken = await getAuthToken();
+      if (authToken) {
+        const analysisResponse = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/analyze-email`, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${authToken}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({ 
+            emailContent: emailData.body,
+            items: items
+          })
+        });
 
-          // Add delete functionality
-          const deleteBtn = itemBox.querySelector('.delete-item-btn');
-          if (deleteBtn) {
-            deleteBtn.addEventListener('click', () => {
-              itemBox.remove();
-            });
-          }
-
-          // Add item selection handler
-          const itemSelect = itemBox.querySelector('.item-select');
-          const priceInput = itemBox.querySelector('.item-price') as HTMLInputElement;
+        const analysisResult = await analysisResponse.json();
+        
+        if (analysisResult.success && analysisResult.analysis) {
+          // Clear existing items
+          itemsContainer.innerHTML = '';
           
-          if (itemSelect) {
-            itemSelect.addEventListener('change', (e) => {
-              const select = e.target as HTMLSelectElement;
-              const option = select.selectedOptions[0];
-              if (option && priceInput) {
-                priceInput.value = option.dataset.price || '0.00';
-              }
-            });
-          }
+          // Add matched items
+          analysisResult.analysis.forEach((analyzedItem: any) => {
+            if (analyzedItem.matchedItem) {
+              const itemBox = document.createElement('div');
+              itemBox.className = 'item-box';
+              itemBox.innerHTML = `
+                <div class="item-header">
+                  <span class="item-title">Item ${itemsContainer.children.length + 1}</span>
+                  <button class="delete-item-btn">Delete</button>
+                </div>
+                <div class="item-fields">
+                  <div class="item-field">
+                    <label>Item Name</label>
+                    <select class="item-select">
+                      <option value="">Select an item...</option>
+                      ${items.map(item => `
+                        <option value="${item.number}" 
+                                data-price="${item.unitPrice}"
+                                ${item.number === analyzedItem.matchedItem.number ? 'selected' : ''}>
+                          ${item.displayName}
+                        </option>
+                      `).join('')}
+                    </select>
+                  </div>
+                  <div class="item-field">
+                    <label>Quantity</label>
+                    <input type="number" min="1" value="${analyzedItem.quantity}" class="item-quantity">
+                  </div>
+                  <div class="item-field">
+                    <label>Price</label>
+                    <input type="number" min="0" step="0.01" value="${items.find(i => i.number === analyzedItem.matchedItem.number)?.unitPrice || 0}" class="item-price">
+                  </div>
+                </div>
+              `;
 
-          itemsContainer.appendChild(itemBox);
+              // Add delete functionality
+              const deleteBtn = itemBox.querySelector('.delete-item-btn');
+              if (deleteBtn) {
+                deleteBtn.addEventListener('click', () => {
+                  itemBox.remove();
+                });
+              }
+
+              // Add item selection handler
+              const itemSelect = itemBox.querySelector('.item-select');
+              const priceInput = itemBox.querySelector('.item-price') as HTMLInputElement;
+              
+              if (itemSelect) {
+                itemSelect.addEventListener('change', (e) => {
+                  const select = e.target as HTMLSelectElement;
+                  const option = select.selectedOptions[0];
+                  if (option && priceInput) {
+                    priceInput.value = option.dataset.price || '0.00';
+                  }
+                });
+              }
+
+              itemsContainer.appendChild(itemBox);
+            }
+          });
         }
-      });
+      }
     } catch (error) {
       console.error('Error setting up data:', error);
-      showError('Failed to load data');
+      showError('Failed to load data: ' + (error instanceof Error ? error.message : 'Unknown error'));
     }
   }
 });
@@ -396,22 +461,35 @@ exportErpBtn.addEventListener('click', async () => {
       throw new Error('Please add at least one item');
     }
     
-    const token = await authenticateBusinessCentral();
-    if (!token) {
-      throw new Error('Not authenticated with Business Central');
+    const authToken = await getAuthToken();
+    if (!authToken) {
+      throw new Error('Not authenticated');
     }
 
-    // Get the selected company ID, name, and tenant ID
-    const companyId = await getSelectedCompanyId();
-    const companyName = await getSelectedCompanyName();
-    const tenantId = await getTenantId();
+    // Get company info from backend
+    const companyResponse = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/token-manager?provider=business_central`, {
+      headers: {
+        'Authorization': `Bearer ${authToken}`,
+        'Content-Type': 'application/json'
+      }
+    });
+
+    const companyResult = await companyResponse.json();
+    if (!companyResult.success || !companyResult.tokens || companyResult.tokens.length === 0) {
+      throw new Error('Business Central not connected');
+    }
+
+    const bcToken = companyResult.tokens[0];
+    const companyId = bcToken.company_id;
+    const companyName = bcToken.company_name;
+    const tenantId = bcToken.tenant_id;
 
     // Step 1: Create Order
     updateStepStatus(createOrderStep, 'loading');
     const orderResponse = await fetch(`https://api.businesscentral.dynamics.com/v2.0/Production/api/v2.0/companies(${companyId})/salesOrders/`, {
       method: 'POST',
       headers: {
-        'Authorization': `Bearer ${token}`,
+        'Authorization': `Bearer ${bcToken.access_token}`,
         'Content-Type': 'application/json'
       },
       body: JSON.stringify({
@@ -431,7 +509,7 @@ exportErpBtn.addEventListener('click', async () => {
     
     updateStepStatus(createOrderStep, 'success');
     
-    // Add order link to step text with the correct format using the actual company name and tenant ID
+    // Add order link to step text
     const orderLink = document.createElement('a');
     orderLink.href = `https://businesscentral.dynamics.com/${tenantId}/Production/?company=${encodeURIComponent(companyName)}&page=42&filter='Sales Header'.'No.' IS '${orderNumber}'`;
     orderLink.className = 'order-link';
@@ -449,7 +527,7 @@ exportErpBtn.addEventListener('click', async () => {
       const lineResponse = await fetch(`https://api.businesscentral.dynamics.com/v2.0/Production/api/v2.0/companies(${companyId})/salesOrders(${orderId})/salesOrderLines`, {
         method: 'POST',
         headers: {
-          'Authorization': `Bearer ${token}`,
+          'Authorization': `Bearer ${bcToken.access_token}`,
           'Content-Type': 'application/json'
         },
         body: JSON.stringify({

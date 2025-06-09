@@ -14,61 +14,19 @@ interface EmailData {
   body: string;
 }
 
-interface Port {
-  postMessage: (message: any) => void;
-  onMessage: {
-    addListener: (callback: (message: any) => void) => void;
-  };
-}
-
 let sidebarFrame: HTMLIFrameElement | null = null;
 let extractButton: HTMLDivElement | null = null;
 let currentEmailId: string | null = null;
 let isAuthenticated = false;
-let port: Port | null = null;
 let observer: MutationObserver | null = null;
 let observerTimeout: number | null = null;
 let lastUrl: string | null = null;
 
-// Initialize connection to background script
-function initializeConnection(): void {
-  if (port) {
-    try {
-      port.postMessage({ action: 'ping' });
-    } catch (e) {
-      // Port is disconnected, create new connection
-      port = null;
-    }
-  }
-
-  if (!port) {
-    port = chrome.runtime.connect({ name: 'frootful-content' });
-    
-    port.onMessage.addListener((message: any) => {
-      if (message.action === 'authStateChanged') {
-        isAuthenticated = message.isAuthenticated;
-        init();
-      }
-      
-      if (message.action === 'extractEmail') {
-        handleExtractResponse(message);
-      }
-      
-      if (message.action === 'checkAuthState') {
-        isAuthenticated = message.isAuthenticated;
-        init();
-      }
-    });
-  }
-  
-  // Check authentication state using hybrid auth
-  checkAuthState();
-}
-
-// Check authentication state
-async function checkAuthState(): Promise<void> {
+// Initialize connection and check auth state
+async function initializeAuth(): Promise<void> {
   try {
     isAuthenticated = await hybridAuth.isAuthenticated();
+    console.log('Authentication state:', isAuthenticated);
     init();
   } catch (error) {
     console.error('Error checking auth state:', error);
@@ -76,9 +34,6 @@ async function checkAuthState(): Promise<void> {
     init();
   }
 }
-
-// Initialize connection when script loads
-initializeConnection();
 
 // Initialize extension
 function init(): void {
@@ -236,14 +191,11 @@ async function handleSignInClick(e: MouseEvent): Promise<void> {
 }
 
 // Handle extract button click
-function handleExtractClick(e: MouseEvent): void {
+async function handleExtractClick(e: MouseEvent): Promise<void> {
   e.preventDefault();
   e.stopPropagation();
   
-  // Ensure connection is active
-  initializeConnection();
-  
-  if (!port || !currentEmailId) return;
+  if (!currentEmailId) return;
   
   // Show loading state
   if (extractButton) {
@@ -257,29 +209,44 @@ function handleExtractClick(e: MouseEvent): void {
   // Remove existing sidebar for new extraction
   removeSidebar();
   
-  // Request email extraction
-  port.postMessage({
-    action: 'extractEmail',
-    emailId: currentEmailId
-  });
-}
-
-// Handle extract response
-function handleExtractResponse(response: { success: boolean; data?: EmailData; error?: string }): void {
-  // Reset button state
-  if (extractButton) {
-    extractButton.classList.remove('loading');
-    const textElement = extractButton.querySelector('.frootful-text');
-    if (textElement) {
-      textElement.textContent = 'Extract';
+  try {
+    // Get auth token
+    const authToken = await hybridAuth.getAccessToken();
+    if (!authToken) {
+      throw new Error('Not authenticated');
     }
-  }
-  
-  if (response.success && response.data) {
-    showSidebar(response.data);
-  } else {
-    console.error('Error extracting email:', response.error || 'Unknown error');
-    showErrorNotification(response.error || 'Failed to extract email');
+
+    // Call backend to extract email
+    const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/extract-email`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${authToken}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        emailId: currentEmailId
+      })
+    });
+
+    const result = await response.json();
+
+    if (result.success && result.data) {
+      showSidebar(result.data);
+    } else {
+      throw new Error(result.error || 'Failed to extract email');
+    }
+  } catch (error) {
+    console.error('Error extracting email:', error);
+    showErrorNotification(error instanceof Error ? error.message : 'Failed to extract email');
+  } finally {
+    // Reset button state
+    if (extractButton) {
+      extractButton.classList.remove('loading');
+      const textElement = extractButton.querySelector('.frootful-text');
+      if (textElement) {
+        textElement.textContent = 'Extract';
+      }
+    }
   }
 }
 
@@ -399,3 +366,6 @@ window.addEventListener('message', (event: MessageEvent) => {
     removeSidebar();
   }
 });
+
+// Initialize when script loads
+initializeAuth();
