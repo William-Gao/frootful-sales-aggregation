@@ -6,12 +6,9 @@ interface ExtensionSessionData {
   access_token: string;
   refresh_token?: string;
   expires_at?: number;
-  user: {
-    id: string;
-    email: string;
-    name: string;
-    picture?: string;
-  };
+  user: any; // Keep as any to preserve flexibility
+  provider_token: string;
+  provider_refresh_token: string;
 }
 
 document.addEventListener('DOMContentLoaded', async (): Promise<void> => {
@@ -41,6 +38,7 @@ document.addEventListener('DOMContentLoaded', async (): Promise<void> => {
 
     // Get the session from the URL hash (Supabase OAuth callback)
     const { data: { session }, error } = await supabase.auth.getSession();
+    console.log('Session received in callback:', session);
 
     if (error) {
       console.error('Session error:', error);
@@ -54,17 +52,14 @@ document.addEventListener('DOMContentLoaded', async (): Promise<void> => {
 
     console.log('Session found for user:', session.user.email);
 
-    // Prepare session data for the extension
+    // Prepare session data for the extension - preserve all fields
     const sessionData: ExtensionSessionData = {
       access_token: session.access_token,
       refresh_token: session.refresh_token,
       expires_at: session.expires_at,
-      user: {
-        id: session.user.id,
-        email: session.user.email,
-        name: session.user.user_metadata?.full_name || session.user.email,
-        picture: session.user.user_metadata?.avatar_url
-      }
+      user: session.user, // Keep full user object
+      provider_token: (session as any).provider_token || session.access_token,
+      provider_refresh_token: (session as any).provider_refresh_token || session.refresh_token || ''
     };
 
     console.log('Sending session data to extension...');
@@ -115,10 +110,10 @@ document.addEventListener('DOMContentLoaded', async (): Promise<void> => {
     loadingState.style.display = 'none';
     successState.style.display = 'block';
     
-    // Auto-close window after 2 seconds
-    setTimeout(() => {
-      window.close();
-    }, 2000);
+    // Keep window open for debugging - comment out to auto-close
+    // setTimeout(() => {
+    //   window.close();
+    // }, 2000);
   }
 
   function showError(message: string): void {

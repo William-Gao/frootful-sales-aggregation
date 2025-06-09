@@ -7,9 +7,9 @@ export interface AuthSession {
   access_token: string;
   refresh_token?: string;
   expires_at?: number;
-  user: any;
+  user: any; // Keep as any to preserve flexibility
   provider_token: string;
-  provder_refresh_token: string;
+  provider_refresh_token: string;
 }
 
 interface AuthMessage {
@@ -94,8 +94,8 @@ class HybridAuthManager {
           try {
             await tokenManager.storeTokens({
               provider: 'google',
-              accessToken: session.access_token,
-              refreshToken: session.refresh_token,
+              accessToken: session.provider_token || session.access_token, // Use provider_token if available
+              refreshToken: session.provider_refresh_token || session.refresh_token,
               expiresAt: session.expires_at ? new Date(session.expires_at * 1000).toISOString() : undefined
             });
           } catch (error) {
@@ -141,7 +141,7 @@ class HybridAuthManager {
   }
 
   private handleAuthComplete(session: AuthSession): void {
-    console.log('Auth complete received:', session.user.email);
+    console.log('Auth complete received:', session.user?.email || 'Unknown user');
     if (window.frootfulAuthSuccess) {
       window.frootfulAuthSuccess(session);
     }
@@ -257,6 +257,7 @@ class HybridAuthManager {
   }
 
   private cleanup(): void {
+    // Keep window open for debugging - comment out to auto-close
     // if (this.authWindow) {
     //   this.authWindow.close();
     //   this.authWindow = null;
@@ -270,7 +271,7 @@ class HybridAuthManager {
   // Get access token for API calls
   async getAccessToken(): Promise<string | null> {
     const session = await this.getCurrentSession();
-    return session?.access_token || null;
+    return session?.provider_token || session?.access_token || null;
   }
 
   // Get user info
