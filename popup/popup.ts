@@ -1,5 +1,5 @@
 import { authenticateBusinessCentral, signOut, fetchCompanies, getSelectedCompanyId, setSelectedCompanyId, type Company } from '../src/businessCentralAuth.js';
-import { authManager } from '../src/authManager.js';
+import { hybridAuth } from '../src/hybridAuth.js';
 
 interface Port {
   postMessage: (message: any) => void;
@@ -24,27 +24,31 @@ document.addEventListener('DOMContentLoaded', () => {
     return;
   }
   
-  // Handle Google authentication
+  // Handle Google authentication using hybrid flow
   loginBtn.addEventListener('click', async () => {
     try {
       loginBtn.disabled = true;
-      loginBtn.textContent = 'Signing in...';
+      loginBtn.textContent = 'Opening sign-in window...';
       
-      const user = await authManager.signInWithGoogle();
+      const session = await hybridAuth.signInWithGoogle();
       
       updateUI(true);
       if (userEmail instanceof HTMLElement) {
-        userEmail.textContent = user.email;
+        userEmail.textContent = session.user.email;
       }
       showSuccess('Successfully signed in with Google!');
     } catch (error) {
       console.error('Google auth error:', error);
-      showError('Failed to sign in with Google');
+      if (error instanceof Error && error.message.includes('popups')) {
+        showError('Please allow popups for this extension to sign in');
+      } else {
+        showError('Failed to sign in with Google');
+      }
     } finally {
       loginBtn.disabled = false;
       loginBtn.innerHTML = `
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"></path>
+          <path d="M15 3h4a2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"></path>
           <polyline points="10 17 15 12 10 7"></polyline>
           <line x1="15" y1="12" x2="3" y2="12"></line>
         </svg>
@@ -99,7 +103,7 @@ document.addEventListener('DOMContentLoaded', () => {
       logoutBtn.disabled = true;
       logoutBtn.textContent = 'Signing out...';
       
-      await authManager.signOut();
+      await hybridAuth.signOut();
       
       updateUI(false);
       // Reset BC connection state
@@ -157,19 +161,19 @@ document.addEventListener('DOMContentLoaded', () => {
   // Check initial authentication state
   async function checkAuthState(): Promise<void> {
     try {
-      const isAuthenticated = await authManager.isAuthenticated();
+      const isAuthenticated = await hybridAuth.isAuthenticated();
       updateUI(isAuthenticated);
       
       if (isAuthenticated) {
-        const user = await authManager.getCurrentUser();
+        const user = await hybridAuth.getCurrentUser();
         if (user && userEmail instanceof HTMLElement) {
           userEmail.textContent = user.email;
         }
         
         // Check if Business Central is also connected
-        const bcToken = await authManager.getGoogleAccessToken();
-        if (bcToken) {
-          try {
+        try {
+          const bcToken = await hybridAuth.getAccessToken();
+          if (bcToken) {
             // Try to load companies to test BC connection
             const companies = await fetchCompanies(bcToken);
             if (companies.length > 0) {
@@ -177,12 +181,12 @@ document.addEventListener('DOMContentLoaded', () => {
               bcLoginBtn.classList.add('hidden');
               bcConnected.classList.remove('hidden');
             }
-          } catch (error) {
-            console.error('Error loading BC companies:', error);
-            // BC not connected, show login button
-            bcLoginBtn.classList.remove('hidden');
-            bcConnected.classList.add('hidden');
           }
+        } catch (error) {
+          console.error('Error loading BC companies:', error);
+          // BC not connected, show login button
+          bcLoginBtn.classList.remove('hidden');
+          bcConnected.classList.add('hidden');
         }
       }
     } catch (error) {

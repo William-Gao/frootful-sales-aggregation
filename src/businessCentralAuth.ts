@@ -1,4 +1,4 @@
-import { tokenManager, type TokenData } from './tokenManager.js';
+import { hybridAuth } from './hybridAuth.js';
 
 const CLIENT_ID = '4c92a998-6af5-4c2a-b16e-80ba1c6b9b3b';
 const TENANT_ID = 'common';
@@ -15,14 +15,14 @@ export interface Company {
 export async function authenticateBusinessCentral(): Promise<string> {
   try {
     // First check if user is authenticated with Google
-    const isGoogleAuthenticated = await tokenManager.isUserAuthenticated();
+    const isGoogleAuthenticated = await hybridAuth.isAuthenticated();
     if (!isGoogleAuthenticated) {
       throw new Error('Please sign in with Google first');
     }
 
     // Check if we have a valid token stored
-    const storedToken = await tokenManager.getBusinessCentralToken();
-    if (storedToken && await tokenManager.isTokenValid(storedToken)) {
+    const storedToken = await getBusinessCentralToken();
+    if (storedToken && await isTokenValid(storedToken)) {
       return storedToken.access_token;
     }
 
@@ -88,16 +88,15 @@ export async function authenticateBusinessCentral(): Promise<string> {
       throw new Error('Failed to get access token');
     }
 
-    // Parse tenant ID from token
+    // Parse and store tenant ID from the token
     const tenantId = await parseTenantIdFromToken(tokens.access_token);
     
-    // Store tokens securely in backend
-    await tokenManager.storeTokens({
-      provider: 'business_central',
-      accessToken: tokens.access_token,
-      refreshToken: tokens.refresh_token,
-      expiresAt: new Date(Date.now() + (tokens.expires_in * 1000)).toISOString(),
-      tenantId: tenantId
+    // Store tokens securely
+    await storeBusinessCentralTokens({
+      access_token: tokens.access_token,
+      refresh_token: tokens.refresh_token,
+      expires_at: Date.now() + (tokens.expires_in * 1000),
+      tenant_id: tenantId
     });
 
     return tokens.access_token;
@@ -127,15 +126,15 @@ async function refreshToken(refreshToken: string): Promise<string> {
 
   const tokens = await response.json();
 
-  // Parse tenant ID from refreshed token
+  // Parse and store tenant ID from the refreshed token
   const tenantId = await parseTenantIdFromToken(tokens.access_token);
 
   // Update stored tokens
-  await tokenManager.updateTokens('business_central', {
-    accessToken: tokens.access_token,
-    refreshToken: tokens.refresh_token,
-    expiresAt: new Date(Date.now() + (tokens.expires_in * 1000)).toISOString(),
-    tenantId: tenantId
+  await storeBusinessCentralTokens({
+    access_token: tokens.access_token,
+    refresh_token: tokens.refresh_token,
+    expires_at: Date.now() + (tokens.expires_in * 1000),
+    tenant_id: tenantId
   });
 
   return tokens.access_token;
@@ -166,8 +165,32 @@ async function parseTenantIdFromToken(token: string): Promise<string> {
   }
 }
 
+// Store Business Central tokens locally
+async function storeBusinessCentralTokens(tokenData: any): Promise<void> {
+  if (typeof chrome !== 'undefined' && chrome.storage) {
+    await chrome.storage.local.set({
+      bc_tokens: JSON.stringify(tokenData)
+    });
+  }
+}
+
+// Get stored Business Central tokens
+async function getBusinessCentralToken(): Promise<any> {
+  if (typeof chrome !== 'undefined' && chrome.storage) {
+    const result = await chrome.storage.local.get(['bc_tokens']);
+    return result.bc_tokens ? JSON.parse(result.bc_tokens) : null;
+  }
+  return null;
+}
+
+// Check if token is valid
+async function isTokenValid(tokenData: any): Promise<boolean> {
+  if (!tokenData.expires_at) return true;
+  return Date.now() < tokenData.expires_at;
+}
+
 export async function getTenantId(): Promise<string> {
-  const tokenData = await tokenManager.getBusinessCentralToken();
+  const tokenData = await getBusinessCentralToken();
   if (!tokenData?.tenant_id) {
     throw new Error('Tenant ID not found. Please re-authenticate with Business Central.');
   }
@@ -196,12 +219,12 @@ export async function fetchCompanies(token: string): Promise<Company[]> {
 }
 
 export async function getSelectedCompanyId(): Promise<string> {
-  const tokenData = await tokenManager.getBusinessCentralToken();
+  const tokenData = await getBusinessCentralToken();
   return tokenData?.company_id || '45dbc5d1-5408-f011-9af6-6045bde9c6b1'; // fallback
 }
 
 export async function getSelectedCompanyName(): Promise<string> {
-  const tokenData = await tokenManager.getBusinessCentralToken();
+  const tokenData = await getBusinessCentralToken();
   return tokenData?.company_name || 'My Company'; // fallback
 }
 
@@ -211,10 +234,12 @@ export async function setSelectedCompanyId(companyId: string): Promise<void> {
     const companies = await fetchCompanies(token);
     const selectedCompany = companies.find(c => c.id === companyId);
     
-    await tokenManager.updateTokens('business_central', {
-      companyId: companyId,
-      companyName: selectedCompany?.displayName || selectedCompany?.name || 'My Company'
-    });
+    const tokenData = await getBusinessCentralToken();
+    if (tokenData) {
+      tokenData.company_id = companyId;
+      tokenData.company_name = selectedCompany?.displayName || selectedCompany?.name || 'My Company';
+      await storeBusinessCentralTokens(tokenData);
+    }
   } catch (error) {
     console.error('Error setting company info:', error);
     throw error;
@@ -222,7 +247,9 @@ export async function setSelectedCompanyId(companyId: string): Promise<void> {
 }
 
 export async function signOut(): Promise<void> {
-  await tokenManager.deleteTokens('business_central');
+  if (typeof chrome !== 'undefined' && chrome.storage) {
+    await chrome.storage.local.remove(['bc_tokens']);
+  }
 }
 
 // Helper functions for PKCE

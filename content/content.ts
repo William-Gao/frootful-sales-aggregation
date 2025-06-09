@@ -1,6 +1,6 @@
 // Main content script for Frootful Gmail Extension
 
-import { authManager } from '../src/authManager.js';
+import { hybridAuth } from '../src/hybridAuth.js';
 
 interface EmailData {
   id: string;
@@ -61,14 +61,14 @@ function initializeConnection(): void {
     });
   }
   
-  // Check authentication state using authManager
+  // Check authentication state using hybrid auth
   checkAuthState();
 }
 
 // Check authentication state
 async function checkAuthState(): Promise<void> {
   try {
-    isAuthenticated = await authManager.isAuthenticated();
+    isAuthenticated = await hybridAuth.isAuthenticated();
     init();
   } catch (error) {
     console.error('Error checking auth state:', error);
@@ -192,12 +192,47 @@ function injectSignInButton(container: Element): void {
 }
 
 // Handle sign-in button click
-function handleSignInClick(e: MouseEvent): void {
+async function handleSignInClick(e: MouseEvent): Promise<void> {
   e.preventDefault();
   e.stopPropagation();
   
-  // Open the extension popup
-  chrome.runtime.sendMessage({ action: 'openPopup' });
+  try {
+    // Show loading state
+    if (extractButton) {
+      extractButton.classList.add('loading');
+      const textElement = extractButton.querySelector('.frootful-text');
+      if (textElement) {
+        textElement.textContent = 'Signing in...';
+      }
+    }
+
+    // Use hybrid auth to sign in
+    await hybridAuth.signInWithGoogle();
+    
+    // Update authentication state
+    isAuthenticated = true;
+    
+    // Refresh the UI
+    checkForEmailView();
+    
+    showSuccessNotification('Successfully signed in! You can now extract emails.');
+  } catch (error) {
+    console.error('Sign-in error:', error);
+    if (error instanceof Error && error.message.includes('popups')) {
+      showErrorNotification('Please allow popups to sign in with Google');
+    } else {
+      showErrorNotification('Failed to sign in. Please try again.');
+    }
+    
+    // Reset button state
+    if (extractButton) {
+      extractButton.classList.remove('loading');
+      const textElement = extractButton.querySelector('.frootful-text');
+      if (textElement) {
+        textElement.textContent = 'Sign in';
+      }
+    }
+  }
 }
 
 // Handle extract button click
@@ -248,6 +283,36 @@ function handleExtractResponse(response: { success: boolean; data?: EmailData; e
   }
 }
 
+// Show success notification
+function showSuccessNotification(message: string): void {
+  const notification = document.createElement('div');
+  notification.style.cssText = `
+    position: fixed;
+    top: 20px;
+    right: 20px;
+    background-color: #ecfdf5;
+    color: #065f46;
+    padding: 12px 16px;
+    border-radius: 6px;
+    border: 1px solid #d1fae5;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    font-size: 14px;
+    font-weight: 500;
+    z-index: 10000;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+    max-width: 300px;
+    animation: slideIn 0.3s ease-out;
+  `;
+  notification.textContent = message;
+  
+  document.body.appendChild(notification);
+  
+  // Remove after 4 seconds
+  setTimeout(() => {
+    notification.remove();
+  }, 4000);
+}
+
 // Show error notification
 function showErrorNotification(message: string): void {
   const notification = document.createElement('div');
@@ -266,6 +331,7 @@ function showErrorNotification(message: string): void {
     z-index: 10000;
     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
     max-width: 300px;
+    animation: slideIn 0.3s ease-out;
   `;
   notification.textContent = message;
   
