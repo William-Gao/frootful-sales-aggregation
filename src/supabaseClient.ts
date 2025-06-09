@@ -7,6 +7,7 @@ let supabase: any = null;
 
 // Initialize Supabase client lazily
 async function initializeSupabase() {
+  console.log('This is the supabase instance: ', supabase);
   if (supabase) return supabase;
 
   try {

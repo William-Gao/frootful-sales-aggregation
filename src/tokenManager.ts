@@ -3,7 +3,7 @@
 
 import { getSupabaseClient } from './supabaseClient.js';
 
-export interface TokenData {
+export interface ProviderTokenData {
   provider: 'google' | 'business_central';
   accessToken: string;
   refreshToken?: string;
@@ -26,13 +26,14 @@ export interface StoredToken {
   updated_at: string;
 }
 
-class TokenManager {
+// This is for Provider Tokens
+class ProviderTokenManager {
   private async getAuthToken(): Promise<string> {
-    // First try to get Supabase session token
+    // First try to get token from localStorage: Supabase session token
     try {
       console.log('Trying to get supabase in getAuthToken()');
       const supabase = await getSupabaseClient();
-      console.log('Got supabase in getAuthToken()');
+      console.log('Got supabase client in getAuthToken()');
       const { data: { session } } = await supabase.auth.getSession();
       console.log('This is the session in getAuthToken() method in TokenManager: ', session);
       if (session?.access_token) {
@@ -54,12 +55,13 @@ class TokenManager {
           reject(new Error('User not authenticated'));
           return;
         }
+        console.log('Am I sindie here????');
         resolve(token);
       });
     });
   }
 
-  async storeTokens(tokenData: TokenData): Promise<void> {
+  async storeTokens(tokenData: ProviderTokenData): Promise<void> {
     try {
       // For Google tokens, we'll store them locally and in Supabase if authenticated
       if (tokenData.provider === 'google') {
@@ -179,7 +181,7 @@ class TokenManager {
     }
   }
 
-  async updateTokens(provider: 'google' | 'business_central', updateData: Partial<TokenData>): Promise<void> {
+  async updateTokens(provider: 'google' | 'business_central', updateData: Partial<ProviderTokenData>): Promise<void> {
     try {
       // Try backend first
       try {
@@ -350,4 +352,4 @@ class TokenManager {
   }
 }
 
-export const tokenManager = new TokenManager();
+export const tokenManager = new ProviderTokenManager();
