@@ -1,4 +1,4 @@
-// Callback handler for Supabase OAuth - No external dependencies
+// Enhanced callback handler with better error handling
 document.addEventListener('DOMContentLoaded', async () => {
   const loadingState = document.getElementById('loading-state');
   const successState = document.getElementById('success-state');
@@ -6,7 +6,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   const errorDiv = document.getElementById('error');
   const closeBtn = document.getElementById('close-btn');
 
-  // Get extension ID from session storage (set during login)
+  // Get extension ID from session storage
   const extensionId = sessionStorage.getItem('extension_id');
 
   if (!extensionId) {
@@ -15,58 +15,72 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
 
   try {
-    console.log('Callback page loaded, processing Supabase OAuth response...');
+    console.log('Processing Supabase OAuth callback...');
+    console.log('Full URL:', window.location.href);
+    console.log('Hash:', window.location.hash);
+    console.log('Search:', window.location.search);
     
-    // Check URL for session data (Supabase redirects with hash fragments)
+    // Parse tokens from URL hash (Supabase uses hash fragments)
     const hashParams = new URLSearchParams(window.location.hash.substring(1));
     const urlParams = new URLSearchParams(window.location.search);
     
-    // Look for access token in hash or query parameters
+    // Check for error first
+    const error = hashParams.get('error') || urlParams.get('error');
+    const errorDescription = hashParams.get('error_description') || urlParams.get('error_description');
+    
+    if (error) {
+      throw new Error(`OAuth error: ${error} - ${errorDescription || 'Unknown error'}`);
+    }
+    
+    // Get tokens from hash or query parameters
     let accessToken = hashParams.get('access_token') || urlParams.get('access_token');
     let refreshToken = hashParams.get('refresh_token') || urlParams.get('refresh_token');
     let expiresIn = hashParams.get('expires_in') || urlParams.get('expires_in');
     let tokenType = hashParams.get('token_type') || urlParams.get('token_type');
     
-    console.log('URL hash:', window.location.hash);
-    console.log('URL search:', window.location.search);
-    console.log('Access token found:', !!accessToken);
+    console.log('Tokens found:', {
+      accessToken: !!accessToken,
+      refreshToken: !!refreshToken,
+      expiresIn,
+      tokenType
+    });
 
     if (!accessToken) {
-      // Try to get session from Supabase API directly
-      console.log('No access token in URL, trying to fetch session from Supabase...');
-      
-      try {
-        // Make a request to Supabase to get the current session
-        const response = await fetch('https://zkglvdfppodwlgzhfgqs.supabase.co/auth/v1/user', {
-          method: 'GET',
-          headers: {
-            'apikey': 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InprZ2x2ZGZwcG9kd2xnemhmZ3FzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDYxOTQ5MjgsImV4cCI6MjA2MTc3MDkyOH0.qzyywdy4k6A0DucETls_YT32YvAxuwDV6eBFjs89BRg',
-            'Authorization': `Bearer ${accessToken || ''}`
-          }
-        });
-
-        if (response.ok) {
-          const userData = await response.json();
-          console.log('User data from Supabase:', userData);
+      // Check if we have a session token instead
+      const sessionToken = hashParams.get('session') || urlParams.get('session');
+      if (sessionToken) {
+        console.log('Found session token, parsing...');
+        try {
+          const sessionData = JSON.parse(atob(sessionToken));
+          accessToken = sessionData.access_token;
+          refreshToken = sessionData.refresh_token;
+          expiresIn = sessionData.expires_in;
+        } catch (parseError) {
+          console.error('Failed to parse session token:', parseError);
         }
-      } catch (apiError) {
-        console.error('Supabase API error:', apiError);
       }
-      
-      throw new Error('No access token found in OAuth callback');
     }
 
-    console.log('Processing OAuth tokens...');
+    if (!accessToken) {
+      throw new Error('No access token found in OAuth callback. Please check Supabase OAuth configuration.');
+    }
 
-    // Get user info from Google using the access token
-    const userResponse = await fetch(`https://www.googleapis.com/oauth2/v2/userinfo?access_token=${accessToken}`);
+    console.log('Getting user info from Google...');
+
+    // Get user info from Google
+    const userResponse = await fetch(`https://www.googleapis.com/oauth2/v2/userinfo`, {
+      headers: {
+        'Authorization': `Bearer ${accessToken}`
+      }
+    });
     
     if (!userResponse.ok) {
-      throw new Error('Failed to get user info from Google');
+      const errorText = await userResponse.text();
+      throw new Error(`Failed to get user info: ${userResponse.status} - ${errorText}`);
     }
 
     const userInfo = await userResponse.json();
-    console.log('User info from Google:', userInfo);
+    console.log('User info retrieved:', userInfo);
 
     const sessionData = {
       access_token: accessToken,
@@ -80,9 +94,9 @@ document.addEventListener('DOMContentLoaded', async () => {
       }
     };
 
-    console.log('Sending session data to extension...');
+    console.log('Sending session data to extension:', extensionId);
 
-    // Send session data to Chrome extension
+    // Send to Chrome extension
     if (typeof chrome !== 'undefined' && chrome.runtime) {
       try {
         chrome.runtime.sendMessage(extensionId, {
@@ -90,35 +104,37 @@ document.addEventListener('DOMContentLoaded', async () => {
           session: sessionData
         }, (response) => {
           if (chrome.runtime.lastError) {
-            console.error('Error sending message to extension:', chrome.runtime.lastError);
-            showError('Failed to communicate with extension');
-            return;
+            console.error('Chrome runtime error:', chrome.runtime.lastError);
+            // Try postMessage fallback
+            tryPostMessage(sessionData);
+          } else {
+            console.log('Successfully sent to extension');
+            showSuccess();
           }
-          
-          console.log('Successfully sent session to extension');
-          // Show success and close window
-          showSuccess();
         });
       } catch (chromeError) {
-        console.error('Chrome runtime error:', chromeError);
-        showError('Failed to communicate with extension');
+        console.error('Chrome API error:', chromeError);
+        tryPostMessage(sessionData);
       }
     } else {
-      // Fallback: try to communicate via postMessage to opener window
+      tryPostMessage(sessionData);
+    }
+
+    function tryPostMessage(sessionData) {
+      console.log('Trying postMessage fallback...');
       if (window.opener) {
-        console.log('Using postMessage fallback...');
         window.opener.postMessage({
           action: 'authComplete',
           session: sessionData
         }, '*');
-        
         showSuccess();
       } else {
-        showError('Unable to communicate with extension');
+        showError('Unable to communicate with extension. Please close this window and try again.');
       }
     }
+
   } catch (error) {
-    console.error('Callback error:', error);
+    console.error('Callback processing error:', error);
     showError(error.message || 'Authentication failed');
   }
 
@@ -126,10 +142,10 @@ document.addEventListener('DOMContentLoaded', async () => {
     loadingState.style.display = 'none';
     successState.style.display = 'block';
     
-    // Auto-close window after 2 seconds
+    // Auto-close after 3 seconds
     setTimeout(() => {
       window.close();
-    }, 2000);
+    }, 3000);
   }
 
   function showError(message) {

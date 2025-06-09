@@ -1,4 +1,4 @@
-// Direct Google OAuth with authorization code flow - No external dependencies
+// Direct Google OAuth with Supabase - Fixed redirect URI
 document.addEventListener('DOMContentLoaded', async () => {
   const googleSigninBtn = document.getElementById('google-signin');
   const loading = document.getElementById('loading');
@@ -19,29 +19,30 @@ document.addEventListener('DOMContentLoaded', async () => {
       loading.style.display = 'block';
       errorDiv.style.display = 'none';
 
-      console.log('Starting Google OAuth with authorization code flow...');
+      console.log('Starting Google OAuth with Supabase...');
       
-      // Generate state parameter for security
-      const state = generateRandomString(32);
-      sessionStorage.setItem('oauth_state', state);
+      // Store extension ID for callback
       sessionStorage.setItem('extension_id', extensionId);
       
-      // Use Supabase OAuth endpoint which handles the code flow properly
+      // Use the correct Supabase OAuth URL format
       const supabaseUrl = 'https://zkglvdfppodwlgzhfgqs.supabase.co';
-      const redirectUri = `${window.location.origin}/auth/callback.html`;
       
-      // Construct Supabase OAuth URL with proper parameters for authorization code flow
+      // The callback URL should be the Supabase callback endpoint
+      const callbackUrl = `${window.location.origin}/auth/callback.html`;
+      
+      // Construct the OAuth URL with proper Supabase format
       const params = new URLSearchParams({
         provider: 'google',
-        redirect_to: redirectUri,
+        redirect_to: callbackUrl,
         scopes: 'email profile https://www.googleapis.com/auth/gmail.readonly'
       });
       
       const authUrl = `${supabaseUrl}/auth/v1/authorize?${params.toString()}`;
       
-      console.log('Redirecting to Supabase OAuth:', authUrl);
+      console.log('Redirecting to:', authUrl);
+      console.log('Callback URL:', callbackUrl);
       
-      // Redirect to Supabase OAuth URL (which will handle the code flow)
+      // Redirect to Supabase OAuth
       window.location.href = authUrl;
       
     } catch (error) {
@@ -56,11 +57,5 @@ document.addEventListener('DOMContentLoaded', async () => {
   function showError(message) {
     errorDiv.textContent = message;
     errorDiv.style.display = 'block';
-  }
-  
-  function generateRandomString(length) {
-    const array = new Uint8Array(length);
-    crypto.getRandomValues(array);
-    return Array.from(array, byte => byte.toString(16).padStart(2, '0')).join('');
   }
 });
