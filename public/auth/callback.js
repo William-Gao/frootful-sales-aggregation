@@ -11,11 +11,11 @@ document.addEventListener('DOMContentLoaded', async () => {
   // Get extension ID from URL parameters
   const urlParams = new URLSearchParams(window.location.search);
   const extensionId = urlParams.get('extensionId');
-
-  if (!extensionId) {
-    showError('Invalid callback - missing extension ID');
-    return;
-  }
+  console.log('This is window.location: ', window.location)
+  // if (!extensionId) {
+  //   showError('Invalid callback - missing extension ID');
+  //   return;
+  // }
 
   try {
     console.log('Callback page loaded, initializing Supabase...');

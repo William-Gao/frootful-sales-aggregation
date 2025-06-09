@@ -51,14 +51,14 @@ class HybridAuthManager {
         const extensionId = chrome.runtime.id;
         
         // Use localhost URL since you're serving with npx serve
-        const loginUrl = `http://localhost:5173/auth/login.html?extensionId=${extensionId}`;
+        const loginUrl = `http://localhost:5173/auth/login.html`;
         
         console.log('Opening auth window:', loginUrl);
         
         // Open popup window
         this.authWindow = window.open(
           loginUrl,
-          'frootful-auth',
+          '_blank',
           'width=500,height=600,scrollbars=yes,resizable=yes,status=yes,location=yes,toolbar=no,menubar=no'
         );
 
