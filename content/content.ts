@@ -1,5 +1,7 @@
 // Main content script for Frootful Gmail Extension
+// Note: This will be built as IIFE format to avoid module import issues
 
+// Import statements will be bundled by Vite
 import { hybridAuth } from '../src/hybridAuth.js';
 
 interface EmailData {
@@ -266,7 +268,7 @@ async function handleExtractClick(e: MouseEvent): Promise<void> {
 
     console.log('Making request to extract email...');
     // Call backend to extract email
-    const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/extract-email`, {
+    const response = await fetch(`https://zkglvdfppodwlgzhfgqs.supabase.co/functions/v1/extract-email`, {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${authToken}`,

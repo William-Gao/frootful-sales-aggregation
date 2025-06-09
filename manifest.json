@@ -24,8 +24,7 @@
     {
       "matches": ["https://mail.google.com/*"],
       "js": ["content/content.js"],
-      "css": ["content/content.css"],
-      "type": "module"
+      "css": ["content/content.css"]
     }
   ],
   "permissions": [

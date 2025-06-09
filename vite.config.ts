@@ -18,46 +18,61 @@ export default defineConfig({
         sidebar: resolve(__dirname, 'sidebar/sidebar.ts'),
         welcome: resolve(__dirname, 'onboarding/welcome.ts'),
       },
-      output: {
-        dir: 'dist',
-        format: 'es', // Use ES modules format
-        entryFileNames: (chunkInfo) => {
-          if (chunkInfo.facadeModuleId?.includes('/background/')) {
-            return 'background/[name].js';
+      output: [
+        // ES modules for background, popup, sidebar (these support modules)
+        {
+          dir: 'dist',
+          format: 'es',
+          entryFileNames: (chunkInfo) => {
+            if (chunkInfo.facadeModuleId?.includes('/background/')) {
+              return 'background/[name].js';
+            }
+            if (chunkInfo.facadeModuleId?.includes('/popup/')) {
+              return 'popup/[name].js';
+            }
+            if (chunkInfo.facadeModuleId?.includes('/sidebar/')) {
+              return 'sidebar/[name].js';
+            }
+            if (chunkInfo.facadeModuleId?.includes('/onboarding/')) {
+              return 'onboarding/[name].js';
+            }
+            return '[name].js';
+          },
+          chunkFileNames: '[name].js',
+          assetFileNames: (assetInfo) => {
+            if (assetInfo.name?.endsWith('.css')) {
+              if (assetInfo.name.includes('popup/')) {
+                return 'popup/[name][extname]';
+              }
+              if (assetInfo.name.includes('sidebar/')) {
+                return 'sidebar/[name][extname]';
+              }
+              if (assetInfo.name.includes('onboarding/')) {
+                return 'onboarding/[name][extname]';
+              }
+            }
+            return '[name][extname]';
           }
-          if (chunkInfo.facadeModuleId?.includes('/content/')) {
-            return 'content/[name].js';
-          }
-          if (chunkInfo.facadeModuleId?.includes('/popup/')) {
-            return 'popup/[name].js';
-          }
-          if (chunkInfo.facadeModuleId?.includes('/sidebar/')) {
-            return 'sidebar/[name].js';
-          }
-          if (chunkInfo.facadeModuleId?.includes('/onboarding/')) {
-            return 'onboarding/[name].js';
-          }
-          return '[name].js';
         },
-        chunkFileNames: '[name].js',
-        assetFileNames: (assetInfo) => {
-          if (assetInfo.name?.endsWith('.css')) {
-            if (assetInfo.name.includes('content/')) {
+        // IIFE format for content script (no module support)
+        {
+          dir: 'dist',
+          format: 'iife',
+          entryFileNames: (chunkInfo) => {
+            if (chunkInfo.facadeModuleId?.includes('/content/')) {
+              return 'content/[name].js';
+            }
+            return null; // Skip other entries for this output
+          },
+          chunkFileNames: 'content/[name].js',
+          assetFileNames: (assetInfo) => {
+            if (assetInfo.name?.endsWith('.css') && assetInfo.name.includes('content/')) {
               return 'content/[name][extname]';
             }
-            if (assetInfo.name.includes('popup/')) {
-              return 'popup/[name][extname]';
-            }
-            if (assetInfo.name.includes('sidebar/')) {
-              return 'sidebar/[name][extname]';
-            }
-            if (assetInfo.name.includes('onboarding/')) {
-              return 'onboarding/[name][extname]';
-            }
+            return null; // Skip other assets for this output
           }
-          return '[name][extname]';
         }
-      }
+      ]
     },
     outDir: 'dist',
     emptyOutDir: true,
