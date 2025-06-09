@@ -24,6 +24,7 @@ let lastUrl: string | null = null;
 
 // Initialize connection and check auth state
 async function initializeAuth(): Promise<void> {
+  console.log('This is initializeAuth function, and this is isAuthenticated: ', isAuthenticated);
   try {
     isAuthenticated = await hybridAuth.isAuthenticated();
     console.log('Authentication state:', isAuthenticated);

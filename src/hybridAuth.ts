@@ -228,24 +228,9 @@ class HybridAuthManager {
   }
 
   async isAuthenticated(): Promise<boolean> {
-    // First check local session
-    const session = await this.getCurrentSession();
-    if (session) {
-      return true;
-    }
-
-    // Also check Supabase session
-    try {
-      if (!this.supabase) {
-        await this.initializeSupabase();
-      }
-      
-      const { data: { session: supabaseSession } } = await this.supabase.auth.getSession();
-      return supabaseSession !== null;
-    } catch (error) {
-      console.warn('Failed to check Supabase session:', error);
-      return false;
-    }
+    const { data: { session } } = this.supabase.auth.getSession();
+    console.log('This is session in isAuthenticated() in hybrid auth: ', session);
+    return session !== null;
   }
 
   async signOut(): Promise<void> {
@@ -263,6 +248,7 @@ class HybridAuthManager {
       }
       
       // Clear tokens using token manager (backend)
+      // TODO: Revisit this
       try {
         await providerTokenManager.deleteTokens();
         console.log('Successfully cleared tokens from backend');
@@ -308,10 +294,10 @@ class HybridAuthManager {
 
   private cleanup(): void {
     // Keep window open for debugging - comment out to auto-close
-    // if (this.authWindow) {
-    //   this.authWindow.close();
-    //   this.authWindow = null;
-    // }
+    if (this.authWindow) {
+      this.authWindow.close();
+      this.authWindow = null;
+    }
     
     // Clean up global handlers
     delete window.frootfulAuthSuccess;
