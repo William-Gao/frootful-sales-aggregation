@@ -1,4 +1,4 @@
-// Import from the local Google OAuth client
+// Import from the local supabaseClient
 import { getSupabaseClient } from './supabaseClient.js';
 
 document.addEventListener('DOMContentLoaded', async () => {
@@ -18,15 +18,15 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
 
   try {
-    console.log('Callback page loaded, initializing Google OAuth...');
+    console.log('Callback page loaded, initializing Supabase...');
     
-    // Initialize Google OAuth client
-    const oauthClient = await getSupabaseClient();
+    // Initialize Supabase
+    const supabase = await getSupabaseClient();
     
-    console.log('Google OAuth initialized, processing callback...');
+    console.log('Supabase initialized, getting session...');
 
-    // Get the session from the URL hash
-    const { data: { session }, error } = await oauthClient.auth.getSession();
+    // Get the session from the URL hash or current session
+    const { data: { session }, error } = await supabase.auth.getSession();
 
     if (error) {
       console.error('Session error:', error);
@@ -46,6 +46,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     const sessionData = {
       access_token: accessToken,
+      refresh_token: session.refresh_token,
       expires_at: session.expires_at,
       user: {
         id: user.id,

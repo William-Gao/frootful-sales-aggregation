@@ -1,4 +1,4 @@
-// Import from the local Google OAuth client
+// Import from the local supabaseClient
 import { getSupabaseClient } from './supabaseClient.js';
 
 document.addEventListener('DOMContentLoaded', async () => {
@@ -21,15 +21,15 @@ document.addEventListener('DOMContentLoaded', async () => {
       loading.style.display = 'block';
       errorDiv.style.display = 'none';
 
-      console.log('Initializing Google OAuth...');
+      console.log('Initializing Supabase...');
       
-      // Initialize Google OAuth client
-      const oauthClient = await getSupabaseClient();
+      // Initialize Supabase
+      const supabase = await getSupabaseClient();
       
-      console.log('Google OAuth initialized, starting flow...');
+      console.log('Supabase initialized, starting OAuth flow...');
 
-      // Start Google OAuth flow
-      const { data, error } = await oauthClient.auth.signInWithOAuth({
+      // Sign in with Google using Supabase Auth
+      const { data, error } = await supabase.auth.signInWithOAuth({
         provider: 'google',
         options: {
           redirectTo: `${window.location.origin}/auth/callback.html?extensionId=${extensionId}`,
