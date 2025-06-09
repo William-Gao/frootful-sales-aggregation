@@ -30,8 +30,11 @@ class TokenManager {
   private async getAuthToken(): Promise<string> {
     // First try to get Supabase session token
     try {
+      console.log('Trying to get supabase in getAuthToken()');
       const supabase = await getSupabaseClient();
+      console.log('Got supabase in getAuthToken()');
       const { data: { session } } = await supabase.auth.getSession();
+      console.log('This is the session in getAuthToken() method in TokenManager: ', session);
       if (session?.access_token) {
         return session.access_token;
       }
@@ -71,12 +74,12 @@ class TokenManager {
 
       // Try to store in Supabase backend if we have a session
       try {
-        const authToken = await this.getAuthToken();
-        
+        const supabaseAuthToken = await this.getAuthToken();
+        console.log('This is auth Token within storeTOkens method trying to store in backend: ', supabaseAuthToken);
         const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/token-manager`, {
           method: 'POST',
           headers: {
-            'Authorization': `Bearer ${authToken}`,
+            'Authorization': `Bearer ${supabaseAuthToken}`,
             'Content-Type': 'application/json'
           },
           body: JSON.stringify(tokenData)

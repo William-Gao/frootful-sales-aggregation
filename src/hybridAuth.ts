@@ -88,6 +88,7 @@ class HybridAuthManager {
         // Set up success handler
         const successHandler: AuthSuccessHandler = async (session: AuthSession) => {
           try {
+            console.log('Attempting to store token data now');
             this.currentSession = session;
             await this.storeSession(session);
             
@@ -163,13 +164,16 @@ class HybridAuthManager {
           frootful_session: JSON.stringify(session),
           frootful_session_expires: session.expires_at
         });
+        console.log('Stored data in chrome.storage');
       } else {
         // Fallback to localStorage
         localStorage.setItem('frootful_session', JSON.stringify(session));
         if (session.expires_at) {
           localStorage.setItem('frootful_session_expires', session.expires_at.toString());
         }
+        console.log('stored in localstorage');
       }
+
     } catch (error) {
       console.error('Failed to store session:', error);
     }
