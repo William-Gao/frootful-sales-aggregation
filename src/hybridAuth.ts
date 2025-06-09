@@ -1,9 +1,8 @@
 // Hybrid Authentication Manager for Chrome Extension
 // Updated to work with localhost-served auth pages and proper TypeScript
 
-import { tokenManager } from './tokenManager.js';
-import { getSupabaseClient } from './supabaseClient.js';
-import { SupabaseClient } from '@supabase/supabase-js';
+import { supabaseClient } from './supabaseClient.js';
+import { providerTokenManager } from './tokenManager.js';
 
 export interface AuthSession {
   access_token: string;
@@ -38,7 +37,7 @@ class HybridAuthManager {
   private static instance: HybridAuthManager;
   private currentSession: AuthSession | null = null;
   private authWindow: Window | null = null;
-  // private supabasePromise: Promise<SupabaseClient>;
+  private supabase: any = null;
 
   static getInstance(): HybridAuthManager {
     if (!HybridAuthManager.instance) {
@@ -67,7 +66,7 @@ class HybridAuthManager {
       }
     });
 
-    // this.supabaseClient = getSupabaseClient();
+    this.supabase = supabaseClient;
   }
 
   async signInWithGoogle(): Promise<AuthSession> {
@@ -92,29 +91,18 @@ class HybridAuthManager {
 
         // Set up success handler
         const successHandler: AuthSuccessHandler = async (session: AuthSession) => {
-          try {
-            console.log('Attempting to store session data now in AuthSuccessHandler: ', session);
-            await this.storeSession(session);
-
-            console.log('Inside HybridAuthManager, attempting to get supabase instance');
-            const supabase = await getSupabaseClient();
-            
-            supabase.auth.setSession(session);
-            console.log('Attempting to set supabase auth session within HybridAuthManager using auth.setSession');
-            // Store tokens in backend using token manager
-            console.log('Storing tokens in backend...', {
-              provider_token: session.provider_token,
-              provider_refresh_token: session.provider_refresh_token
-            });
-            
-            await tokenManager.storeTokens({
+          try {          
+            // Set the supabase session  
+            await this.supabase.auth.setSession(session);
+            // Store the provider tokens
+            await providerTokenManager.storeTokens({
               provider: 'google',
               accessToken: session.provider_token || session.access_token,
               refreshToken: session.provider_refresh_token || session.refresh_token,
               expiresAt: session.expires_at ? new Date(session.expires_at * 1000).toISOString() : undefined
             });
             
-            console.log('Successfully stored tokens in backend');
+            console.log('Successfully stored provider tokens in backend');
             resolve(session);
           } catch (error) {
             console.error('Error during auth completion:', error);
@@ -221,7 +209,7 @@ class HybridAuthManager {
       
       // Clear tokens using token manager (backend)
       try {
-        await tokenManager.deleteTokens();
+        await providerTokenManager.deleteTokens();
         console.log('Successfully cleared tokens from backend');
       } catch (error) {
         console.warn('Failed to clear tokens from backend:', error);

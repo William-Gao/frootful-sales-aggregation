@@ -1,12 +1,12 @@
 // Supabase client configuration for Chrome Extension
 // This file handles Supabase initialization with Chrome extension compatibility
 
-import { createClient } from '@supabase/supabase-js';
+import { createClient, SupabaseClient } from '@supabase/supabase-js';
 
-let supabase: any = null;
+let supabase: SupabaseClient | null = null;
 
 // Initialize Supabase client lazily
-async function initializeSupabase() {
+function initializeSupabase() {
   console.log('This is the supabase instance: ', supabase);
   if (supabase) return supabase;
 
@@ -90,4 +90,4 @@ export async function getSupabaseClient() {
 }
 
 // For backward compatibility, export a promise that resolves to the client
-export const supabasePromise = initializeSupabase();
+export const supabaseClient = initializeSupabase();

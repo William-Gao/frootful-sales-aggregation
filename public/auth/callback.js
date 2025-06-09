@@ -18,12 +18,9 @@ document.addEventListener('DOMContentLoaded', async () => {
     
     // Initialize Supabase
     const supabase = await getSupabaseClient();
-    
-    console.log('Processing OAuth callback...');
 
     // Get the session from the URL hash (Supabase OAuth callback)
     const { data: { session }, error } = await supabase.auth.getSession();
-    console.log('Session received in callback:', session);
 
     if (error) {
       console.error('Session error:', error);
@@ -42,11 +39,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     const hashParams = new URLSearchParams(hash);
     const providerToken = hashParams.get('provider_token') || session.provider_token;
     const providerRefreshToken = hashParams.get('provider_refresh_token') || session.provider_refresh_token;
-
-    console.log('Provider tokens:', {
-      provider_token: providerToken ? 'present' : 'missing',
-      provider_refresh_token: providerRefreshToken ? 'present' : 'missing'
-    });
 
     // Prepare session data for the extension - preserve all fields
     const sessionData = {
@@ -107,9 +99,9 @@ document.addEventListener('DOMContentLoaded', async () => {
     successState.style.display = 'block';
     
     // Keep window open for debugging - comment out to auto-close
-    // setTimeout(() => {
-    //   window.close();
-    // }, 2000);
+    setTimeout(() => {
+      window.close();
+    }, 2000);
   }
 
   function showError(message) {

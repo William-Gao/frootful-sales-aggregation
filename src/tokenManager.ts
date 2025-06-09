@@ -352,4 +352,4 @@ class ProviderTokenManager {
   }
 }
 
-export const tokenManager = new ProviderTokenManager();
+export const providerTokenManager = new ProviderTokenManager();
