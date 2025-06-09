@@ -51,7 +51,7 @@ function createSupabaseClient(url, anonKey) {
 
   /**
    * Initiate the OAuth flow by redirecting the browser
-   * to Supabase’s /authorize endpoint (code flow → refresh token).
+   * to Supabase's /authorize endpoint (code flow → refresh token).
    */
   auth.signInWithOAuth = async ({ provider, options }) => {
     const params = new URLSearchParams({
@@ -85,7 +85,13 @@ function createSupabaseClient(url, anonKey) {
       const tokenType   = params.get('token_type') || 'bearer';
       const providerToken = params.get('provider_token');
       const providerRefreshToken = params.get('provider_refresh_token');
-      console.log('This is hash: ', hash);
+      
+      console.log('URL hash params:', {
+        access_token: accessToken ? 'present' : 'missing',
+        refresh_token: refreshToken ? 'present' : 'missing',
+        provider_token: providerToken ? 'present' : 'missing',
+        provider_refresh_token: providerRefreshToken ? 'present' : 'missing'
+      });
 
       if (accessToken) {
         // 2) Fetch the user record
@@ -106,8 +112,8 @@ function createSupabaseClient(url, anonKey) {
             : null,
           token_type: tokenType,
           user,
-          provider_token: providerToken,
-          provider_refresh_token: providerRefreshToken
+          provider_token: providerToken || accessToken, // Use provider_token if available, fallback to access_token
+          provider_refresh_token: providerRefreshToken || refreshToken // Use provider_refresh_token if available
         };
 
         // 3) Store and clean up

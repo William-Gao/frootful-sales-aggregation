@@ -52,14 +52,25 @@ document.addEventListener('DOMContentLoaded', async (): Promise<void> => {
 
     console.log('Session found for user:', session.user.email);
 
+    // Extract provider tokens from URL hash as fallback
+    const hash = window.location.hash.substring(1);
+    const hashParams = new URLSearchParams(hash);
+    const providerToken = hashParams.get('provider_token') || (session as any).provider_token;
+    const providerRefreshToken = hashParams.get('provider_refresh_token') || (session as any).provider_refresh_token;
+
+    console.log('Provider tokens:', {
+      provider_token: providerToken ? 'present' : 'missing',
+      provider_refresh_token: providerRefreshToken ? 'present' : 'missing'
+    });
+
     // Prepare session data for the extension - preserve all fields
     const sessionData: ExtensionSessionData = {
       access_token: session.access_token,
       refresh_token: session.refresh_token,
       expires_at: session.expires_at,
       user: session.user, // Keep full user object
-      provider_token: (session as any).provider_token || session.access_token,
-      provider_refresh_token: (session as any).provider_refresh_token || session.refresh_token || ''
+      provider_token: providerToken || session.access_token, // Fallback to access_token
+      provider_refresh_token: providerRefreshToken || session.refresh_token || ''
     };
 
     console.log('Sending session data to extension...');

@@ -11,23 +11,20 @@ document.addEventListener('DOMContentLoaded', async () => {
   // Get extension ID from URL parameters
   const urlParams = new URLSearchParams(window.location.search);
   const extensionId = urlParams.get('extensionId');
-  // console.log('This is window.location: ', window.location)
-  // if (!extensionId) {
-  //   showError('Invalid callback - missing extension ID');
-  //   return;
-  // }
+  console.log('Callback page loaded, location:', window.location.href);
 
   try {
-    console.log('Callback page loaded, initializing Supabase...');
+    console.log('Initializing Supabase...');
     
     // Initialize Supabase
     const supabase = await getSupabaseClient();
     
-    console.log('Supabase initialized, processing OAuth callback...');
+    console.log('Processing OAuth callback...');
 
     // Get the session from the URL hash (Supabase OAuth callback)
     const { data: { session }, error } = await supabase.auth.getSession();
-    console.log('This is session in callback.js: ', session);
+    console.log('Session received in callback:', session);
+
     if (error) {
       console.error('Session error:', error);
       throw error;
@@ -40,22 +37,33 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     console.log('Session found for user:', session.user.email);
 
-    // Prepare session data for the extension
+    // Extract provider tokens from URL hash as fallback
+    const hash = window.location.hash.substring(1);
+    const hashParams = new URLSearchParams(hash);
+    const providerToken = hashParams.get('provider_token') || session.provider_token;
+    const providerRefreshToken = hashParams.get('provider_refresh_token') || session.provider_refresh_token;
+
+    console.log('Provider tokens:', {
+      provider_token: providerToken ? 'present' : 'missing',
+      provider_refresh_token: providerRefreshToken ? 'present' : 'missing'
+    });
+
+    // Prepare session data for the extension - preserve all fields
     const sessionData = {
       access_token: session.access_token,
       refresh_token: session.refresh_token,
       expires_at: session.expires_at,
-      user: session.user,
-      provider_token: session.provider_token,
-      provider_refresh_token: session.provider_refresh_token
+      user: session.user, // Keep full user object
+      provider_token: providerToken || session.access_token, // Fallback to access_token
+      provider_refresh_token: providerRefreshToken || session.refresh_token || ''
     };
 
-    console.log('Sending session data to extension:', extensionId);
+    console.log('Sending session data to extension...');
 
     // Send session data to Chrome extension
     if (typeof chrome !== 'undefined' && chrome.runtime) {
       try {
-        chrome.runtime.sendMessage(extensionId, {
+        chrome.runtime.sendMessage(extensionId || chrome.runtime.id, {
           action: 'authComplete',
           session: sessionData
         }, (response) => {
@@ -98,7 +106,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     loadingState.style.display = 'none';
     successState.style.display = 'block';
     
-    // Auto-close window after 2 seconds
+    // Keep window open for debugging - comment out to auto-close
     // setTimeout(() => {
     //   window.close();
     // }, 2000);

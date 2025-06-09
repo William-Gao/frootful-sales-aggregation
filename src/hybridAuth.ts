@@ -87,23 +87,32 @@ class HybridAuthManager {
 
         // Set up success handler
         const successHandler: AuthSuccessHandler = async (session: AuthSession) => {
-          this.currentSession = session;
-          await this.storeSession(session);
-          
-          // Store tokens using token manager
           try {
+            this.currentSession = session;
+            await this.storeSession(session);
+            
+            // Store tokens in backend using token manager
+            console.log('Storing tokens in backend...', {
+              provider_token: session.provider_token,
+              provider_refresh_token: session.provider_refresh_token
+            });
+            
             await tokenManager.storeTokens({
               provider: 'google',
-              accessToken: session.provider_token || session.access_token, // Use provider_token if available
+              accessToken: session.provider_token || session.access_token,
               refreshToken: session.provider_refresh_token || session.refresh_token,
               expiresAt: session.expires_at ? new Date(session.expires_at * 1000).toISOString() : undefined
             });
+            
+            console.log('Successfully stored tokens in backend');
+            resolve(session);
           } catch (error) {
-            console.warn('Failed to store tokens in backend:', error);
+            console.error('Error during auth completion:', error);
+            // Still resolve with session even if backend storage fails
+            resolve(session);
+          } finally {
+            this.cleanup();
           }
-          
-          resolve(session);
-          this.cleanup();
         };
 
         // Set up error handler
@@ -219,14 +228,21 @@ class HybridAuthManager {
       // Clear stored session
       await this.clearSession();
       
-      // Clear tokens using token manager
-      await tokenManager.deleteTokens();
+      // Clear tokens using token manager (backend)
+      try {
+        await tokenManager.deleteTokens();
+        console.log('Successfully cleared tokens from backend');
+      } catch (error) {
+        console.warn('Failed to clear tokens from backend:', error);
+      }
       
       // Revoke Google token if available
       const session = await this.getCurrentSession();
-      if (session?.access_token) {
+      if (session?.provider_token || session?.access_token) {
         try {
-          await fetch(`https://accounts.google.com/o/oauth2/revoke?token=${session.access_token}`);
+          const tokenToRevoke = session.provider_token || session.access_token;
+          await fetch(`https://accounts.google.com/o/oauth2/revoke?token=${tokenToRevoke}`);
+          console.log('Successfully revoked Google token');
         } catch (error) {
           console.error('Failed to revoke Google token:', error);
         }
@@ -268,7 +284,7 @@ class HybridAuthManager {
     delete window.frootfulAuthError;
   }
 
-  // Get access token for API calls
+  // Get access token for API calls - prioritize provider_token
   async getAccessToken(): Promise<string | null> {
     const session = await this.getCurrentSession();
     return session?.provider_token || session?.access_token || null;
