@@ -17,10 +17,6 @@ export default defineConfig({
         popup: resolve(__dirname, 'popup/popup.ts'),
         sidebar: resolve(__dirname, 'sidebar/sidebar.ts'),
         welcome: resolve(__dirname, 'onboarding/welcome.ts'),
-        // Updated auth files to TypeScript
-        authLogin: resolve(__dirname, 'public/auth/login.ts'),
-        authCallback: resolve(__dirname, 'public/auth/callback.ts'),
-        authSupabase: resolve(__dirname, 'public/auth/supabaseClient.ts'),
       },
       output: {
         dir: 'dist',
@@ -40,9 +36,6 @@ export default defineConfig({
           if (chunkInfo.facadeModuleId?.includes('/onboarding/')) {
             return 'onboarding/[name].js';
           }
-          if (chunkInfo.facadeModuleId?.includes('/public/auth/')) {
-            return 'auth/[name].js';
-          }
           return '[name].js';
         },
         chunkFileNames: '[name].js',
@@ -59,9 +52,6 @@ export default defineConfig({
             }
             if (assetInfo.name.includes('onboarding/')) {
               return 'onboarding/[name][extname]';
-            }
-            if (assetInfo.name.includes('auth/')) {
-              return 'auth/[name][extname]';
             }
           }
           return '[name][extname]';
