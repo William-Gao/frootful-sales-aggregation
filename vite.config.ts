@@ -17,62 +17,58 @@ export default defineConfig({
         popup: resolve(__dirname, 'popup/popup.ts'),
         sidebar: resolve(__dirname, 'sidebar/sidebar.ts'),
         welcome: resolve(__dirname, 'onboarding/welcome.ts'),
+        // Add auth files to build
+        authLogin: resolve(__dirname, 'public/auth/login.js'),
+        authCallback: resolve(__dirname, 'public/auth/callback.js'),
+        authSupabase: resolve(__dirname, 'public/auth/supabaseClient.js'),
       },
-      output: [
-        // ES modules for background, popup, sidebar (these support modules)
-        {
-          dir: 'dist',
-          format: 'es',
-          entryFileNames: (chunkInfo) => {
-            if (chunkInfo.facadeModuleId?.includes('/background/')) {
-              return 'background/[name].js';
-            }
-            if (chunkInfo.facadeModuleId?.includes('/popup/')) {
-              return 'popup/[name].js';
-            }
-            if (chunkInfo.facadeModuleId?.includes('/sidebar/')) {
-              return 'sidebar/[name].js';
-            }
-            if (chunkInfo.facadeModuleId?.includes('/onboarding/')) {
-              return 'onboarding/[name].js';
-            }
-            return '[name].js';
-          },
-          chunkFileNames: '[name].js',
-          assetFileNames: (assetInfo) => {
-            if (assetInfo.name?.endsWith('.css')) {
-              if (assetInfo.name.includes('popup/')) {
-                return 'popup/[name][extname]';
-              }
-              if (assetInfo.name.includes('sidebar/')) {
-                return 'sidebar/[name][extname]';
-              }
-              if (assetInfo.name.includes('onboarding/')) {
-                return 'onboarding/[name][extname]';
-              }
-            }
-            return '[name][extname]';
+      output: {
+        dir: 'dist',
+        format: 'iife', // Use IIFE for all scripts to avoid module issues
+        entryFileNames: (chunkInfo) => {
+          if (chunkInfo.facadeModuleId?.includes('/background/')) {
+            return 'background/[name].js';
           }
+          if (chunkInfo.facadeModuleId?.includes('/content/')) {
+            return 'content/[name].js';
+          }
+          if (chunkInfo.facadeModuleId?.includes('/popup/')) {
+            return 'popup/[name].js';
+          }
+          if (chunkInfo.facadeModuleId?.includes('/sidebar/')) {
+            return 'sidebar/[name].js';
+          }
+          if (chunkInfo.facadeModuleId?.includes('/onboarding/')) {
+            return 'onboarding/[name].js';
+          }
+          if (chunkInfo.facadeModuleId?.includes('/public/auth/')) {
+            return 'auth/[name].js';
+          }
+          return '[name].js';
         },
-        // IIFE format for content script (no module support)
-        {
-          dir: 'dist',
-          format: 'iife',
-          entryFileNames: (chunkInfo) => {
-            if (chunkInfo.facadeModuleId?.includes('/content/')) {
-              return 'content/[name].js';
-            }
-            return null; // Skip other entries for this output
-          },
-          chunkFileNames: 'content/[name].js',
-          assetFileNames: (assetInfo) => {
-            if (assetInfo.name?.endsWith('.css') && assetInfo.name.includes('content/')) {
+        chunkFileNames: '[name].js',
+        assetFileNames: (assetInfo) => {
+          if (assetInfo.name?.endsWith('.css')) {
+            if (assetInfo.name.includes('content/')) {
               return 'content/[name][extname]';
             }
-            return null; // Skip other assets for this output
+            if (assetInfo.name.includes('popup/')) {
+              return 'popup/[name][extname]';
+            }
+            if (assetInfo.name.includes('sidebar/')) {
+              return 'sidebar/[name][extname]';
+            }
+            if (assetInfo.name.includes('onboarding/')) {
+              return 'onboarding/[name][extname]';
+            }
+            if (assetInfo.name.includes('auth/')) {
+              return 'auth/[name][extname]';
+            }
           }
-        }
-      ]
+          return '[name][extname]';
+        },
+        inlineDynamicImports: false // Disable to allow multiple inputs
+      }
     },
     outDir: 'dist',
     emptyOutDir: true,
