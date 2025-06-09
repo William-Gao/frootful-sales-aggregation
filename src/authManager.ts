@@ -8,6 +8,13 @@ export interface GoogleUser {
   picture?: string;
 }
 
+interface GoogleTokenInfo {
+  sub: string;
+  email: string;
+  name?: string;
+  picture?: string;
+}
+
 class AuthManager {
   private currentUser: GoogleUser | null = null;
 
@@ -53,7 +60,7 @@ class AuthManager {
   }
 
   private async getGoogleToken(): Promise<string> {
-    return new Promise((resolve, reject) => {
+    return new Promise<string>((resolve, reject) => {
       if (typeof chrome === 'undefined' || !chrome.identity) {
         reject(new Error('Chrome Identity API not available'));
         return;
@@ -76,12 +83,12 @@ class AuthManager {
       throw new Error('Failed to get user info from Google');
     }
 
-    const userInfo = await response.json();
+    const userInfo: GoogleTokenInfo = await response.json();
     
     return {
-      id: userInfo.id,
+      id: userInfo.sub,
       email: userInfo.email,
-      name: userInfo.name,
+      name: userInfo.name || userInfo.email,
       picture: userInfo.picture
     };
   }

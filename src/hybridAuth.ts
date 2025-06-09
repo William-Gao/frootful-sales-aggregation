@@ -1,5 +1,5 @@
 // Hybrid Authentication Manager for Chrome Extension
-// Updated to work with localhost-served auth pages
+// Updated to work with localhost-served auth pages and proper TypeScript
 
 export interface AuthSession {
   access_token: string;
@@ -11,6 +11,26 @@ export interface AuthSession {
     name: string;
     picture?: string;
   };
+}
+
+interface AuthMessage {
+  action: 'authComplete';
+  session: AuthSession;
+}
+
+interface AuthSuccessHandler {
+  (session: AuthSession): void;
+}
+
+interface AuthErrorHandler {
+  (error: string): void;
+}
+
+declare global {
+  interface Window {
+    frootfulAuthSuccess?: AuthSuccessHandler;
+    frootfulAuthError?: AuthErrorHandler;
+  }
 }
 
 class HybridAuthManager {
@@ -28,16 +48,18 @@ class HybridAuthManager {
   constructor() {
     // Listen for messages from auth callback
     if (typeof chrome !== 'undefined' && chrome.runtime) {
-      chrome.runtime.onMessageExternal.addListener((message, sender, sendResponse) => {
-        if (message.action === 'authComplete') {
-          this.handleAuthComplete(message.session);
-          sendResponse({ success: true });
+      chrome.runtime.onMessageExternal.addListener(
+        (message: AuthMessage, sender: chrome.runtime.MessageSender, sendResponse: (response: any) => void) => {
+          if (message.action === 'authComplete') {
+            this.handleAuthComplete(message.session);
+            sendResponse({ success: true });
+          }
         }
-      });
+      );
     }
 
     // Also listen for postMessage events (fallback)
-    window.addEventListener('message', (event) => {
+    window.addEventListener('message', (event: MessageEvent<AuthMessage>) => {
       if (event.data.action === 'authComplete') {
         this.handleAuthComplete(event.data.session);
       }
@@ -45,13 +67,10 @@ class HybridAuthManager {
   }
 
   async signInWithGoogle(): Promise<AuthSession> {
-    return new Promise((resolve, reject) => {
+    return new Promise<AuthSession>((resolve, reject) => {
       try {
-        // Get extension ID for callback
-        const extensionId = chrome.runtime.id;
-        
         // Use localhost URL since you're serving with npx serve
-        const loginUrl = `http://localhost:5173/auth/login.html`;
+        const loginUrl = 'http://localhost:5173/auth/login.html';
         
         console.log('Opening auth window:', loginUrl);
         
@@ -68,7 +87,7 @@ class HybridAuthManager {
         }
 
         // Set up success handler
-        const successHandler = (session: AuthSession) => {
+        const successHandler: AuthSuccessHandler = (session: AuthSession) => {
           this.currentSession = session;
           this.storeSession(session);
           resolve(session);
@@ -76,14 +95,14 @@ class HybridAuthManager {
         };
 
         // Set up error handler
-        const errorHandler = (error: string) => {
+        const errorHandler: AuthErrorHandler = (error: string) => {
           reject(new Error(error));
           this.cleanup();
         };
 
         // Store handlers for callback
-        (window as any).frootfulAuthSuccess = successHandler;
-        (window as any).frootfulAuthError = errorHandler;
+        window.frootfulAuthSuccess = successHandler;
+        window.frootfulAuthError = errorHandler;
 
         // Check if window was closed manually
         const checkClosed = setInterval(() => {
@@ -111,8 +130,8 @@ class HybridAuthManager {
 
   private handleAuthComplete(session: AuthSession): void {
     console.log('Auth complete received:', session.user.email);
-    if ((window as any).frootfulAuthSuccess) {
-      (window as any).frootfulAuthSuccess(session);
+    if (window.frootfulAuthSuccess) {
+      window.frootfulAuthSuccess(session);
     }
   }
 
@@ -229,8 +248,8 @@ class HybridAuthManager {
     }
     
     // Clean up global handlers
-    delete (window as any).frootfulAuthSuccess;
-    delete (window as any).frootfulAuthError;
+    delete window.frootfulAuthSuccess;
+    delete window.frootfulAuthError;
   }
 
   // Get access token for API calls
