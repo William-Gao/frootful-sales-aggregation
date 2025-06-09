@@ -47,6 +47,8 @@ class HybridAuthManager {
   }
 
   constructor() {
+    console.log('HybridAuthManager constructor called');
+    
     // Listen for messages from auth callback
     if (typeof chrome !== 'undefined' && chrome.runtime) {
       chrome.runtime.onMessageExternal.addListener(
@@ -70,7 +72,12 @@ class HybridAuthManager {
   }
 
   private async initializeSupabase() {
-    this.supabase = await supabaseClient;
+    try {
+      this.supabase = await supabaseClient;
+      console.log('Supabase initialized in HybridAuthManager');
+    } catch (error) {
+      console.error('Failed to initialize Supabase in HybridAuthManager:', error);
+    }
   }
 
   async signInWithGoogle(): Promise<AuthSession> {
@@ -208,6 +215,7 @@ class HybridAuthManager {
       }
 
       if (!sessionData) {
+        console.log('No session data found');
         return null;
       }
 
@@ -215,11 +223,13 @@ class HybridAuthManager {
       
       // Check if session is expired
       if (expiresAt && Date.now() / 1000 > expiresAt) {
+        console.log('Session expired');
         await this.clearSession();
         return null;
       }
 
       this.currentSession = session;
+      console.log('Retrieved valid session for user:', session.user?.email);
       return session;
     } catch (error) {
       console.error('Failed to retrieve session:', error);
@@ -228,13 +238,35 @@ class HybridAuthManager {
   }
 
   async isAuthenticated(): Promise<boolean> {
-    const { data: { session } } = this.supabase.auth.getSession();
-    console.log('This is session in isAuthenticated() in hybrid auth: ', session);
-    return session !== null;
+    console.log('Checking authentication status...');
+    
+    try {
+      // First check local session
+      const session = await this.getCurrentSession();
+      if (session) {
+        console.log('Found valid local session');
+        return true;
+      }
+
+      // Then check Supabase session if available
+      if (this.supabase) {
+        const { data: { session: supabaseSession } } = await this.supabase.auth.getSession();
+        console.log('Supabase session check:', supabaseSession ? 'found' : 'not found');
+        return supabaseSession !== null;
+      }
+
+      console.log('No authentication found');
+      return false;
+    } catch (error) {
+      console.error('Error checking authentication:', error);
+      return false;
+    }
   }
 
   async signOut(): Promise<void> {
     try {
+      console.log('Signing out...');
+      
       // Clear current session
       this.currentSession = null;
       
@@ -248,7 +280,6 @@ class HybridAuthManager {
       }
       
       // Clear tokens using token manager (backend)
-      // TODO: Revisit this
       try {
         await providerTokenManager.deleteTokens();
         console.log('Successfully cleared tokens from backend');
@@ -282,6 +313,7 @@ class HybridAuthManager {
         localStorage.removeItem('frootful_session');
         localStorage.removeItem('frootful_session_expires');
       }
+      console.log('Session cleared');
     } catch (error) {
       console.error('Failed to clear session:', error);
     }
@@ -289,7 +321,9 @@ class HybridAuthManager {
 
   private isSessionValid(session: AuthSession): boolean {
     if (!session.expires_at) return true; // No expiry set
-    return Date.now() / 1000 < session.expires_at;
+    const isValid = Date.now() / 1000 < session.expires_at;
+    console.log('Session validity check:', isValid);
+    return isValid;
   }
 
   private cleanup(): void {
@@ -306,8 +340,11 @@ class HybridAuthManager {
 
   // Get access token for API calls - prioritize provider_token
   async getAccessToken(): Promise<string | null> {
+    console.log('Getting access token...');
     const session = await this.getCurrentSession();
-    return session?.provider_token || session?.access_token || null;
+    const token = session?.provider_token || session?.access_token || null;
+    console.log('Access token found:', token ? 'yes' : 'no');
+    return token;
   }
 
   // Get user info

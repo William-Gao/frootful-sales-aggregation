@@ -22,9 +22,11 @@ let observer: MutationObserver | null = null;
 let observerTimeout: number | null = null;
 let lastUrl: string | null = null;
 
+console.log('Frootful content script loaded');
+
 // Initialize connection and check auth state
 async function initializeAuth(): Promise<void> {
-  console.log('This is initializeAuth function, and this is isAuthenticated: ', isAuthenticated);
+  console.log('Initializing authentication...');
   try {
     isAuthenticated = await hybridAuth.isAuthenticated();
     console.log('Authentication state:', isAuthenticated);
@@ -38,6 +40,8 @@ async function initializeAuth(): Promise<void> {
 
 // Initialize extension
 function init(): void {
+  console.log('Initializing extension, authenticated:', isAuthenticated);
+  
   if (observer) observer.disconnect();
 
   observer = new MutationObserver((mutations) => {
@@ -50,6 +54,11 @@ function init(): void {
   const mainContent = document.querySelector('[role="main"]');
   if (mainContent) {
     observer.observe(mainContent, { childList: true, subtree: true });
+    console.log('Observer attached to main content');
+  } else {
+    console.log('Main content not found, retrying in 1 second');
+    setTimeout(init, 1000);
+    return;
   }
 
   // URL polling fallback
@@ -65,32 +74,52 @@ function init(): void {
 
 // Check if an email is currently being viewed
 function checkForEmailView(): void {
+  console.log('Checking for email view...');
+  
   if (extractButton) {
     extractButton.remove();
     extractButton = null;
   }
 
   const emailContainer = document.querySelector('[role="main"]');
-  if (!emailContainer) return;
+  if (!emailContainer) {
+    console.log('Email container not found');
+    return;
+  }
 
   const messageIdElement = emailContainer.querySelector('[data-legacy-message-id]');
-  if (!messageIdElement) return;
+  if (!messageIdElement) {
+    console.log('Message ID element not found');
+    return;
+  }
 
   currentEmailId = messageIdElement.getAttribute('data-legacy-message-id');
-  if (!currentEmailId) return;
+  if (!currentEmailId) {
+    console.log('Current email ID not found');
+    return;
+  }
+
+  console.log('Found email ID:', currentEmailId);
 
   const senderSpan = emailContainer.querySelector('.gD');
-  if (!senderSpan) return;
+  if (!senderSpan) {
+    console.log('Sender span not found');
+    return;
+  }
+
+  console.log('Found sender span, authenticated:', isAuthenticated);
 
   if (currentEmailId && isAuthenticated) {
     const parent = senderSpan.parentElement;
     if (parent) {
+      console.log('Injecting extract button');
       injectExtractButton(parent);
     }
   } else if (currentEmailId && !isAuthenticated) {
     // Show a different button that prompts for authentication
     const parent = senderSpan.parentElement;
     if (parent) {
+      console.log('Injecting sign-in button');
       injectSignInButton(parent);
     }
   }
@@ -98,8 +127,12 @@ function checkForEmailView(): void {
 
 // Inject the extract button into Gmail UI
 function injectExtractButton(container: Element): void {
-  if (container.querySelector('.frootful-extract-btn')) return;
+  if (container.querySelector('.frootful-extract-btn')) {
+    console.log('Extract button already exists');
+    return;
+  }
 
+  console.log('Creating extract button');
   extractButton = document.createElement('div');
   extractButton.className = 'frootful-extract-btn';
   extractButton.innerHTML = `
@@ -119,12 +152,17 @@ function injectExtractButton(container: Element): void {
 
   extractButton.addEventListener('click', handleExtractClick);
   container.appendChild(extractButton);
+  console.log('Extract button injected successfully');
 }
 
 // Inject sign-in button when user is not authenticated
 function injectSignInButton(container: Element): void {
-  if (container.querySelector('.frootful-extract-btn')) return;
+  if (container.querySelector('.frootful-extract-btn')) {
+    console.log('Sign-in button already exists');
+    return;
+  }
 
+  console.log('Creating sign-in button');
   extractButton = document.createElement('div');
   extractButton.className = 'frootful-extract-btn';
   extractButton.innerHTML = `
@@ -145,12 +183,15 @@ function injectSignInButton(container: Element): void {
 
   extractButton.addEventListener('click', handleSignInClick);
   container.appendChild(extractButton);
+  console.log('Sign-in button injected successfully');
 }
 
 // Handle sign-in button click
 async function handleSignInClick(e: MouseEvent): Promise<void> {
   e.preventDefault();
   e.stopPropagation();
+  
+  console.log('Sign-in button clicked');
   
   try {
     // Show loading state
@@ -196,7 +237,12 @@ async function handleExtractClick(e: MouseEvent): Promise<void> {
   e.preventDefault();
   e.stopPropagation();
   
-  if (!currentEmailId) return;
+  console.log('Extract button clicked, email ID:', currentEmailId);
+  
+  if (!currentEmailId) {
+    console.error('No current email ID');
+    return;
+  }
   
   // Show loading state
   if (extractButton) {
@@ -211,12 +257,14 @@ async function handleExtractClick(e: MouseEvent): Promise<void> {
   removeSidebar();
   
   try {
+    console.log('Getting auth token...');
     // Get auth token
     const authToken = await hybridAuth.getAccessToken();
     if (!authToken) {
       throw new Error('Not authenticated');
     }
 
+    console.log('Making request to extract email...');
     // Call backend to extract email
     const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/extract-email`, {
       method: 'POST',
@@ -229,9 +277,12 @@ async function handleExtractClick(e: MouseEvent): Promise<void> {
       })
     });
 
+    console.log('Response status:', response.status);
     const result = await response.json();
+    console.log('Response result:', result);
 
     if (result.success && result.data) {
+      console.log('Email extracted successfully, showing sidebar');
       showSidebar(result.data);
     } else {
       throw new Error(result.error || 'Failed to extract email');
@@ -253,6 +304,7 @@ async function handleExtractClick(e: MouseEvent): Promise<void> {
 
 // Show success notification
 function showSuccessNotification(message: string): void {
+  console.log('Showing success notification:', message);
   const notification = document.createElement('div');
   notification.style.cssText = `
     position: fixed;
@@ -283,6 +335,7 @@ function showSuccessNotification(message: string): void {
 
 // Show error notification
 function showErrorNotification(message: string): void {
+  console.log('Showing error notification:', message);
   const notification = document.createElement('div');
   notification.style.cssText = `
     position: fixed;
@@ -313,6 +366,8 @@ function showErrorNotification(message: string): void {
 
 // Show sidebar with email content
 function showSidebar(emailData: EmailData): void {
+  console.log('Showing sidebar with email data:', emailData);
+  
   // Create sidebar if it doesn't exist
   if (!sidebarFrame) {
     sidebarFrame = document.createElement('iframe');
@@ -322,6 +377,7 @@ function showSidebar(emailData: EmailData): void {
     
     // Wait for iframe to load before sending data
     sidebarFrame.onload = () => {
+      console.log('Sidebar iframe loaded, sending email data');
       if (sidebarFrame && sidebarFrame.contentWindow) {
         sidebarFrame.contentWindow.postMessage({
           action: 'loadEmailData',
@@ -331,6 +387,7 @@ function showSidebar(emailData: EmailData): void {
     };
   } else {
     // Sidebar already exists, just send new data
+    console.log('Sidebar exists, sending new email data');
     if (sidebarFrame.contentWindow) {
       sidebarFrame.contentWindow.postMessage({
         action: 'loadEmailData',
@@ -347,6 +404,7 @@ function startUrlWatcher(): void {
   setInterval(() => {
     const currentUrl = window.location.href;
     if (currentUrl !== lastUrl) {
+      console.log('URL changed from', lastUrl, 'to', currentUrl);
       lastUrl = currentUrl;
       checkForEmailView();
     }
@@ -356,6 +414,7 @@ function startUrlWatcher(): void {
 // Remove sidebar from DOM
 function removeSidebar(): void {
   if (sidebarFrame) {
+    console.log('Removing sidebar');
     sidebarFrame.remove();
     sidebarFrame = null;
   }
@@ -364,9 +423,11 @@ function removeSidebar(): void {
 // Listen for messages from sidebar
 window.addEventListener('message', (event: MessageEvent) => {
   if (event.data.action === 'closeSidebar') {
+    console.log('Received close sidebar message');
     removeSidebar();
   }
 });
 
 // Initialize when script loads
+console.log('Starting initialization...');
 initializeAuth();
