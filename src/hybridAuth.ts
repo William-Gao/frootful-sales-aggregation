@@ -1,5 +1,5 @@
 // Hybrid Authentication Manager for Chrome Extension
-// This handles the popup-based OAuth flow with hosted login pages
+// Updated to work with localhost-served auth pages
 
 export interface AuthSession {
   access_token: string;
@@ -50,8 +50,10 @@ class HybridAuthManager {
         // Get extension ID for callback
         const extensionId = chrome.runtime.id;
         
-        // Construct login URL
-        const loginUrl = `${window.location.origin}/auth/login.html?extensionId=${extensionId}`;
+        // Use localhost URL since you're serving with npx serve
+        const loginUrl = `http://localhost:5173/auth/login.html?extensionId=${extensionId}`;
+        
+        console.log('Opening auth window:', loginUrl);
         
         // Open popup window
         this.authWindow = window.open(
@@ -108,6 +110,7 @@ class HybridAuthManager {
   }
 
   private handleAuthComplete(session: AuthSession): void {
+    console.log('Auth complete received:', session.user.email);
     if ((window as any).frootfulAuthSuccess) {
       (window as any).frootfulAuthSuccess(session);
     }

@@ -1,23 +1,27 @@
 // Supabase client for auth pages
-// This version uses a pre-bundled approach to avoid CSP issues
+// This version uses the actual Supabase Auth API
 
 let supabase = null;
 
-// Minimal Supabase client implementation for auth pages
-function createMinimalSupabaseClient(url, key) {
+// Create a proper Supabase client that works with OAuth
+function createSupabaseClient(url, key) {
   return {
     auth: {
       signInWithOAuth: async (options) => {
         const { provider, options: authOptions } = options;
         
-        // Construct OAuth URL manually
+        // Construct Supabase OAuth URL
         const params = new URLSearchParams({
           provider: provider,
-          redirect_to: authOptions.redirectTo,
-          scopes: authOptions.scopes || 'email profile'
+          redirect_to: authOptions.redirectTo
         });
         
-        // Add query params
+        // Add scopes if provided
+        if (authOptions.scopes) {
+          params.append('scopes', authOptions.scopes);
+        }
+        
+        // Add query params for Google OAuth
         if (authOptions.queryParams) {
           Object.entries(authOptions.queryParams).forEach(([key, value]) => {
             params.append(key, value);
@@ -26,7 +30,9 @@ function createMinimalSupabaseClient(url, key) {
         
         const authUrl = `${url}/auth/v1/authorize?${params.toString()}`;
         
-        // Redirect to OAuth URL
+        console.log('Redirecting to Supabase OAuth:', authUrl);
+        
+        // Redirect to Supabase OAuth URL
         window.location.href = authUrl;
         
         return { data: null, error: null };
@@ -34,42 +40,64 @@ function createMinimalSupabaseClient(url, key) {
       
       getSession: async () => {
         try {
-          // Check URL hash for session data
+          // First check URL hash for fresh tokens from OAuth callback
           const hashParams = new URLSearchParams(window.location.hash.substring(1));
           const accessToken = hashParams.get('access_token');
           const refreshToken = hashParams.get('refresh_token');
           const expiresIn = hashParams.get('expires_in');
+          const tokenType = hashParams.get('token_type');
           
           if (accessToken) {
-            // Get user info from Google
-            const userResponse = await fetch(`https://www.googleapis.com/oauth2/v2/userinfo?access_token=${accessToken}`);
-            const userInfo = await userResponse.json();
+            console.log('Found tokens in URL hash');
+            
+            // Get user info using Supabase user endpoint
+            const userResponse = await fetch(`${url}/auth/v1/user`, {
+              headers: {
+                'Authorization': `${tokenType || 'Bearer'} ${accessToken}`,
+                'apikey': key
+              }
+            });
+            
+            if (!userResponse.ok) {
+              throw new Error('Failed to get user info from Supabase');
+            }
+            
+            const user = await userResponse.json();
             
             const session = {
               access_token: accessToken,
               refresh_token: refreshToken,
               expires_at: expiresIn ? Math.floor(Date.now() / 1000) + parseInt(expiresIn) : null,
-              user: {
-                id: userInfo.id,
-                email: userInfo.email,
-                user_metadata: {
-                  full_name: userInfo.name,
-                  avatar_url: userInfo.picture
-                }
-              }
+              token_type: tokenType || 'bearer',
+              user: user
             };
+            
+            // Store the session
+            await this.storeSession(session);
+            
+            // Clear the hash to prevent reprocessing
+            if (window.history && window.history.replaceState) {
+              window.history.replaceState(null, null, window.location.pathname + window.location.search);
+            }
             
             return { data: { session }, error: null };
           }
           
-          // Check stored session
+          // Check for stored session
           const storedSession = await this.getStoredSession();
           if (storedSession) {
-            return { data: { session: storedSession }, error: null };
+            // Validate stored session
+            if (this.isSessionValid(storedSession)) {
+              return { data: { session: storedSession }, error: null };
+            } else {
+              // Session expired, clear it
+              await this.clearSession();
+            }
           }
           
           return { data: { session: null }, error: null };
         } catch (error) {
+          console.error('Error getting session:', error);
           return { data: { session: null }, error };
         }
       },
@@ -99,19 +127,41 @@ function createMinimalSupabaseClient(url, key) {
             resolve();
           }
         });
+      },
+      
+      clearSession: async () => {
+        return new Promise((resolve) => {
+          if (typeof chrome !== 'undefined' && chrome.storage) {
+            chrome.storage.local.remove(['supabase_session'], () => {
+              resolve();
+            });
+          } else {
+            localStorage.removeItem('supabase_session');
+            resolve();
+          }
+        });
+      },
+      
+      isSessionValid: (session) => {
+        if (!session.expires_at) return true;
+        return Math.floor(Date.now() / 1000) < session.expires_at;
+      },
+      
+      signOut: async () => {
+        await this.clearSession();
+        return { error: null };
       }
     }
   };
 }
 
-// Initialize Supabase client without CDN
+// Initialize Supabase client
 async function initializeSupabase() {
   if (supabase) return supabase;
 
   try {
-    console.log('Initializing minimal Supabase client...');
+    console.log('Initializing Supabase client...');
     
-    // Use environment variables or fallback to hardcoded values
     const supabaseUrl = 'https://zkglvdfppodwlgzhfgqs.supabase.co';
     const supabaseAnonKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InprZ2x2ZGZwcG9kd2xnemhmZ3FzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDYxOTQ5MjgsImV4cCI6MjA2MTc3MDkyOH0.qzyywdy4k6A0DucETls_YT32YvAxuwDV6eBFjs89BRg';
 
@@ -119,9 +169,9 @@ async function initializeSupabase() {
       throw new Error('Missing Supabase configuration');
     }
 
-    supabase = createMinimalSupabaseClient(supabaseUrl, supabaseAnonKey);
+    supabase = createSupabaseClient(supabaseUrl, supabaseAnonKey);
     
-    console.log('Minimal Supabase client initialized successfully');
+    console.log('Supabase client initialized successfully');
     return supabase;
   } catch (error) {
     console.error('Failed to initialize Supabase:', error);
