@@ -1,32 +1,49 @@
-// Supabase client for auth pages
-// This version uses a pre-bundled approach to avoid CSP issues
+// Direct Google OAuth client for auth pages
+// This bypasses Supabase OAuth and uses Google OAuth directly
 
-let supabase = null;
+let googleOAuthClient = null;
 
-// Minimal Supabase client implementation for auth pages
-function createMinimalSupabaseClient(url, key) {
+// Google OAuth configuration
+const GOOGLE_CLIENT_ID = '930825445704-od6kb7h9h2a07kog5gg5l5c7kdfrbova.apps.googleusercontent.com';
+const GOOGLE_SCOPES = 'email profile https://www.googleapis.com/auth/gmail.readonly';
+
+// Create a minimal client that mimics Supabase interface but uses Google OAuth directly
+function createGoogleOAuthClient() {
   return {
     auth: {
       signInWithOAuth: async (options) => {
         const { provider, options: authOptions } = options;
         
-        // Construct OAuth URL manually
+        if (provider !== 'google') {
+          throw new Error('Only Google OAuth is supported');
+        }
+        
+        // Generate state parameter for security
+        const state = generateRandomString(32);
+        sessionStorage.setItem('oauth_state', state);
+        
+        // Construct Google OAuth URL directly
         const params = new URLSearchParams({
-          provider: provider,
-          redirect_to: authOptions.redirectTo,
-          scopes: authOptions.scopes || 'email profile'
+          client_id: GOOGLE_CLIENT_ID,
+          response_type: 'token',
+          scope: authOptions.scopes || GOOGLE_SCOPES,
+          redirect_uri: authOptions.redirectTo,
+          state: state,
+          include_granted_scopes: 'true'
         });
         
-        // Add query params
+        // Add additional query params
         if (authOptions.queryParams) {
           Object.entries(authOptions.queryParams).forEach(([key, value]) => {
             params.append(key, value);
           });
         }
         
-        const authUrl = `${url}/auth/v1/authorize?${params.toString()}`;
+        const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`;
         
-        // Redirect to OAuth URL
+        console.log('Redirecting to Google OAuth:', authUrl);
+        
+        // Redirect to Google OAuth URL
         window.location.href = authUrl;
         
         return { data: null, error: null };
@@ -34,20 +51,38 @@ function createMinimalSupabaseClient(url, key) {
       
       getSession: async () => {
         try {
-          // Check URL hash for session data
+          // Check URL hash for OAuth response
           const hashParams = new URLSearchParams(window.location.hash.substring(1));
           const accessToken = hashParams.get('access_token');
-          const refreshToken = hashParams.get('refresh_token');
           const expiresIn = hashParams.get('expires_in');
+          const state = hashParams.get('state');
+          const error = hashParams.get('error');
+          
+          // Check for OAuth errors
+          if (error) {
+            throw new Error(`OAuth error: ${error}`);
+          }
+          
+          // Verify state parameter
+          const storedState = sessionStorage.getItem('oauth_state');
+          if (state && storedState && state !== storedState) {
+            throw new Error('Invalid state parameter');
+          }
           
           if (accessToken) {
+            console.log('Found access token in URL hash');
+            
             // Get user info from Google
             const userResponse = await fetch(`https://www.googleapis.com/oauth2/v2/userinfo?access_token=${accessToken}`);
+            
+            if (!userResponse.ok) {
+              throw new Error('Failed to get user info from Google');
+            }
+            
             const userInfo = await userResponse.json();
             
             const session = {
               access_token: accessToken,
-              refresh_token: refreshToken,
               expires_at: expiresIn ? Math.floor(Date.now() / 1000) + parseInt(expiresIn) : null,
               user: {
                 id: userInfo.id,
@@ -59,17 +94,32 @@ function createMinimalSupabaseClient(url, key) {
               }
             };
             
+            // Store session
+            await this.storeSession(session);
+            
+            // Clean up URL hash
+            if (window.history && window.history.replaceState) {
+              window.history.replaceState({}, document.title, window.location.pathname + window.location.search);
+            }
+            
             return { data: { session }, error: null };
           }
           
           // Check stored session
           const storedSession = await this.getStoredSession();
           if (storedSession) {
+            // Verify token is still valid
+            if (storedSession.expires_at && Date.now() / 1000 > storedSession.expires_at) {
+              // Token expired, remove it
+              await this.clearSession();
+              return { data: { session: null }, error: null };
+            }
             return { data: { session: storedSession }, error: null };
           }
           
           return { data: { session: null }, error: null };
         } catch (error) {
+          console.error('Error getting session:', error);
           return { data: { session: null }, error };
         }
       },
@@ -77,11 +127,11 @@ function createMinimalSupabaseClient(url, key) {
       getStoredSession: async () => {
         return new Promise((resolve) => {
           if (typeof chrome !== 'undefined' && chrome.storage) {
-            chrome.storage.local.get(['supabase_session'], (result) => {
-              resolve(result.supabase_session ? JSON.parse(result.supabase_session) : null);
+            chrome.storage.local.get(['google_oauth_session'], (result) => {
+              resolve(result.google_oauth_session ? JSON.parse(result.google_oauth_session) : null);
             });
           } else {
-            const stored = localStorage.getItem('supabase_session');
+            const stored = localStorage.getItem('google_oauth_session');
             resolve(stored ? JSON.parse(stored) : null);
           }
         });
@@ -91,11 +141,24 @@ function createMinimalSupabaseClient(url, key) {
         return new Promise((resolve) => {
           const sessionData = JSON.stringify(session);
           if (typeof chrome !== 'undefined' && chrome.storage) {
-            chrome.storage.local.set({ supabase_session: sessionData }, () => {
+            chrome.storage.local.set({ google_oauth_session: sessionData }, () => {
               resolve();
             });
           } else {
-            localStorage.setItem('supabase_session', sessionData);
+            localStorage.setItem('google_oauth_session', sessionData);
+            resolve();
+          }
+        });
+      },
+      
+      clearSession: async () => {
+        return new Promise((resolve) => {
+          if (typeof chrome !== 'undefined' && chrome.storage) {
+            chrome.storage.local.remove(['google_oauth_session'], () => {
+              resolve();
+            });
+          } else {
+            localStorage.removeItem('google_oauth_session');
             resolve();
           }
         });
@@ -104,35 +167,34 @@ function createMinimalSupabaseClient(url, key) {
   };
 }
 
-// Initialize Supabase client without CDN
-async function initializeSupabase() {
-  if (supabase) return supabase;
+// Generate random string for state parameter
+function generateRandomString(length) {
+  const array = new Uint8Array(length);
+  crypto.getRandomValues(array);
+  return Array.from(array, byte => byte.toString(16).padStart(2, '0')).join('');
+}
+
+// Initialize Google OAuth client
+async function initializeGoogleOAuth() {
+  if (googleOAuthClient) return googleOAuthClient;
 
   try {
-    console.log('Initializing minimal Supabase client...');
+    console.log('Initializing Google OAuth client...');
     
-    // Use environment variables or fallback to hardcoded values
-    const supabaseUrl = 'https://zkglvdfppodwlgzhfgqs.supabase.co';
-    const supabaseAnonKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InprZ2x2ZGZwcG9kd2xnemhmZ3FzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDYxOTQ5MjgsImV4cCI6MjA2MTc3MDkyOH0.qzyywdy4k6A0DucETls_YT32YvAxuwDV6eBFjs89BRg';
-
-    if (!supabaseUrl || !supabaseAnonKey) {
-      throw new Error('Missing Supabase configuration');
-    }
-
-    supabase = createMinimalSupabaseClient(supabaseUrl, supabaseAnonKey);
+    googleOAuthClient = createGoogleOAuthClient();
     
-    console.log('Minimal Supabase client initialized successfully');
-    return supabase;
+    console.log('Google OAuth client initialized successfully');
+    return googleOAuthClient;
   } catch (error) {
-    console.error('Failed to initialize Supabase:', error);
+    console.error('Failed to initialize Google OAuth:', error);
     throw error;
   }
 }
 
-// Export function to get the initialized client
-window.getSupabaseClient = initializeSupabase;
+// Export function to get the initialized client (mimics Supabase interface)
+window.getSupabaseClient = initializeGoogleOAuth;
 
 // For module imports
 export async function getSupabaseClient() {
-  return await initializeSupabase();
+  return await initializeGoogleOAuth();
 }

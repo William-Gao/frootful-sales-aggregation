@@ -35,6 +35,7 @@
   "host_permissions": [
     "https://mail.google.com/*",
     "https://www.googleapis.com/*",
+    "https://accounts.google.com/*",
     "https://login.microsoftonline.com/*",
     "https://*.dynamics.com/*",
     "https://zkglvdfppodwlgzhfgqs.supabase.co/*"
