@@ -58,8 +58,5 @@
   ],
   "externally_connectable": {
     "matches": ["https://*/*"]
-  },
-  "content_security_policy": {
-    "extension_pages": "script-src 'self'; object-src 'self'; connect-src 'self' https://*.supabase.co https://oauth2.googleapis.com https://accounts.google.com https://cdn.jsdelivr.net;"
   }
 }

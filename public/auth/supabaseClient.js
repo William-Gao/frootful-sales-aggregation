@@ -1,27 +1,115 @@
 // Supabase client for auth pages
-// This is a standalone version that doesn't rely on Vite imports
+// This version uses a pre-bundled approach to avoid CSP issues
 
 let supabase = null;
 
-// Initialize Supabase client using CDN
+// Minimal Supabase client implementation for auth pages
+function createMinimalSupabaseClient(url, key) {
+  return {
+    auth: {
+      signInWithOAuth: async (options) => {
+        const { provider, options: authOptions } = options;
+        
+        // Construct OAuth URL manually
+        const params = new URLSearchParams({
+          provider: provider,
+          redirect_to: authOptions.redirectTo,
+          scopes: authOptions.scopes || 'email profile'
+        });
+        
+        // Add query params
+        if (authOptions.queryParams) {
+          Object.entries(authOptions.queryParams).forEach(([key, value]) => {
+            params.append(key, value);
+          });
+        }
+        
+        const authUrl = `${url}/auth/v1/authorize?${params.toString()}`;
+        
+        // Redirect to OAuth URL
+        window.location.href = authUrl;
+        
+        return { data: null, error: null };
+      },
+      
+      getSession: async () => {
+        try {
+          // Check URL hash for session data
+          const hashParams = new URLSearchParams(window.location.hash.substring(1));
+          const accessToken = hashParams.get('access_token');
+          const refreshToken = hashParams.get('refresh_token');
+          const expiresIn = hashParams.get('expires_in');
+          
+          if (accessToken) {
+            // Get user info from Google
+            const userResponse = await fetch(`https://www.googleapis.com/oauth2/v2/userinfo?access_token=${accessToken}`);
+            const userInfo = await userResponse.json();
+            
+            const session = {
+              access_token: accessToken,
+              refresh_token: refreshToken,
+              expires_at: expiresIn ? Math.floor(Date.now() / 1000) + parseInt(expiresIn) : null,
+              user: {
+                id: userInfo.id,
+                email: userInfo.email,
+                user_metadata: {
+                  full_name: userInfo.name,
+                  avatar_url: userInfo.picture
+                }
+              }
+            };
+            
+            return { data: { session }, error: null };
+          }
+          
+          // Check stored session
+          const storedSession = await this.getStoredSession();
+          if (storedSession) {
+            return { data: { session: storedSession }, error: null };
+          }
+          
+          return { data: { session: null }, error: null };
+        } catch (error) {
+          return { data: { session: null }, error };
+        }
+      },
+      
+      getStoredSession: async () => {
+        return new Promise((resolve) => {
+          if (typeof chrome !== 'undefined' && chrome.storage) {
+            chrome.storage.local.get(['supabase_session'], (result) => {
+              resolve(result.supabase_session ? JSON.parse(result.supabase_session) : null);
+            });
+          } else {
+            const stored = localStorage.getItem('supabase_session');
+            resolve(stored ? JSON.parse(stored) : null);
+          }
+        });
+      },
+      
+      storeSession: async (session) => {
+        return new Promise((resolve) => {
+          const sessionData = JSON.stringify(session);
+          if (typeof chrome !== 'undefined' && chrome.storage) {
+            chrome.storage.local.set({ supabase_session: sessionData }, () => {
+              resolve();
+            });
+          } else {
+            localStorage.setItem('supabase_session', sessionData);
+            resolve();
+          }
+        });
+      }
+    }
+  };
+}
+
+// Initialize Supabase client without CDN
 async function initializeSupabase() {
   if (supabase) return supabase;
 
   try {
-    // Load Supabase from CDN
-    if (!window.supabase) {
-      const script = document.createElement('script');
-      script.src = 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.39.7/dist/umd/supabase.min.js';
-      
-      await new Promise((resolve, reject) => {
-        script.onload = resolve;
-        script.onerror = reject;
-        document.head.appendChild(script);
-      });
-    }
-
-    // Access Supabase from global scope
-    const { createClient } = window.supabase;
+    console.log('Initializing minimal Supabase client...');
     
     // Use environment variables or fallback to hardcoded values
     const supabaseUrl = 'https://zkglvdfppodwlgzhfgqs.supabase.co';
@@ -31,57 +119,9 @@ async function initializeSupabase() {
       throw new Error('Missing Supabase configuration');
     }
 
-    // Chrome extension storage adapter for Supabase
-    const chromeStorageAdapter = {
-      getItem: (key) => {
-        return new Promise((resolve) => {
-          if (typeof chrome !== 'undefined' && chrome.storage) {
-            chrome.storage.local.get([key], (result) => {
-              resolve(result[key] || null);
-            });
-          } else {
-            // Fallback to localStorage for non-extension environments
-            resolve(localStorage.getItem(key));
-          }
-        });
-      },
-      setItem: (key, value) => {
-        return new Promise((resolve) => {
-          if (typeof chrome !== 'undefined' && chrome.storage) {
-            chrome.storage.local.set({ [key]: value }, () => {
-              resolve();
-            });
-          } else {
-            // Fallback to localStorage for non-extension environments
-            localStorage.setItem(key, value);
-            resolve();
-          }
-        });
-      },
-      removeItem: (key) => {
-        return new Promise((resolve) => {
-          if (typeof chrome !== 'undefined' && chrome.storage) {
-            chrome.storage.local.remove([key], () => {
-              resolve();
-            });
-          } else {
-            // Fallback to localStorage for non-extension environments
-            localStorage.removeItem(key);
-            resolve();
-          }
-        });
-      }
-    };
-
-    supabase = createClient(supabaseUrl, supabaseAnonKey, {
-      auth: {
-        storage: chromeStorageAdapter,
-        autoRefreshToken: true,
-        persistSession: true,
-        detectSessionInUrl: true
-      }
-    });
-
+    supabase = createMinimalSupabaseClient(supabaseUrl, supabaseAnonKey);
+    
+    console.log('Minimal Supabase client initialized successfully');
     return supabase;
   } catch (error) {
     console.error('Failed to initialize Supabase:', error);
