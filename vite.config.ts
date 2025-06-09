@@ -24,7 +24,7 @@ export default defineConfig({
       },
       output: {
         dir: 'dist',
-        format: 'iife', // Use IIFE for all scripts to avoid module issues
+        format: 'es', // Use ES modules format
         entryFileNames: (chunkInfo) => {
           if (chunkInfo.facadeModuleId?.includes('/background/')) {
             return 'background/[name].js';
@@ -67,7 +67,7 @@ export default defineConfig({
           }
           return '[name][extname]';
         },
-        inlineDynamicImports: false // Disable to allow multiple inputs
+        manualChunks: undefined // Disable code splitting
       }
     },
     outDir: 'dist',
