@@ -8,18 +8,9 @@ async function initializeSupabase() {
   if (supabase) return supabase;
 
   try {
-    // Use CDN import for Chrome extension compatibility
-    const script = document.createElement('script');
-    script.src = 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.39.7/dist/umd/supabase.min.js';
-    
-    await new Promise((resolve, reject) => {
-      script.onload = resolve;
-      script.onerror = reject;
-      document.head.appendChild(script);
-    });
-
-    // Access Supabase from global scope
-    const { createClient } = (window as any).supabase;
+    // For Chrome extension, we'll use the bundled version instead of CDN
+    // Import Supabase directly from node_modules
+    const { createClient } = await import('@supabase/supabase-js');
     
     const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
     const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
@@ -79,6 +70,7 @@ async function initializeSupabase() {
       }
     });
 
+    console.log('Supabase client initialized successfully');
     return supabase;
   } catch (error) {
     console.error('Failed to initialize Supabase:', error);

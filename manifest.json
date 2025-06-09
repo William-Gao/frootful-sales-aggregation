@@ -37,7 +37,9 @@
     "https://www.googleapis.com/*",
     "https://login.microsoftonline.com/*",
     "https://*.dynamics.com/*",
-    "https://zkglvdfppodwlgzhfgqs.supabase.co/*"
+    "https://zkglvdfppodwlgzhfgqs.supabase.co/*",
+    "https://oauth2.googleapis.com/*",
+    "https://accounts.google.com/*"
   ],
   "oauth2": {
     "client_id": "930825445704-od6kb7h9h2a07kog5gg5l5c7kdfrbova.apps.googleusercontent.com",
@@ -58,5 +60,8 @@
   ],
   "externally_connectable": {
     "matches": ["https://*/*"]
+  },
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'self'; connect-src 'self' https://zkglvdfppodwlgzhfgqs.supabase.co https://oauth2.googleapis.com https://accounts.google.com https://www.googleapis.com https://login.microsoftonline.com https://*.dynamics.com;"
   }
 }
