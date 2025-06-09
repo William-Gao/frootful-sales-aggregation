@@ -1,4 +1,4 @@
-// Direct Google OAuth with Supabase - Fixed redirect URI
+// Direct Google OAuth - bypassing Supabase for Chrome extension
 document.addEventListener('DOMContentLoaded', async () => {
   const googleSigninBtn = document.getElementById('google-signin');
   const loading = document.getElementById('loading');
@@ -19,30 +19,37 @@ document.addEventListener('DOMContentLoaded', async () => {
       loading.style.display = 'block';
       errorDiv.style.display = 'none';
 
-      console.log('Starting Google OAuth with Supabase...');
+      console.log('Starting direct Google OAuth...');
       
       // Store extension ID for callback
       sessionStorage.setItem('extension_id', extensionId);
       
-      // Use the correct Supabase OAuth URL format
-      const supabaseUrl = 'https://zkglvdfppodwlgzhfgqs.supabase.co';
+      // Direct Google OAuth configuration
+      const clientId = '930825445704-od6kb7h9h2a07kog5gg5l5c7kdfrbova.apps.googleusercontent.com';
+      const redirectUri = `${window.location.origin}/auth/callback.html`;
+      const scope = 'email profile https://www.googleapis.com/auth/gmail.readonly';
       
-      // The callback URL should be the Supabase callback endpoint
-      const callbackUrl = `${window.location.origin}/auth/callback.html`;
+      // Generate state for security
+      const state = Math.random().toString(36).substring(2, 15);
+      sessionStorage.setItem('oauth_state', state);
       
-      // Construct the OAuth URL with proper Supabase format
+      // Construct Google OAuth URL
       const params = new URLSearchParams({
-        provider: 'google',
-        redirect_to: callbackUrl,
-        scopes: 'email profile https://www.googleapis.com/auth/gmail.readonly'
+        client_id: clientId,
+        redirect_uri: redirectUri,
+        response_type: 'code',
+        scope: scope,
+        state: state,
+        access_type: 'offline',
+        prompt: 'consent'
       });
       
-      const authUrl = `${supabaseUrl}/auth/v1/authorize?${params.toString()}`;
+      const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`;
       
-      console.log('Redirecting to:', authUrl);
-      console.log('Callback URL:', callbackUrl);
+      console.log('Redirecting to Google OAuth:', authUrl);
+      console.log('Redirect URI:', redirectUri);
       
-      // Redirect to Supabase OAuth
+      // Redirect to Google OAuth
       window.location.href = authUrl;
       
     } catch (error) {
