@@ -1,6 +1,8 @@
 // Hybrid Authentication Manager for Chrome Extension
 // Updated to work with localhost-served auth pages and proper TypeScript
 
+import { tokenManager } from './tokenManager.js';
+
 export interface AuthSession {
   access_token: string;
   refresh_token?: string;
@@ -87,9 +89,22 @@ class HybridAuthManager {
         }
 
         // Set up success handler
-        const successHandler: AuthSuccessHandler = (session: AuthSession) => {
+        const successHandler: AuthSuccessHandler = async (session: AuthSession) => {
           this.currentSession = session;
-          this.storeSession(session);
+          await this.storeSession(session);
+          
+          // Store tokens using token manager
+          try {
+            await tokenManager.storeTokens({
+              provider: 'google',
+              accessToken: session.access_token,
+              refreshToken: session.refresh_token,
+              expiresAt: session.expires_at ? new Date(session.expires_at * 1000).toISOString() : undefined
+            });
+          } catch (error) {
+            console.warn('Failed to store tokens in backend:', error);
+          }
+          
           resolve(session);
           this.cleanup();
         };
@@ -206,6 +221,9 @@ class HybridAuthManager {
       
       // Clear stored session
       await this.clearSession();
+      
+      // Clear tokens using token manager
+      await tokenManager.deleteTokens();
       
       // Revoke Google token if available
       const session = await this.getCurrentSession();
