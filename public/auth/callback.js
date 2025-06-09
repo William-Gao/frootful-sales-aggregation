@@ -1,6 +1,4 @@
-// Import from the local Google OAuth client
-import { getSupabaseClient } from './supabaseClient.js';
-
+// Callback handler for Supabase OAuth
 document.addEventListener('DOMContentLoaded', async () => {
   const loadingState = document.getElementById('loading-state');
   const successState = document.getElementById('success-state');
@@ -8,9 +6,8 @@ document.addEventListener('DOMContentLoaded', async () => {
   const errorDiv = document.getElementById('error');
   const closeBtn = document.getElementById('close-btn');
 
-  // Get extension ID from URL parameters
-  const urlParams = new URLSearchParams(window.location.search);
-  const extensionId = urlParams.get('extensionId');
+  // Get extension ID from session storage (set during login)
+  const extensionId = sessionStorage.getItem('extension_id');
 
   if (!extensionId) {
     showError('Invalid callback - missing extension ID');
@@ -18,15 +15,15 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
 
   try {
-    console.log('Callback page loaded, initializing Google OAuth...');
+    console.log('Callback page loaded, processing Supabase OAuth response...');
     
-    // Initialize Google OAuth client
-    const oauthClient = await getSupabaseClient();
+    // Initialize Supabase client
+    const supabase = await initializeSupabase();
     
-    console.log('Google OAuth initialized, processing callback...');
+    console.log('Supabase initialized, getting session...');
 
-    // Get the session from the URL hash
-    const { data: { session }, error } = await oauthClient.auth.getSession();
+    // Get the session from Supabase (it handles the code exchange automatically)
+    const { data: { session }, error } = await supabase.auth.getSession();
 
     if (error) {
       console.error('Session error:', error);
@@ -46,6 +43,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     const sessionData = {
       access_token: accessToken,
+      refresh_token: session.refresh_token,
       expires_at: session.expires_at,
       user: {
         id: user.id,
@@ -119,3 +117,42 @@ document.addEventListener('DOMContentLoaded', async () => {
     window.close();
   });
 });
+
+// Initialize Supabase client for callback processing
+async function initializeSupabase() {
+  try {
+    // Load Supabase from CDN
+    if (!window.supabase) {
+      await loadSupabaseScript();
+    }
+
+    const { createClient } = window.supabase;
+    
+    const supabaseUrl = 'https://zkglvdfppodwlgzhfgqs.supabase.co';
+    const supabaseAnonKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InprZ2x2ZGZwcG9kd2xnemhmZ3FzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDYxOTQ5MjgsImV4cCI6MjA2MTc3MDkyOH0.qzyywdy4k6A0DucETls_YT32YvAxuwDV6eBFjs89BRg';
+
+    const supabase = createClient(supabaseUrl, supabaseAnonKey, {
+      auth: {
+        autoRefreshToken: true,
+        persistSession: true,
+        detectSessionInUrl: true
+      }
+    });
+
+    return supabase;
+  } catch (error) {
+    console.error('Failed to initialize Supabase:', error);
+    throw error;
+  }
+}
+
+// Load Supabase script dynamically
+function loadSupabaseScript() {
+  return new Promise((resolve, reject) => {
+    const script = document.createElement('script');
+    script.src = 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.39.7/dist/umd/supabase.min.js';
+    script.onload = resolve;
+    script.onerror = reject;
+    document.head.appendChild(script);
+  });
+}

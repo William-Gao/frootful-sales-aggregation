@@ -1,6 +1,4 @@
-// Import from the local Google OAuth client
-import { getSupabaseClient } from './supabaseClient.js';
-
+// Direct Google OAuth with authorization code flow
 document.addEventListener('DOMContentLoaded', async () => {
   const googleSigninBtn = document.getElementById('google-signin');
   const loading = document.getElementById('loading');
@@ -21,33 +19,31 @@ document.addEventListener('DOMContentLoaded', async () => {
       loading.style.display = 'block';
       errorDiv.style.display = 'none';
 
-      console.log('Initializing Google OAuth...');
+      console.log('Starting Google OAuth with authorization code flow...');
       
-      // Initialize Google OAuth client
-      const oauthClient = await getSupabaseClient();
+      // Generate state parameter for security
+      const state = generateRandomString(32);
+      sessionStorage.setItem('oauth_state', state);
+      sessionStorage.setItem('extension_id', extensionId);
       
-      console.log('Google OAuth initialized, starting flow...');
-
-      // Start Google OAuth flow
-      const { data, error } = await oauthClient.auth.signInWithOAuth({
+      // Use Supabase OAuth endpoint which handles the code flow properly
+      const supabaseUrl = 'https://zkglvdfppodwlgzhfgqs.supabase.co';
+      const redirectUri = `${window.location.origin}/auth/callback.html`;
+      
+      // Construct Supabase OAuth URL with proper parameters
+      const params = new URLSearchParams({
         provider: 'google',
-        options: {
-          redirectTo: `${window.location.origin}/auth/callback.html?extensionId=${extensionId}`,
-          queryParams: {
-            access_type: 'offline',
-            prompt: 'consent',
-          },
-          scopes: 'email profile https://www.googleapis.com/auth/gmail.readonly'
-        }
+        redirect_to: redirectUri,
+        scopes: 'email profile https://www.googleapis.com/auth/gmail.readonly'
       });
-
-      if (error) {
-        console.error('OAuth error:', error);
-        throw error;
-      }
-
-      console.log('OAuth initiated successfully');
-      // The redirect will happen automatically
+      
+      const authUrl = `${supabaseUrl}/auth/v1/authorize?${params.toString()}`;
+      
+      console.log('Redirecting to Supabase OAuth:', authUrl);
+      
+      // Redirect to Supabase OAuth URL (which will handle the code flow)
+      window.location.href = authUrl;
+      
     } catch (error) {
       console.error('Sign-in error:', error);
       showError(error.message || 'Failed to sign in with Google');
@@ -60,5 +56,11 @@ document.addEventListener('DOMContentLoaded', async () => {
   function showError(message) {
     errorDiv.textContent = message;
     errorDiv.style.display = 'block';
+  }
+  
+  function generateRandomString(length) {
+    const array = new Uint8Array(length);
+    crypto.getRandomValues(array);
+    return Array.from(array, byte => byte.toString(16).padStart(2, '0')).join('');
   }
 });
