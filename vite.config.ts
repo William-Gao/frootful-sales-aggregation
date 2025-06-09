@@ -20,6 +20,7 @@ export default defineConfig({
       },
       output: {
         dir: 'dist',
+        format: 'es', // Use ES modules format
         entryFileNames: (chunkInfo) => {
           if (chunkInfo.facadeModuleId?.includes('/background/')) {
             return 'background/[name].js';

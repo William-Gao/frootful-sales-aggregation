@@ -237,30 +237,10 @@ class HybridAuthManager {
     }
   }
 
+  // RESTORED YOUR ORIGINAL VERSION
   async isAuthenticated(): Promise<boolean> {
-    console.log('Checking authentication status...');
-    
-    try {
-      // First check local session
-      const session = await this.getCurrentSession();
-      if (session) {
-        console.log('Found valid local session');
-        return true;
-      }
-
-      // Then check Supabase session if available
-      if (this.supabase) {
-        const { data: { session: supabaseSession } } = await this.supabase.auth.getSession();
-        console.log('Supabase session check:', supabaseSession ? 'found' : 'not found');
-        return supabaseSession !== null;
-      }
-
-      console.log('No authentication found');
-      return false;
-    } catch (error) {
-      console.error('Error checking authentication:', error);
-      return false;
-    }
+    const session = await this.getCurrentSession();
+    return session !== null;
   }
 
   async signOut(): Promise<void> {
