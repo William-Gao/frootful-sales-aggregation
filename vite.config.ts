@@ -5,7 +5,8 @@ import { resolve } from 'path';
 export default defineConfig({
   plugins: [react()],
   optimizeDeps: {
-    exclude: ['lucide-react']
+    exclude: ['lucide-react'],
+    include: ['@supabase/supabase-js']
   },
   build: {
     rollupOptions: {
@@ -69,10 +70,17 @@ export default defineConfig({
     },
     outDir: 'dist',
     emptyOutDir: true,
+    commonjsOptions: {
+      include: [/node_modules/],
+      transformMixedEsModules: true
+    }
   },
   resolve: {
     alias: {
       '@': resolve(__dirname, 'src')
     }
+  },
+  define: {
+    global: 'globalThis',
   }
 });

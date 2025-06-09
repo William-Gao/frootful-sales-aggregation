@@ -1,17 +1,15 @@
 // Supabase client configuration for Chrome Extension
 // This file handles Supabase initialization with Chrome extension compatibility
 
+import { createClient } from '@supabase/supabase-js';
+
 let supabase: any = null;
 
-// Initialize Supabase client lazily to avoid build issues
+// Initialize Supabase client lazily
 async function initializeSupabase() {
   if (supabase) return supabase;
 
   try {
-    // For Chrome extension, we'll use the bundled version instead of CDN
-    // Import Supabase directly from node_modules
-    const { createClient } = await import('@supabase/supabase-js');
-    
     const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
     const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
