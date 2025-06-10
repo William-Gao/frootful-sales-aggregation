@@ -24,12 +24,6 @@ interface EmailData {
   body: string;
 }
 
-interface OrderItem {
-  itemName: string;
-  quantity: number;
-  price: number;
-}
-
 interface AnalyzedItem {
   itemName: string;
   quantity: number;
@@ -41,16 +35,18 @@ interface AnalyzedItem {
   };
 }
 
-interface AnalysisResponse {
-  success: boolean;
-  data?: {
-    email: EmailData;
-    customers: Customer[];
-    items: Item[];
-    matchingCustomer?: Customer;
-    analyzedItems: AnalyzedItem[];
-  };
-  error?: string;
+interface ComprehensiveAnalysisData {
+  email: EmailData;
+  customers: Customer[];
+  items: Item[];
+  matchingCustomer?: Customer;
+  analyzedItems: AnalyzedItem[];
+}
+
+interface OrderItem {
+  itemName: string;
+  quantity: number;
+  price: number;
 }
 
 let customers: Customer[] = [];
@@ -258,10 +254,18 @@ async function getAuthToken(): Promise<string | null> {
   }
 }
 
-// Handle email data - now calls comprehensive analyze-email endpoint
+// Handle comprehensive analysis data - replaces the old loadEmailData handler
 window.addEventListener('message', async (event: MessageEvent) => {
-  if (event.data.action === 'loadEmailData') {
-    const emailData: EmailData = event.data.data;
+  if (event.data.action === 'loadComprehensiveData') {
+    const analysisData: ComprehensiveAnalysisData = event.data.data;
+    
+    console.log('Received comprehensive analysis data in sidebar:', {
+      email: analysisData.email.subject,
+      customers: analysisData.customers.length,
+      items: analysisData.items.length,
+      analyzedItems: analysisData.analyzedItems.length,
+      matchingCustomer: analysisData.matchingCustomer?.displayName || 'None'
+    });
     
     // Hide loading state and show sections
     const loadingState = emailInfo.querySelector('.loading-state');
@@ -269,126 +273,101 @@ window.addEventListener('message', async (event: MessageEvent) => {
     emailMetadata.classList.remove('hidden');
     emailBody.classList.remove('hidden');
     
-    // Populate metadata
-    if (emailFrom) emailFrom.textContent = emailData.from;
-    if (emailSubject) emailSubject.textContent = emailData.subject;
-    if (emailDate) emailDate.textContent = new Date(emailData.date).toLocaleString();
+    // Populate email metadata
+    if (emailFrom) emailFrom.textContent = analysisData.email.from;
+    if (emailSubject) emailSubject.textContent = analysisData.email.subject;
+    if (emailDate) emailDate.textContent = new Date(analysisData.email.date).toLocaleString();
     
-    try {
-      // Call comprehensive analyze-email endpoint
-      const authToken = await getAuthToken();
-      if (!authToken) {
-        throw new Error('Not authenticated');
-      }
-
-      console.log('Calling comprehensive analyze-email endpoint...');
-      
-      const analysisResponse = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/analyze-email`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${authToken}`,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({ emailId: emailData.id })
-      });
-
-      const analysisResult: AnalysisResponse = await analysisResponse.json();
-      
-      if (!analysisResult.success || !analysisResult.data) {
-        throw new Error(analysisResult.error || 'Analysis failed');
-      }
-
-      const { customers: fetchedCustomers, items: fetchedItems, matchingCustomer, analyzedItems } = analysisResult.data;
-
-      // Store data globally
-      customers = fetchedCustomers;
-      filteredCustomers = [...customers];
-      items = fetchedItems;
-      
-      // Update customer dropdown
-      updateCustomerSelect();
-      
-      // Set matching customer if found
-      if (matchingCustomer) {
-        customerSelect.value = matchingCustomer.number;
-        currentCustomer = matchingCustomer;
-        console.log('Auto-selected matching customer:', matchingCustomer.displayName);
-      }
-
-      // Clear existing items and add analyzed items
-      itemsContainer.innerHTML = '';
-      
-      if (analyzedItems && analyzedItems.length > 0) {
-        console.log('Adding', analyzedItems.length, 'analyzed items to the form');
-        
-        analyzedItems.forEach((analyzedItem: AnalyzedItem) => {
-          if (analyzedItem.matchedItem) {
-            const itemBox = document.createElement('div');
-            itemBox.className = 'item-box';
-            itemBox.innerHTML = `
-              <div class="item-header">
-                <span class="item-title">Item ${itemsContainer.children.length + 1}</span>
-                <button class="delete-item-btn">Delete</button>
-              </div>
-              <div class="item-fields">
-                <div class="item-field">
-                  <label>Item Name</label>
-                  <select class="item-select">
-                    <option value="">Select an item...</option>
-                    ${items.map(item => `
-                      <option value="${item.number}" 
-                              data-price="${item.unitPrice}"
-                              ${item.number === analyzedItem.matchedItem?.number ? 'selected' : ''}>
-                        ${item.displayName}
-                      </option>
-                    `).join('')}
-                  </select>
-                </div>
-                <div class="item-field">
-                  <label>Quantity</label>
-                  <input type="number" min="1" value="${analyzedItem.quantity}" class="item-quantity">
-                </div>
-                <div class="item-field">
-                  <label>Price</label>
-                  <input type="number" min="0" step="0.01" value="${analyzedItem.matchedItem.unitPrice}" class="item-price">
-                </div>
-              </div>
-            `;
-
-            // Add delete functionality
-            const deleteBtn = itemBox.querySelector('.delete-item-btn');
-            if (deleteBtn) {
-              deleteBtn.addEventListener('click', () => {
-                itemBox.remove();
-              });
-            }
-
-            // Add item selection handler
-            const itemSelect = itemBox.querySelector('.item-select');
-            const priceInput = itemBox.querySelector('.item-price') as HTMLInputElement;
-            
-            if (itemSelect) {
-              itemSelect.addEventListener('change', (e) => {
-                const select = e.target as HTMLSelectElement;
-                const option = select.selectedOptions[0];
-                if (option && priceInput) {
-                  priceInput.value = option.dataset.price || '0.00';
-                }
-              });
-            }
-
-            itemsContainer.appendChild(itemBox);
-          }
-        });
-      }
-
-      console.log(`Analysis complete! Loaded ${customers.length} customers, ${items.length} items, and ${analyzedItems.length} analyzed items`);
-      showSuccess('Email analyzed successfully!');
-      
-    } catch (error) {
-      console.error('Error during comprehensive analysis:', error);
-      showError('Failed to analyze email: ' + (error instanceof Error ? error.message : 'Unknown error'));
+    // Store data globally
+    customers = analysisData.customers;
+    filteredCustomers = [...customers];
+    items = analysisData.items;
+    
+    // Update customer dropdown
+    updateCustomerSelect();
+    
+    // Set matching customer if found
+    if (analysisData.matchingCustomer) {
+      customerSelect.value = analysisData.matchingCustomer.number;
+      currentCustomer = analysisData.matchingCustomer;
+      console.log('Auto-selected matching customer:', analysisData.matchingCustomer.displayName);
     }
+
+    // Clear existing items and add analyzed items
+    itemsContainer.innerHTML = '';
+    
+    if (analysisData.analyzedItems && analysisData.analyzedItems.length > 0) {
+      console.log('Adding', analysisData.analyzedItems.length, 'analyzed items to the form');
+      
+      analysisData.analyzedItems.forEach((analyzedItem: AnalyzedItem) => {
+        if (analyzedItem.matchedItem) {
+          const itemBox = document.createElement('div');
+          itemBox.className = 'item-box';
+          itemBox.innerHTML = `
+            <div class="item-header">
+              <span class="item-title">Item ${itemsContainer.children.length + 1}</span>
+              <button class="delete-item-btn">Delete</button>
+            </div>
+            <div class="item-fields">
+              <div class="item-field">
+                <label>Item Name</label>
+                <select class="item-select">
+                  <option value="">Select an item...</option>
+                  ${items.map(item => `
+                    <option value="${item.number}" 
+                            data-price="${item.unitPrice}"
+                            ${item.number === analyzedItem.matchedItem?.number ? 'selected' : ''}>
+                      ${item.displayName}
+                    </option>
+                  `).join('')}
+                </select>
+              </div>
+              <div class="item-field">
+                <label>Quantity</label>
+                <input type="number" min="1" value="${analyzedItem.quantity}" class="item-quantity">
+              </div>
+              <div class="item-field">
+                <label>Price</label>
+                <input type="number" min="0" step="0.01" value="${analyzedItem.matchedItem.unitPrice}" class="item-price">
+              </div>
+            </div>
+          `;
+
+          // Add delete functionality
+          const deleteBtn = itemBox.querySelector('.delete-item-btn');
+          if (deleteBtn) {
+            deleteBtn.addEventListener('click', () => {
+              itemBox.remove();
+            });
+          }
+
+          // Add item selection handler
+          const itemSelect = itemBox.querySelector('.item-select');
+          const priceInput = itemBox.querySelector('.item-price') as HTMLInputElement;
+          
+          if (itemSelect) {
+            itemSelect.addEventListener('change', (e) => {
+              const select = e.target as HTMLSelectElement;
+              const option = select.selectedOptions[0];
+              if (option && priceInput) {
+                priceInput.value = option.dataset.price || '0.00';
+              }
+            });
+          }
+
+          itemsContainer.appendChild(itemBox);
+        }
+      });
+    }
+
+    console.log(`Analysis complete! Loaded ${customers.length} customers, ${items.length} items, and ${analysisData.analyzedItems.length} analyzed items`);
+    showSuccess('Email analyzed successfully!');
+  }
+
+  // Keep the old handler for backward compatibility
+  if (event.data.action === 'loadEmailData') {
+    console.warn('Using deprecated loadEmailData - please update to use comprehensive analysis');
+    // Handle old format if needed for backward compatibility
   }
 });
 

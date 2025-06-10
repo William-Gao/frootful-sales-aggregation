@@ -26,6 +26,43 @@ interface EmailData {
   body: string;
 }
 
+interface Customer {
+  id: string;
+  number: string;
+  displayName: string;
+  email: string;
+}
+
+interface Item {
+  id: string;
+  number: string;
+  displayName: string;
+  unitPrice: number;
+}
+
+interface AnalyzedItem {
+  itemName: string;
+  quantity: number;
+  matchedItem?: {
+    id: string;
+    number: string;
+    displayName: string;
+    unitPrice: number;
+  };
+}
+
+interface ComprehensiveAnalysisResult {
+  success: boolean;
+  data?: {
+    email: EmailData;
+    customers: Customer[];
+    items: Item[];
+    matchingCustomer?: Customer;
+    analyzedItems: AnalyzedItem[];
+  };
+  error?: string;
+}
+
 // Keep track of active ports
 const ports: Set<Port> = new Set();
 
@@ -58,8 +95,8 @@ chrome.runtime.onConnect.addListener((port: Port) => {
       }
       
       if (message.action === 'extractEmail' && message.emailId) {
-        // Use edge function instead of direct Gmail API call
-        const result = await extractEmailViaEdgeFunction(message.emailId);
+        // Use comprehensive analyze-email endpoint instead of separate extraction
+        const result = await comprehensiveEmailAnalysis(message.emailId);
         port.postMessage({ action: 'extractEmail', ...result });
       }
       
@@ -157,18 +194,18 @@ async function revokeAuthentication(): Promise<void> {
   });
 }
 
-// Extract email using Supabase edge function
-async function extractEmailViaEdgeFunction(emailId: string): Promise<{ success: boolean; data?: EmailData; error?: string }> {
+// Comprehensive email analysis using the new endpoint
+async function comprehensiveEmailAnalysis(emailId: string): Promise<{ success: boolean; data?: ComprehensiveAnalysisResult['data']; error?: string }> {
   try {
     const authToken = await getAuthToken();
     if (!authToken) {
       throw new Error('User not authenticated');
     }
 
-    console.log('Calling extract-email edge function for email:', emailId);
+    console.log('Calling comprehensive analyze-email endpoint for email:', emailId);
 
-    // Call the extract-email edge function
-    const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/extract-email`, {
+    // Call the comprehensive analyze-email edge function
+    const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/analyze-email`, {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${authToken}`,
@@ -179,23 +216,30 @@ async function extractEmailViaEdgeFunction(emailId: string): Promise<{ success: 
     
     if (!response.ok) {
       const errorText = await response.text();
-      console.error('Edge function error response:', errorText);
-      throw new Error(`Edge function failed: ${response.status} ${response.statusText}`);
+      console.error('Comprehensive analysis error response:', errorText);
+      throw new Error(`Analysis failed: ${response.status} ${response.statusText}`);
     }
     
-    const result = await response.json();
+    const result: ComprehensiveAnalysisResult = await response.json();
     
     if (!result.success) {
-      throw new Error(result.error || 'Edge function returned error');
+      throw new Error(result.error || 'Analysis returned error');
     }
     
-    console.log('Successfully extracted email via edge function');
+    console.log('Comprehensive analysis successful:', {
+      email: result.data?.email?.subject || 'Unknown',
+      customers: result.data?.customers?.length || 0,
+      items: result.data?.items?.length || 0,
+      analyzedItems: result.data?.analyzedItems?.length || 0,
+      matchingCustomer: result.data?.matchingCustomer?.displayName || 'None'
+    });
+    
     return {
       success: true,
       data: result.data
     };
   } catch (error) {
-    console.error('Error extracting email via edge function:', error);
+    console.error('Error in comprehensive email analysis:', error);
     return {
       success: false,
       error: error instanceof Error ? error.message : 'Unknown error'

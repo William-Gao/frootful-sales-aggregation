@@ -12,6 +12,39 @@ interface EmailData {
   body: string;
 }
 
+interface Customer {
+  id: string;
+  number: string;
+  displayName: string;
+  email: string;
+}
+
+interface Item {
+  id: string;
+  number: string;
+  displayName: string;
+  unitPrice: number;
+}
+
+interface AnalyzedItem {
+  itemName: string;
+  quantity: number;
+  matchedItem?: {
+    id: string;
+    number: string;
+    displayName: string;
+    unitPrice: number;
+  };
+}
+
+interface ComprehensiveAnalysisData {
+  email: EmailData;
+  customers: Customer[];
+  items: Item[];
+  matchingCustomer?: Customer;
+  analyzedItems: AnalyzedItem[];
+}
+
 interface Port {
   postMessage: (message: any) => void;
   onMessage: {
@@ -30,7 +63,7 @@ let lastUrl: string | null = null;
 
 // Initialize connection to background script
 function initializeConnection(): void {
-  console.log('This is port at teh very beginning of the file: ', port);
+  console.log('This is port at the very beginning of the file: ', port);
   if (port) {
     try {
       port.postMessage({ action: 'ping' });
@@ -166,22 +199,22 @@ function handleExtractClick(e: MouseEvent): void {
     extractButton.classList.add('loading');
     const textElement = extractButton.querySelector('.frootful-text');
     if (textElement) {
-      textElement.textContent = 'Extracting...';
+      textElement.textContent = 'Analyzing...';
     }
   }
 
   // Remove existing sidebar for new extraction
   removeSidebar();
   
-  // Request email extraction
+  // Request comprehensive email analysis
   port.postMessage({
     action: 'extractEmail',
     emailId: currentEmailId
   });
 }
 
-// Handle extract response
-function handleExtractResponse(response: { success: boolean; data?: EmailData; error?: string }): void {
+// Handle extract response - now handles comprehensive analysis data
+function handleExtractResponse(response: { success: boolean; data?: ComprehensiveAnalysisData; error?: string }): void {
   // Reset button state
   if (extractButton) {
     extractButton.classList.remove('loading');
@@ -192,14 +225,23 @@ function handleExtractResponse(response: { success: boolean; data?: EmailData; e
   }
   
   if (response.success && response.data) {
+    console.log('Received comprehensive analysis data:', {
+      email: response.data.email.subject,
+      customers: response.data.customers.length,
+      items: response.data.items.length,
+      analyzedItems: response.data.analyzedItems.length,
+      matchingCustomer: response.data.matchingCustomer?.displayName || 'None'
+    });
+    
     showSidebar(response.data);
   } else {
-    console.error('Error extracting email:', response.error || 'Unknown error');
+    console.error('Error in comprehensive analysis:', response.error || 'Unknown error');
+    showError('Failed to analyze email: ' + (response.error || 'Unknown error'));
   }
 }
 
-// Show sidebar with email content
-function showSidebar(emailData: EmailData): void {
+// Show sidebar with comprehensive analysis data
+function showSidebar(analysisData: ComprehensiveAnalysisData): void {
   // Create sidebar if it doesn't exist
   if (!sidebarFrame) {
     sidebarFrame = document.createElement('iframe');
@@ -211,8 +253,8 @@ function showSidebar(emailData: EmailData): void {
     sidebarFrame.onload = () => {
       if (sidebarFrame && sidebarFrame.contentWindow) {
         sidebarFrame.contentWindow.postMessage({
-          action: 'loadEmailData',
-          data: emailData
+          action: 'loadComprehensiveData',
+          data: analysisData
         }, '*');
       }
     };
@@ -220,8 +262,8 @@ function showSidebar(emailData: EmailData): void {
     // Sidebar already exists, just send new data
     if (sidebarFrame.contentWindow) {
       sidebarFrame.contentWindow.postMessage({
-        action: 'loadEmailData',
-        data: emailData
+        action: 'loadComprehensiveData',
+        data: analysisData
       }, '*');
     }
     
@@ -246,6 +288,18 @@ function removeSidebar(): void {
     sidebarFrame.remove();
     sidebarFrame = null;
   }
+}
+
+// Show error notification
+function showError(message: string): void {
+  const notification = document.createElement('div');
+  notification.className = 'frootful-notification';
+  notification.textContent = message;
+  document.body.appendChild(notification);
+  
+  setTimeout(() => {
+    notification.remove();
+  }, 5000);
 }
 
 // Listen for messages from sidebar
