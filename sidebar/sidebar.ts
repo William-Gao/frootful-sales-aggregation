@@ -209,16 +209,18 @@ addItemBtn.addEventListener('click', () => {
   itemsContainer.appendChild(itemBox);
 });
 
-// Fetch customers and items from backend
+// Fetch customers and items using edge functions
 async function initializeData(): Promise<void> {
   try {
-    // Get auth token from parent window
+    // Get auth token from Supabase session
     const authToken = await getAuthToken();
     if (!authToken) {
       throw new Error('Not authenticated');
     }
 
-    // Fetch customers and items in parallel from backend
+    console.log('Fetching customers and items via edge functions...');
+
+    // Fetch customers and items in parallel using edge functions
     const [customersResponse, itemsResponse] = await Promise.all([
       fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/business-central-data?type=customers`, {
         headers: {
@@ -250,21 +252,22 @@ async function initializeData(): Promise<void> {
     items = itemsResult.data;
     
     updateCustomerSelect();
+    console.log(`Loaded ${customers.length} customers and ${items.length} items`);
   } catch (error) {
     console.error('Error initializing data:', error);
     showError('Failed to load customers and items: ' + (error instanceof Error ? error.message : 'Unknown error'));
   }
 }
 
-// Get auth token from extension storage or session
+// Get auth token from Supabase session
 async function getAuthToken(): Promise<string | null> {
   try {
-    // Try to get from Chrome storage first
+    // Get Supabase session from extension storage
     if (typeof chrome !== 'undefined' && chrome.storage) {
       const result = await chrome.storage.local.get(['frootful_session']);
       if (result.frootful_session) {
         const session = JSON.parse(result.frootful_session);
-        return session.provider_token || session.access_token;
+        return session.access_token;
       }
     }
 
@@ -272,7 +275,7 @@ async function getAuthToken(): Promise<string | null> {
     const sessionData = localStorage.getItem('frootful_session');
     if (sessionData) {
       const session = JSON.parse(sessionData);
-      return session.provider_token || session.access_token;
+      return session.access_token;
     }
 
     return null;
@@ -299,7 +302,7 @@ window.addEventListener('message', async (event: MessageEvent) => {
     if (emailDate) emailDate.textContent = new Date(emailData.date).toLocaleString();
     
     try {
-      // Initialize data from backend
+      // Initialize data from edge functions
       await initializeData();
       
       // Find matching customer by email
@@ -311,9 +314,11 @@ window.addEventListener('message', async (event: MessageEvent) => {
         currentCustomer = matchingCustomer;
       }
 
-      // Analyze email content and match items using backend
+      // Analyze email content using edge function
       const authToken = await getAuthToken();
       if (authToken) {
+        console.log('Analyzing email content via edge function...');
+        
         const analysisResponse = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/analyze-email`, {
           method: 'POST',
           headers: {
@@ -329,6 +334,8 @@ window.addEventListener('message', async (event: MessageEvent) => {
         const analysisResult = await analysisResponse.json();
         
         if (analysisResult.success && analysisResult.analysis) {
+          console.log('Email analysis completed, found', analysisResult.analysis.length, 'items');
+          
           // Clear existing items
           itemsContainer.innerHTML = '';
           
@@ -392,6 +399,8 @@ window.addEventListener('message', async (event: MessageEvent) => {
               itemsContainer.appendChild(itemBox);
             }
           });
+        } else {
+          console.warn('Email analysis failed or returned no results');
         }
       }
     } catch (error) {
@@ -446,7 +455,7 @@ function updateStepStatus(step: HTMLElement, status: 'loading' | 'success' | 'er
   }
 }
 
-// Export to ERP functionality
+// Export to ERP functionality using edge functions
 exportErpBtn.addEventListener('click', async () => {
   try {
     if (!currentCustomer) {
@@ -466,7 +475,9 @@ exportErpBtn.addEventListener('click', async () => {
       throw new Error('Not authenticated');
     }
 
-    // Get company info from backend
+    console.log('Getting Business Central token info via edge function...');
+
+    // Get company info using edge function
     const companyResponse = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/token-manager?provider=business_central`, {
       headers: {
         'Authorization': `Bearer ${authToken}`,
@@ -483,6 +494,8 @@ exportErpBtn.addEventListener('click', async () => {
     const companyId = bcToken.company_id;
     const companyName = bcToken.company_name;
     const tenantId = bcToken.tenant_id;
+
+    console.log('Creating order in Business Central...');
 
     // Step 1: Create Order
     updateStepStatus(createOrderStep, 'loading');

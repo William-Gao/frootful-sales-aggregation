@@ -26,29 +26,6 @@ interface EmailData {
   body: string;
 }
 
-interface GmailResponse {
-  id: string;
-  threadId: string;
-  labelIds?: string[];
-  snippet?: string;
-  payload?: {
-    headers?: Array<{
-      name: string;
-      value: string;
-    }>;
-    body?: {
-      data?: string;
-    };
-    parts?: Array<{
-      mimeType?: string;
-      body?: {
-        data?: string;
-      };
-      parts?: any[];
-    }>;
-  };
-}
-
 // Keep track of active ports
 const ports: Set<Port> = new Set();
 
@@ -81,18 +58,17 @@ chrome.runtime.onConnect.addListener((port: Port) => {
       }
       
       if (message.action === 'extractEmail' && message.emailId) {
-        // Get a fresh token before making the API request
-        const token = await getAuthToken();
-        const result = await extractEmail(message.emailId, token);
+        // Use edge function instead of direct Gmail API call
+        const result = await extractEmailViaEdgeFunction(message.emailId);
         port.postMessage({ action: 'extractEmail', ...result });
       }
       
       if (message.action === 'checkAuthState') {
-        console.log('Hardcoding true for now in checkAuthState in background');
-        // hybridAuth.isAuthenticated()
+        console.log('Checking auth state via Supabase session');
         const { data: { session }, error } = await supabaseClient.auth.getSession();
-        console.log('This is the session extracted in background.ts: ', session);
-        port.postMessage({ action: 'checkAuthState', isAuthenticated: true });
+        console.log('Supabase session in background.ts:', session ? 'Found' : 'Not found');
+        const isAuthenticated = session !== null && !error;
+        port.postMessage({ action: 'checkAuthState', isAuthenticated });
       }
     } catch (error) {
       console.error('Error in message handler:', error);
@@ -105,22 +81,25 @@ chrome.runtime.onConnect.addListener((port: Port) => {
   });
 });
 
-// Get auth token (with refresh if needed)
+// Get auth token from Supabase session
 async function getAuthToken(): Promise<string | null> {
-  console.log('Inside background worker getAuthToken(), this method may no longer be needed');
-  return new Promise((resolve) => {
-    chrome.identity.getAuthToken({ interactive: false }, (token) => {
-      if (chrome.runtime.lastError) {
-        console.error('Auth token error:', chrome.runtime.lastError);
-        resolve(null);
-        return;
-      }
-      resolve(token);
-    });
-  });
+  try {
+    const { data: { session }, error } = await supabaseClient.auth.getSession();
+    
+    if (error || !session) {
+      console.error('No valid Supabase session found');
+      return null;
+    }
+    
+    // Return the access token for API calls
+    return session.access_token;
+  } catch (error) {
+    console.error('Error getting auth token:', error);
+    return null;
+  }
 }
 
-// Authentication functions
+// Authentication functions - keep existing Chrome Identity for initial auth
 async function authenticate(): Promise<string> {
   return new Promise((resolve, reject) => {
     chrome.identity.getAuthToken({ interactive: true }, (token) => {
@@ -156,6 +135,9 @@ async function revokeAuthentication(): Promise<void> {
           
           // Remove token from cache
           chrome.identity.removeCachedAuthToken({ token: token }, () => {
+            // Also sign out from Supabase
+            supabaseClient.auth.signOut();
+            
             // Notify all connected ports about authentication state
             ports.forEach(port => {
               port.postMessage({ 
@@ -175,95 +157,48 @@ async function revokeAuthentication(): Promise<void> {
   });
 }
 
-// Extract email content
-async function extractEmail(emailId: string, token: string | null): Promise<{ success: boolean; data?: EmailData; error?: string }> {
+// Extract email using Supabase edge function
+async function extractEmailViaEdgeFunction(emailId: string): Promise<{ success: boolean; data?: EmailData; error?: string }> {
   try {
-    if (!token) {
+    const authToken = await getAuthToken();
+    if (!authToken) {
       throw new Error('User not authenticated');
     }
 
-    // Fetch email from Gmail API
-    const response = await fetch(`https://gmail.googleapis.com/gmail/v1/users/me/messages/${emailId}?format=full`, {
+    console.log('Calling extract-email edge function for email:', emailId);
+
+    // Call the extract-email edge function
+    const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/extract-email`, {
+      method: 'POST',
       headers: {
-        Authorization: `Bearer ${token}`
-      }
+        'Authorization': `Bearer ${authToken}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ emailId })
     });
     
     if (!response.ok) {
-      throw new Error(`Failed to fetch email: ${response.status}`);
+      const errorText = await response.text();
+      console.error('Edge function error response:', errorText);
+      throw new Error(`Edge function failed: ${response.status} ${response.statusText}`);
     }
     
-    const emailData: GmailResponse = await response.json();
+    const result = await response.json();
     
-    // Parse email data
-    const parsedEmail = parseEmailData(emailData);
+    if (!result.success) {
+      throw new Error(result.error || 'Edge function returned error');
+    }
     
+    console.log('Successfully extracted email via edge function');
     return {
       success: true,
-      data: parsedEmail
+      data: result.data
     };
   } catch (error) {
-    console.error('Error extracting email:', error);
+    console.error('Error extracting email via edge function:', error);
     return {
       success: false,
       error: error instanceof Error ? error.message : 'Unknown error'
     };
   }
-}
-
-// Parse Gmail API response into a more usable format
-function parseEmailData(emailData: GmailResponse): EmailData {
-  const headers: Record<string, string> = {};
-  
-  // Extract headers
-  if (emailData.payload && emailData.payload.headers) {
-    emailData.payload.headers.forEach(header => {
-      headers[header.name.toLowerCase()] = header.value;
-    });
-  }
-  
-  // Extract body content
-  let body = '';
-  
-  function extractBodyParts(part: any): void {
-    if (part.body && part.body.data) {
-      // Decode base64 content
-      const decodedData = atob(part.body.data.replace(/-/g, '+').replace(/_/g, '/'));
-      body += decodedData;
-    }
-    
-    if (part.parts) {
-      part.parts.forEach((subPart: any) => {
-        // Prefer HTML content
-        if (subPart.mimeType === 'text/html') {
-          extractBodyParts(subPart);
-        }
-      });
-      
-      // If no HTML found, use plain text
-      if (!body) {
-        part.parts.forEach((subPart: any) => {
-          if (subPart.mimeType === 'text/plain') {
-            extractBodyParts(subPart);
-          }
-        });
-      }
-    }
-  }
-  
-  if (emailData.payload) {
-    extractBodyParts(emailData.payload);
-  }
-  
-  return {
-    id: emailData.id,
-    threadId: emailData.threadId,
-    labelIds: emailData.labelIds || [],
-    snippet: emailData.snippet || '',
-    subject: headers.subject || '',
-    from: headers.from || '',
-    to: headers.to || '',
-    date: headers.date || '',
-    body: body
-  };
 }
