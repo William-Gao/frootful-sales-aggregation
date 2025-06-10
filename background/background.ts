@@ -1,6 +1,8 @@
 // Background service worker for Frootful Gmail Extension
 
-import { hybridAuth } from '../src/hybridAuth.js';
+import { supabaseClient } from "../src/supabaseClient.js";
+
+// import { hybridAuth } from '../src/hybridAuth.js';
 
 // Types
 interface Port {
@@ -89,7 +91,9 @@ chrome.runtime.onConnect.addListener((port: Port) => {
       
       if (message.action === 'checkAuthState') {
         console.log('Hardcoding true for now in checkAuthState in background');
-        hybridAuth.isAuthenticated()
+        // hybridAuth.isAuthenticated()
+        const { data: { session }, error } = await supabaseClient.auth.getSession();
+        console.log('This is the session extracted in background.ts: ', session);
         port.postMessage({ action: 'checkAuthState', isAuthenticated: true });
       }
     } catch (error) {

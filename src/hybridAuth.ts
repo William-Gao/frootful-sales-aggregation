@@ -73,7 +73,7 @@ class HybridAuthManager {
 
   private async initializeSupabase() {
     try {
-      this.supabase = await supabaseClient;
+      this.supabase = supabaseClient;
       console.log('Supabase initialized in HybridAuthManager');
     } catch (error) {
       console.error('Failed to initialize Supabase in HybridAuthManager:', error);
