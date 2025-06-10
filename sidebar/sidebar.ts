@@ -30,6 +30,29 @@ interface OrderItem {
   price: number;
 }
 
+interface AnalyzedItem {
+  itemName: string;
+  quantity: number;
+  matchedItem?: {
+    id: string;
+    number: string;
+    displayName: string;
+    unitPrice: number;
+  };
+}
+
+interface AnalysisResponse {
+  success: boolean;
+  data?: {
+    email: EmailData;
+    customers: Customer[];
+    items: Item[];
+    matchingCustomer?: Customer;
+    analyzedItems: AnalyzedItem[];
+  };
+  error?: string;
+}
+
 let customers: Customer[] = [];
 let filteredCustomers: Customer[] = [];
 let items: Item[] = [];
@@ -209,56 +232,6 @@ addItemBtn.addEventListener('click', () => {
   itemsContainer.appendChild(itemBox);
 });
 
-// Fetch customers and items using edge functions
-async function initializeData(): Promise<void> {
-  try {
-    // Get auth token from Supabase session
-    const authToken = await getAuthToken();
-    if (!authToken) {
-      throw new Error('Not authenticated');
-    }
-
-    console.log('Fetching customers and items via edge functions...');
-
-    // Fetch customers and items in parallel using edge functions
-    const [customersResponse, itemsResponse] = await Promise.all([
-      fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/business-central-data?type=customers`, {
-        headers: {
-          'Authorization': `Bearer ${authToken}`,
-          'Content-Type': 'application/json'
-        }
-      }),
-      fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/business-central-data?type=items`, {
-        headers: {
-          'Authorization': `Bearer ${authToken}`,
-          'Content-Type': 'application/json'
-        }
-      })
-    ]);
-
-    const customersResult = await customersResponse.json();
-    const itemsResult = await itemsResponse.json();
-
-    if (!customersResult.success) {
-      throw new Error(customersResult.error || 'Failed to fetch customers');
-    }
-
-    if (!itemsResult.success) {
-      throw new Error(itemsResult.error || 'Failed to fetch items');
-    }
-
-    customers = customersResult.data;
-    filteredCustomers = [...customers];
-    items = itemsResult.data;
-    
-    updateCustomerSelect();
-    console.log(`Loaded ${customers.length} customers and ${items.length} items`);
-  } catch (error) {
-    console.error('Error initializing data:', error);
-    showError('Failed to load customers and items: ' + (error instanceof Error ? error.message : 'Unknown error'));
-  }
-}
-
 // Get auth token from Supabase session
 async function getAuthToken(): Promise<string | null> {
   try {
@@ -285,7 +258,7 @@ async function getAuthToken(): Promise<string | null> {
   }
 }
 
-// Handle email data
+// Handle email data - now calls comprehensive analyze-email endpoint
 window.addEventListener('message', async (event: MessageEvent) => {
   if (event.data.action === 'loadEmailData') {
     const emailData: EmailData = event.data.data;
@@ -302,110 +275,119 @@ window.addEventListener('message', async (event: MessageEvent) => {
     if (emailDate) emailDate.textContent = new Date(emailData.date).toLocaleString();
     
     try {
-      // Initialize data from edge functions
-      await initializeData();
+      // Call comprehensive analyze-email endpoint
+      const authToken = await getAuthToken();
+      if (!authToken) {
+        throw new Error('Not authenticated');
+      }
+
+      console.log('Calling comprehensive analyze-email endpoint...');
       
-      // Find matching customer by email
-      const senderEmail = emailData.from.match(/<(.+?)>/)?.[1] || emailData.from;
-      const matchingCustomer = customers.find(c => c.email === senderEmail);
+      const analysisResponse = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/analyze-email`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${authToken}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ emailId: emailData.id })
+      });
+
+      const analysisResult: AnalysisResponse = await analysisResponse.json();
       
+      if (!analysisResult.success || !analysisResult.data) {
+        throw new Error(analysisResult.error || 'Analysis failed');
+      }
+
+      const { customers: fetchedCustomers, items: fetchedItems, matchingCustomer, analyzedItems } = analysisResult.data;
+
+      // Store data globally
+      customers = fetchedCustomers;
+      filteredCustomers = [...customers];
+      items = fetchedItems;
+      
+      // Update customer dropdown
+      updateCustomerSelect();
+      
+      // Set matching customer if found
       if (matchingCustomer) {
         customerSelect.value = matchingCustomer.number;
         currentCustomer = matchingCustomer;
+        console.log('Auto-selected matching customer:', matchingCustomer.displayName);
       }
 
-      // Analyze email content using edge function
-      const authToken = await getAuthToken();
-      if (authToken) {
-        console.log('Analyzing email content via edge function...');
+      // Clear existing items and add analyzed items
+      itemsContainer.innerHTML = '';
+      
+      if (analyzedItems && analyzedItems.length > 0) {
+        console.log('Adding', analyzedItems.length, 'analyzed items to the form');
         
-        const analysisResponse = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/analyze-email`, {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${authToken}`,
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({ 
-            emailContent: emailData.body,
-            items: items
-          })
-        });
-
-        const analysisResult = await analysisResponse.json();
-        
-        if (analysisResult.success && analysisResult.analysis) {
-          console.log('Email analysis completed, found', analysisResult.analysis.length, 'items');
-          
-          // Clear existing items
-          itemsContainer.innerHTML = '';
-          
-          // Add matched items
-          analysisResult.analysis.forEach((analyzedItem: any) => {
-            if (analyzedItem.matchedItem) {
-              const itemBox = document.createElement('div');
-              itemBox.className = 'item-box';
-              itemBox.innerHTML = `
-                <div class="item-header">
-                  <span class="item-title">Item ${itemsContainer.children.length + 1}</span>
-                  <button class="delete-item-btn">Delete</button>
+        analyzedItems.forEach((analyzedItem: AnalyzedItem) => {
+          if (analyzedItem.matchedItem) {
+            const itemBox = document.createElement('div');
+            itemBox.className = 'item-box';
+            itemBox.innerHTML = `
+              <div class="item-header">
+                <span class="item-title">Item ${itemsContainer.children.length + 1}</span>
+                <button class="delete-item-btn">Delete</button>
+              </div>
+              <div class="item-fields">
+                <div class="item-field">
+                  <label>Item Name</label>
+                  <select class="item-select">
+                    <option value="">Select an item...</option>
+                    ${items.map(item => `
+                      <option value="${item.number}" 
+                              data-price="${item.unitPrice}"
+                              ${item.number === analyzedItem.matchedItem?.number ? 'selected' : ''}>
+                        ${item.displayName}
+                      </option>
+                    `).join('')}
+                  </select>
                 </div>
-                <div class="item-fields">
-                  <div class="item-field">
-                    <label>Item Name</label>
-                    <select class="item-select">
-                      <option value="">Select an item...</option>
-                      ${items.map(item => `
-                        <option value="${item.number}" 
-                                data-price="${item.unitPrice}"
-                                ${item.number === analyzedItem.matchedItem.number ? 'selected' : ''}>
-                          ${item.displayName}
-                        </option>
-                      `).join('')}
-                    </select>
-                  </div>
-                  <div class="item-field">
-                    <label>Quantity</label>
-                    <input type="number" min="1" value="${analyzedItem.quantity}" class="item-quantity">
-                  </div>
-                  <div class="item-field">
-                    <label>Price</label>
-                    <input type="number" min="0" step="0.01" value="${items.find(i => i.number === analyzedItem.matchedItem.number)?.unitPrice || 0}" class="item-price">
-                  </div>
+                <div class="item-field">
+                  <label>Quantity</label>
+                  <input type="number" min="1" value="${analyzedItem.quantity}" class="item-quantity">
                 </div>
-              `;
+                <div class="item-field">
+                  <label>Price</label>
+                  <input type="number" min="0" step="0.01" value="${analyzedItem.matchedItem.unitPrice}" class="item-price">
+                </div>
+              </div>
+            `;
 
-              // Add delete functionality
-              const deleteBtn = itemBox.querySelector('.delete-item-btn');
-              if (deleteBtn) {
-                deleteBtn.addEventListener('click', () => {
-                  itemBox.remove();
-                });
-              }
-
-              // Add item selection handler
-              const itemSelect = itemBox.querySelector('.item-select');
-              const priceInput = itemBox.querySelector('.item-price') as HTMLInputElement;
-              
-              if (itemSelect) {
-                itemSelect.addEventListener('change', (e) => {
-                  const select = e.target as HTMLSelectElement;
-                  const option = select.selectedOptions[0];
-                  if (option && priceInput) {
-                    priceInput.value = option.dataset.price || '0.00';
-                  }
-                });
-              }
-
-              itemsContainer.appendChild(itemBox);
+            // Add delete functionality
+            const deleteBtn = itemBox.querySelector('.delete-item-btn');
+            if (deleteBtn) {
+              deleteBtn.addEventListener('click', () => {
+                itemBox.remove();
+              });
             }
-          });
-        } else {
-          console.warn('Email analysis failed or returned no results');
-        }
+
+            // Add item selection handler
+            const itemSelect = itemBox.querySelector('.item-select');
+            const priceInput = itemBox.querySelector('.item-price') as HTMLInputElement;
+            
+            if (itemSelect) {
+              itemSelect.addEventListener('change', (e) => {
+                const select = e.target as HTMLSelectElement;
+                const option = select.selectedOptions[0];
+                if (option && priceInput) {
+                  priceInput.value = option.dataset.price || '0.00';
+                }
+              });
+            }
+
+            itemsContainer.appendChild(itemBox);
+          }
+        });
       }
+
+      console.log(`Analysis complete! Loaded ${customers.length} customers, ${items.length} items, and ${analyzedItems.length} analyzed items`);
+      showSuccess('Email analyzed successfully!');
+      
     } catch (error) {
-      console.error('Error setting up data:', error);
-      showError('Failed to load data: ' + (error instanceof Error ? error.message : 'Unknown error'));
+      console.error('Error during comprehensive analysis:', error);
+      showError('Failed to analyze email: ' + (error instanceof Error ? error.message : 'Unknown error'));
     }
   }
 });
