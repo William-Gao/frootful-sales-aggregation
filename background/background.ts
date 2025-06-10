@@ -1,5 +1,7 @@
 // Background service worker for Frootful Gmail Extension
 
+import { hybridAuth } from '../src/hybridAuth.js';
+
 // Types
 interface Port {
   name: string;
@@ -86,8 +88,9 @@ chrome.runtime.onConnect.addListener((port: Port) => {
       }
       
       if (message.action === 'checkAuthState') {
-        const token = await getAuthToken();
-        port.postMessage({ action: 'checkAuthState', isAuthenticated: !!token });
+        console.log('Hardcoding true for now in checkAuthState in background');
+        hybridAuth.isAuthenticated()
+        port.postMessage({ action: 'checkAuthState', isAuthenticated: true });
       }
     } catch (error) {
       console.error('Error in message handler:', error);
@@ -102,6 +105,7 @@ chrome.runtime.onConnect.addListener((port: Port) => {
 
 // Get auth token (with refresh if needed)
 async function getAuthToken(): Promise<string | null> {
+  console.log('Inside background worker getAuthToken(), this method may no longer be needed');
   return new Promise((resolve) => {
     chrome.identity.getAuthToken({ interactive: false }, (token) => {
       if (chrome.runtime.lastError) {

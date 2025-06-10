@@ -237,9 +237,10 @@ class HybridAuthManager {
     }
   }
 
-  // RESTORED YOUR ORIGINAL VERSION
   async isAuthenticated(): Promise<boolean> {
-    const session = await this.getCurrentSession();
+    console.log('inside isAuthenticated within hybridAuth');
+    const session = this.supabase.auth.getSession();
+    console.log('This is session: ', session);
     return session !== null;
   }
 
