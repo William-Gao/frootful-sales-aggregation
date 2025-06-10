@@ -2,8 +2,6 @@
 
 import { supabaseClient } from "../src/supabaseClient.js";
 
-// import { hybridAuth } from '../src/hybridAuth.js';
-
 // Types
 interface Port {
   name: string;
