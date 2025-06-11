@@ -472,7 +472,7 @@ async function refreshGoogleToken(userId: string, tokenData: TokenData): Promise
   }
 }
 
-// Refresh Business Central token using refresh token
+// Refresh Business Central token using refresh token - FIXED VERSION
 async function refreshBusinessCentralToken(userId: string, tokenData: TokenData): Promise<string | null> {
   try {
     if (!tokenData.encrypted_refresh_token || !tokenData.tenant_id) {
@@ -481,28 +481,62 @@ async function refreshBusinessCentralToken(userId: string, tokenData: TokenData)
     }
 
     const refreshToken = await decrypt(tokenData.encrypted_refresh_token);
+    const clientId = Deno.env.get('BC_CLIENT_ID');
+    const clientSecret = Deno.env.get('BC_CLIENT_SECRET');
     
-    // Microsoft OAuth2 token refresh
-    const response = await fetch(`https://login.microsoftonline.com/${tokenData.tenant_id}/oauth2/v2.0/token`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/x-www-form-urlencoded',
-      },
-      body: new URLSearchParams({
-        client_id: Deno.env.get('BC_CLIENT_ID') || '',
-        client_secret: Deno.env.get('BC_CLIENT_SECRET') || '',
-        refresh_token: refreshToken,
-        grant_type: 'refresh_token',
-        scope: 'https://api.businesscentral.dynamics.com/user_impersonation offline_access',
-      }),
-    });
-
-    if (!response.ok) {
-      console.error('Failed to refresh Business Central token:', response.status, response.statusText);
+    if (!clientId || !clientSecret) {
+      console.error('BC_CLIENT_ID or BC_CLIENT_SECRET not configured');
       return null;
     }
 
-    const tokenResponse = await response.json();
+    console.log('Attempting to refresh Business Central token...');
+    console.log('Tenant ID:', tokenData.tenant_id);
+    console.log('Client ID:', clientId);
+    
+    // Microsoft OAuth2 token refresh - Fixed format
+    const tokenUrl = `https://login.microsoftonline.com/${tokenData.tenant_id}/oauth2/v2.0/token`;
+    const requestBody = new URLSearchParams({
+      client_id: clientId,
+      client_secret: clientSecret,
+      grant_type: 'refresh_token',
+      refresh_token: refreshToken,
+      scope: 'https://api.businesscentral.dynamics.com/user_impersonation offline_access'
+    });
+
+    console.log('Token refresh URL:', tokenUrl);
+    console.log('Request body params:', Object.fromEntries(requestBody.entries()));
+
+    const response = await fetch(tokenUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+        'Accept': 'application/json'
+      },
+      body: requestBody
+    });
+
+    const responseText = await response.text();
+    console.log('Token refresh response status:', response.status);
+    console.log('Token refresh response:', responseText);
+
+    if (!response.ok) {
+      console.error('Failed to refresh Business Central token:', response.status, response.statusText);
+      console.error('Response body:', responseText);
+      return null;
+    }
+
+    let tokenResponse;
+    try {
+      tokenResponse = JSON.parse(responseText);
+    } catch (parseError) {
+      console.error('Failed to parse token response:', parseError);
+      return null;
+    }
+
+    if (!tokenResponse.access_token) {
+      console.error('No access token in refresh response:', tokenResponse);
+      return null;
+    }
     
     // Calculate new expiry time
     const expiresAt = new Date(Date.now() + (tokenResponse.expires_in * 1000));
