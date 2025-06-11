@@ -1,3 +1,5 @@
+import { supabaseClient } from "../src/supabaseClient.js";
+
 interface Customer {
   id: string;
   number: string;
@@ -279,28 +281,8 @@ addItemBtn.addEventListener('click', () => {
 
 // Get auth token from Supabase session
 async function getAuthToken(): Promise<string | null> {
-  try {
-    // Get Supabase session from extension storage
-    if (typeof chrome !== 'undefined' && chrome.storage) {
-      const result = await chrome.storage.local.get(['frootful_session']);
-      if (result.frootful_session) {
-        const session = JSON.parse(result.frootful_session);
-        return session.access_token;
-      }
-    }
-
-    // Fallback to localStorage
-    const sessionData = localStorage.getItem('frootful_session');
-    if (sessionData) {
-      const session = JSON.parse(sessionData);
-      return session.access_token;
-    }
-
-    return null;
-  } catch (error) {
-    console.error('Error getting auth token:', error);
-    return null;
-  }
+  const { data: { session }, error } = await supabaseClient.auth.getSession();
+  return session?.access_token ?? null;
 }
 
 // Handle comprehensive analysis data - replaces the old loadEmailData handler
