@@ -147,7 +147,7 @@ Deno.serve(async (req) => {
     console.log('Step 1: Extracting email from Gmail...');
     const emailData = await extractEmailFromGmail(emailId, userId);
     
-    // Step 2: Get Business Central data (customers)
+    // Step 2: Get Business Central data (customers) - call BC directly
     console.log('Step 2: Fetching Business Central customers...');
     const customers = await fetchCustomersFromBC(userId);
 
@@ -156,7 +156,7 @@ Deno.serve(async (req) => {
     const senderEmail = emailData.from.match(/<(.+?)>/)?.[1] || emailData.from;
     const matchingCustomer = customers.find(c => c.email === senderEmail);
 
-    // Step 4: Get items
+    // Step 4: Get items - call BC directly
     console.log('Step 4: Fetching items...');
     const items = await fetchItemsFromBC(userId);
 
@@ -218,13 +218,25 @@ async function extractEmailFromGmail(emailId: string, userId: string): Promise<E
   return parseEmailData(emailData);
 }
 
-// Fetch customers from Business Central
+// Fetch customers from Business Central directly
 async function fetchCustomersFromBC(userId: string): Promise<Customer[]> {
+  const bcToken = await getValidBusinessCentralToken(userId);
+  if (!bcToken) {
+    console.warn('Business Central token not found or could not be refreshed, returning empty customers list');
+    return [];
+  }
+
+  const companyId = await getCompanyId(userId);
+  if (!companyId) {
+    console.warn('Company ID not found, returning empty customers list');
+    return [];
+  }
+
   try {
-    // Use the business-central-data endpoint to get customers
-    const response = await fetch(`${supabaseUrl}/functions/v1/business-central-data?type=customers`, {
+    console.log('Fetching customers directly from Business Central API...');
+    const response = await fetch(`https://api.businesscentral.dynamics.com/v2.0/Production/api/v2.0/companies(${companyId})/customers`, {
       headers: {
-        'Authorization': `Bearer ${await getSupabaseToken(userId)}`,
+        'Authorization': `Bearer ${bcToken}`,
         'Content-Type': 'application/json'
       }
     });
@@ -234,26 +246,41 @@ async function fetchCustomersFromBC(userId: string): Promise<Customer[]> {
       return [];
     }
 
-    const result = await response.json();
-    if (!result.success) {
-      console.warn('Failed to fetch customers:', result.error);
-      return [];
-    }
-
-    return result.data || [];
+    const data = await response.json();
+    const customers = data.value || [];
+    
+    console.log(`Fetched ${customers.length} customers from Business Central`);
+    return customers.map((customer: any) => ({
+      id: customer.id,
+      number: customer.number,
+      displayName: customer.displayName,
+      email: customer.email
+    }));
   } catch (error) {
     console.warn('Error fetching customers:', error);
     return [];
   }
 }
 
-// Fetch items from Business Central
+// Fetch items from Business Central directly
 async function fetchItemsFromBC(userId: string): Promise<Item[]> {
+  const bcToken = await getValidBusinessCentralToken(userId);
+  if (!bcToken) {
+    console.warn('Business Central token not found or could not be refreshed, returning empty items list');
+    return [];
+  }
+
+  const companyId = await getCompanyId(userId);
+  if (!companyId) {
+    console.warn('Company ID not found, returning empty items list');
+    return [];
+  }
+
   try {
-    // Use the business-central-data endpoint to get items
-    const response = await fetch(`${supabaseUrl}/functions/v1/business-central-data?type=items`, {
+    console.log('Fetching items directly from Business Central API...');
+    const response = await fetch(`https://api.businesscentral.dynamics.com/v2.0/Production/api/v2.0/companies(${companyId})/items`, {
       headers: {
-        'Authorization': `Bearer ${await getSupabaseToken(userId)}`,
+        'Authorization': `Bearer ${bcToken}`,
         'Content-Type': 'application/json'
       }
     });
@@ -263,28 +290,20 @@ async function fetchItemsFromBC(userId: string): Promise<Item[]> {
       return [];
     }
 
-    const result = await response.json();
-    if (!result.success) {
-      console.warn('Failed to fetch items:', result.error);
-      return [];
-    }
-
-    return result.data || [];
+    const data = await response.json();
+    const items = data.value || [];
+    
+    console.log(`Fetched ${items.length} items from Business Central`);
+    return items.map((item: any) => ({
+      id: item.id,
+      number: item.number,
+      displayName: item.displayName,
+      unitPrice: item.unitPrice
+    }));
   } catch (error) {
     console.warn('Error fetching items:', error);
     return [];
   }
-}
-
-// Get Supabase token for internal API calls
-async function getSupabaseToken(userId: string): Promise<string> {
-  // For internal calls, we can use the service role key or create a session token
-  // For now, we'll use a simple approach - in production, you might want to create a proper session token
-  const { data, error } = await supabase.auth.admin.generateAccessToken(userId);
-  if (error || !data) {
-    throw new Error('Failed to generate access token for internal API call');
-  }
-  return data.access_token;
 }
 
 // Get valid Google token with automatic refresh
@@ -335,6 +354,58 @@ async function getValidGoogleToken(userId: string): Promise<string | null> {
     
   } catch (error) {
     console.error('Error getting valid Google token:', error);
+    return null;
+  }
+}
+
+// Get valid Business Central token with automatic refresh
+async function getValidBusinessCentralToken(userId: string): Promise<string | null> {
+  try {
+    console.log('Getting Business Central token for user:', userId);
+    
+    // Get current token data
+    const { data, error } = await supabase
+      .from('user_tokens')
+      .select('*')
+      .eq('user_id', userId)
+      .eq('provider', 'business_central')
+      .single();
+
+    if (error || !data) {
+      console.log('No Business Central token found for user');
+      return null;
+    }
+
+    const tokenData: TokenData = data;
+    
+    // Check if token is expired
+    if (tokenData.token_expires_at) {
+      const expiresAt = new Date(tokenData.token_expires_at);
+      const now = new Date();
+      const bufferTime = 5 * 60 * 1000; // 5 minutes buffer
+      
+      if (now.getTime() >= (expiresAt.getTime() - bufferTime)) {
+        console.log('Business Central token is expired or expiring soon, attempting refresh...');
+        
+        // Try to refresh the token
+        const refreshedToken = await refreshBusinessCentralToken(userId, tokenData);
+        if (refreshedToken) {
+          console.log('Successfully refreshed Business Central token');
+          return refreshedToken;
+        } else {
+          console.warn('Failed to refresh Business Central token');
+          return null;
+        }
+      }
+    }
+
+    // Token is still valid, decrypt and return
+    const decryptedToken = await decrypt(tokenData.encrypted_access_token);
+    console.log('Using existing valid Business Central token');
+    return decryptedToken;
+    
+  } catch (error) {
+    console.error('Error getting valid Business Central token:', error);
     return null;
   }
 }
@@ -401,6 +472,71 @@ async function refreshGoogleToken(userId: string, tokenData: TokenData): Promise
   }
 }
 
+// Refresh Business Central token using refresh token
+async function refreshBusinessCentralToken(userId: string, tokenData: TokenData): Promise<string | null> {
+  try {
+    if (!tokenData.encrypted_refresh_token || !tokenData.tenant_id) {
+      console.warn('No refresh token or tenant ID available for Business Central');
+      return null;
+    }
+
+    const refreshToken = await decrypt(tokenData.encrypted_refresh_token);
+    
+    // Microsoft OAuth2 token refresh
+    const response = await fetch(`https://login.microsoftonline.com/${tokenData.tenant_id}/oauth2/v2.0/token`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+      },
+      body: new URLSearchParams({
+        client_id: Deno.env.get('BC_CLIENT_ID') || '',
+        client_secret: Deno.env.get('BC_CLIENT_SECRET') || '',
+        refresh_token: refreshToken,
+        grant_type: 'refresh_token',
+        scope: 'https://api.businesscentral.dynamics.com/user_impersonation offline_access',
+      }),
+    });
+
+    if (!response.ok) {
+      console.error('Failed to refresh Business Central token:', response.status, response.statusText);
+      return null;
+    }
+
+    const tokenResponse = await response.json();
+    
+    // Calculate new expiry time
+    const expiresAt = new Date(Date.now() + (tokenResponse.expires_in * 1000));
+    
+    // Encrypt new tokens
+    const encryptedAccessToken = await encrypt(tokenResponse.access_token);
+    const encryptedRefreshToken = tokenResponse.refresh_token ? await encrypt(tokenResponse.refresh_token) : tokenData.encrypted_refresh_token;
+    
+    // Update token in database
+    const { error: updateError } = await supabase
+      .from('user_tokens')
+      .update({
+        encrypted_access_token: encryptedAccessToken,
+        encrypted_refresh_token: encryptedRefreshToken,
+        token_expires_at: expiresAt.toISOString(),
+        updated_at: new Date().toISOString()
+      })
+      .eq('user_id', userId)
+      .eq('provider', 'business_central');
+
+    if (updateError) {
+      console.error('Failed to update refreshed Business Central token:', updateError);
+      return null;
+    }
+
+    console.log('Successfully refreshed and updated Business Central token');
+    return tokenResponse.access_token;
+    
+  } catch (error) {
+    console.error('Error refreshing Business Central token:', error);
+    return null;
+  }
+}
+
 // Analyze email content with AI
 async function analyzeEmailWithAI(emailContent: string, items: Item[]): Promise<AnalyzedItem[]> {
   if (items.length === 0) {
@@ -455,6 +591,27 @@ Return the data in JSON format with the following structure:
   } catch (error) {
     console.error('Error analyzing email with AI:', error);
     return [];
+  }
+}
+
+// Helper functions for basic token operations
+async function getCompanyId(userId: string): Promise<string | null> {
+  try {
+    const { data, error } = await supabase
+      .from('user_tokens')
+      .select('company_id')
+      .eq('user_id', userId)
+      .eq('provider', 'business_central')
+      .single();
+
+    if (error || !data?.company_id) {
+      return null;
+    }
+
+    return data.company_id;
+  } catch (error) {
+    console.error('Error getting company ID:', error);
+    return null;
   }
 }
 
