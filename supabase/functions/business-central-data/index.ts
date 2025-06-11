@@ -11,8 +11,6 @@ interface Customer {
   number: string;
   displayName: string;
   email: string;
-  customerPricingGroup?: string;
-  customerPricingGroupName?: string;
 }
 
 interface Item {
@@ -20,22 +18,6 @@ interface Item {
   number: string;
   displayName: string;
   unitPrice: number;
-  customerPrice?: number; // Price specific to customer's pricing group
-}
-
-interface CustomerPricingGroup {
-  id: string;
-  code: string;
-  displayName: string;
-}
-
-interface SalesPrice {
-  itemNumber: string;
-  customerPricingGroup: string;
-  unitPrice: number;
-  minimumQuantity: number;
-  startingDate?: string;
-  endingDate?: string;
 }
 
 // Initialize Supabase client
@@ -114,12 +96,11 @@ Deno.serve(async (req) => {
     }
 
     const url = new URL(req.url);
-    const dataType = url.searchParams.get('type'); // 'customers', 'items', or 'pricing-groups'
-    const customerNumber = url.searchParams.get('customerNumber'); // For customer-specific pricing
+    const dataType = url.searchParams.get('type'); // 'customers' or 'items'
 
-    if (!dataType || !['customers', 'items', 'pricing-groups'].includes(dataType)) {
+    if (!dataType || !['customers', 'items'].includes(dataType)) {
       return new Response(
-        JSON.stringify({ success: false, error: 'Invalid data type. Use "customers", "items", or "pricing-groups"' }),
+        JSON.stringify({ success: false, error: 'Invalid data type. Use "customers" or "items"' }),
         {
           status: 400,
           headers: {
@@ -162,17 +143,9 @@ Deno.serve(async (req) => {
 
     let data;
     if (dataType === 'customers') {
-      data = await fetchCustomersWithPricingGroups(bcToken, companyId);
+      data = await fetchCustomers(bcToken, companyId);
     } else if (dataType === 'items') {
-      if (customerNumber) {
-        // Fetch items with customer-specific pricing
-        data = await fetchItemsWithCustomerPricing(bcToken, companyId, customerNumber);
-      } else {
-        // Fetch items with standard pricing
-        data = await fetchItems(bcToken, companyId);
-      }
-    } else if (dataType === 'pricing-groups') {
-      data = await fetchCustomerPricingGroups(bcToken, companyId);
+      data = await fetchItems(bcToken, companyId);
     }
 
     return new Response(
@@ -286,44 +259,6 @@ async function decrypt(encryptedText: string): Promise<string> {
   return decoder.decode(decrypted);
 }
 
-async function fetchCustomersWithPricingGroups(token: string, companyId: string): Promise<Customer[]> {
-  try {
-    console.log('Fetching customers with pricing groups...');
-    
-    // Fetch customers with expanded customerPricingGroup
-    const response = await fetch(`https://api.businesscentral.dynamics.com/v2.0/Production/api/v2.0/companies(${companyId})/customers?$expand=customerPricingGroup`, {
-      headers: {
-        'Authorization': `Bearer ${token}`,
-        'Content-Type': 'application/json'
-      }
-    });
-
-    if (!response.ok) {
-      console.warn(`Failed to fetch customers with pricing groups: ${response.status} ${response.statusText}`);
-      // Fallback to basic customer fetch
-      return await fetchCustomers(token, companyId);
-    }
-
-    const data = await response.json();
-    const customers = data.value || [];
-    
-    console.log(`Fetched ${customers.length} customers with pricing group information`);
-    
-    return customers.map((customer: any) => ({
-      id: customer.id,
-      number: customer.number,
-      displayName: customer.displayName,
-      email: customer.email,
-      customerPricingGroup: customer.customerPricingGroup?.code || customer.customerPricingGroupCode,
-      customerPricingGroupName: customer.customerPricingGroup?.displayName || customer.customerPricingGroupCode
-    }));
-  } catch (error) {
-    console.error('Error fetching customers with pricing groups:', error);
-    // Fallback to basic customer fetch
-    return await fetchCustomers(token, companyId);
-  }
-}
-
 async function fetchCustomers(token: string, companyId: string): Promise<Customer[]> {
   try {
     const response = await fetch(`https://api.businesscentral.dynamics.com/v2.0/Production/api/v2.0/companies(${companyId})/customers`, {
@@ -341,96 +276,6 @@ async function fetchCustomers(token: string, companyId: string): Promise<Custome
     return data.value || [];
   } catch (error) {
     console.error('Error fetching customers:', error);
-    throw error;
-  }
-}
-
-async function fetchItemsWithCustomerPricing(token: string, companyId: string, customerNumber: string): Promise<Item[]> {
-  try {
-    console.log(`Fetching items with customer-specific pricing for customer: ${customerNumber}`);
-    
-    // First, get the customer's pricing group
-    const customerResponse = await fetch(`https://api.businesscentral.dynamics.com/v2.0/Production/api/v2.0/companies(${companyId})/customers?$filter=number eq '${customerNumber}'&$expand=customerPricingGroup`, {
-      headers: {
-        'Authorization': `Bearer ${token}`,
-        'Content-Type': 'application/json'
-      }
-    });
-
-    let customerPricingGroup = null;
-    if (customerResponse.ok) {
-      const customerData = await customerResponse.json();
-      const customer = customerData.value?.[0];
-      customerPricingGroup = customer?.customerPricingGroup?.code || customer?.customerPricingGroupCode;
-      console.log(`Customer ${customerNumber} has pricing group: ${customerPricingGroup || 'None'}`);
-    }
-
-    // Fetch all items
-    const itemsResponse = await fetch(`https://api.businesscentral.dynamics.com/v2.0/Production/api/v2.0/companies(${companyId})/items`, {
-      headers: {
-        'Authorization': `Bearer ${token}`,
-        'Content-Type': 'application/json'
-      }
-    });
-
-    if (!itemsResponse.ok) {
-      throw new Error(`Failed to fetch items: ${itemsResponse.status} ${itemsResponse.statusText}`);
-    }
-
-    const itemsData = await itemsResponse.json();
-    const items = itemsData.value || [];
-
-    // If customer has a pricing group, fetch sales prices for that group
-    if (customerPricingGroup) {
-      try {
-        const salesPricesResponse = await fetch(`https://api.businesscentral.dynamics.com/v2.0/Production/api/v2.0/companies(${companyId})/salesPrices?$filter=customerPricingGroup eq '${customerPricingGroup}'`, {
-          headers: {
-            'Authorization': `Bearer ${token}`,
-            'Content-Type': 'application/json'
-          }
-        });
-
-        if (salesPricesResponse.ok) {
-          const salesPricesData = await salesPricesResponse.json();
-          const salesPrices = salesPricesData.value || [];
-          
-          console.log(`Found ${salesPrices.length} special prices for pricing group ${customerPricingGroup}`);
-          
-          // Create a map of item number to customer price
-          const customerPriceMap = new Map<string, number>();
-          salesPrices.forEach((price: SalesPrice) => {
-            // Use the most recent price if multiple exist
-            if (!customerPriceMap.has(price.itemNumber) || 
-                (price.startingDate && new Date(price.startingDate) > new Date())) {
-              customerPriceMap.set(price.itemNumber, price.unitPrice);
-            }
-          });
-
-          // Apply customer-specific pricing to items
-          return items.map((item: any) => ({
-            id: item.id,
-            number: item.number,
-            displayName: item.displayName,
-            unitPrice: item.unitPrice,
-            customerPrice: customerPriceMap.get(item.number) || item.unitPrice
-          }));
-        }
-      } catch (priceError) {
-        console.warn('Error fetching customer-specific prices:', priceError);
-      }
-    }
-
-    // Return items with standard pricing if no customer pricing group or prices found
-    return items.map((item: any) => ({
-      id: item.id,
-      number: item.number,
-      displayName: item.displayName,
-      unitPrice: item.unitPrice,
-      customerPrice: item.unitPrice // Same as standard price
-    }));
-
-  } catch (error) {
-    console.error('Error fetching items with customer pricing:', error);
     throw error;
   }
 }
@@ -453,37 +298,5 @@ async function fetchItems(token: string, companyId: string): Promise<Item[]> {
   } catch (error) {
     console.error('Error fetching items:', error);
     throw error;
-  }
-}
-
-async function fetchCustomerPricingGroups(token: string, companyId: string): Promise<CustomerPricingGroup[]> {
-  try {
-    console.log('Fetching customer pricing groups...');
-    
-    const response = await fetch(`https://api.businesscentral.dynamics.com/v2.0/Production/api/v2.0/companies(${companyId})/customerPricingGroups`, {
-      headers: {
-        'Authorization': `Bearer ${token}`,
-        'Content-Type': 'application/json'
-      }
-    });
-
-    if (!response.ok) {
-      console.warn(`Failed to fetch customer pricing groups: ${response.status} ${response.statusText}`);
-      return [];
-    }
-
-    const data = await response.json();
-    const pricingGroups = data.value || [];
-    
-    console.log(`Fetched ${pricingGroups.length} customer pricing groups`);
-    
-    return pricingGroups.map((group: any) => ({
-      id: group.id,
-      code: group.code,
-      displayName: group.displayName || group.code
-    }));
-  } catch (error) {
-    console.error('Error fetching customer pricing groups:', error);
-    return [];
   }
 }
