@@ -33,6 +33,8 @@ interface Customer {
   number: string;
   displayName: string;
   email: string;
+  customerPricingGroup?: string;
+  customerPricingGroupName?: string;
 }
 
 interface Item {
@@ -40,6 +42,7 @@ interface Item {
   number: string;
   displayName: string;
   unitPrice: number;
+  customerPrice?: number;
 }
 
 interface AnalyzedItem {
@@ -50,6 +53,7 @@ interface AnalyzedItem {
     number: string;
     displayName: string;
     unitPrice: number;
+    customerPrice?: number;
   };
 }
 
@@ -147,20 +151,28 @@ Deno.serve(async (req) => {
     console.log('Step 1: Extracting email from Gmail...');
     const emailData = await extractEmailFromGmail(emailId, userId);
     
-    // Step 2: Get Business Central data (customers and items) (with token refresh)
-    console.log('Step 2: Fetching Business Central data...');
-    const [customers, items] = await Promise.all([
-      fetchCustomersFromBC(userId),
-      fetchItemsFromBC(userId)
-    ]);
+    // Step 2: Get Business Central data (customers with pricing groups)
+    console.log('Step 2: Fetching Business Central customers with pricing groups...');
+    const customers = await fetchCustomersFromBC(userId);
 
     // Step 3: Find matching customer by email
     console.log('Step 3: Finding matching customer...');
     const senderEmail = emailData.from.match(/<(.+?)>/)?.[1] || emailData.from;
     const matchingCustomer = customers.find(c => c.email === senderEmail);
 
-    // Step 4: Analyze email content and match items using AI
-    console.log('Step 4: Analyzing email content with AI...');
+    // Step 4: Get items with customer-specific pricing if customer found
+    console.log('Step 4: Fetching items with customer-specific pricing...');
+    let items: Item[] = [];
+    if (matchingCustomer) {
+      console.log(`Found matching customer: ${matchingCustomer.displayName} (Pricing Group: ${matchingCustomer.customerPricingGroupName || 'None'})`);
+      items = await fetchItemsWithCustomerPricing(userId, matchingCustomer.number);
+    } else {
+      console.log('No matching customer found, using standard pricing');
+      items = await fetchItemsFromBC(userId);
+    }
+
+    // Step 5: Analyze email content and match items using AI
+    console.log('Step 5: Analyzing email content with AI...');
     const analyzedItems = await analyzeEmailWithAI(emailData.body, items);
 
     console.log('Analysis complete! Found', analyzedItems.length, 'items');
@@ -217,7 +229,7 @@ async function extractEmailFromGmail(emailId: string, userId: string): Promise<E
   return parseEmailData(emailData);
 }
 
-// Fetch customers from Business Central with token refresh
+// Fetch customers from Business Central with pricing groups
 async function fetchCustomersFromBC(userId: string): Promise<Customer[]> {
   const bcToken = await getValidBusinessCentralToken(userId);
   if (!bcToken) {
@@ -232,9 +244,10 @@ async function fetchCustomersFromBC(userId: string): Promise<Customer[]> {
   }
 
   try {
-    const response = await fetch(`https://api.businesscentral.dynamics.com/v2.0/Production/api/v2.0/companies(${companyId})/customers`, {
+    // Use the business-central-data endpoint to get customers with pricing groups
+    const response = await fetch(`${supabaseUrl}/functions/v1/business-central-data?type=customers`, {
       headers: {
-        'Authorization': `Bearer ${bcToken}`,
+        'Authorization': `Bearer ${await getSupabaseToken(userId)}`,
         'Content-Type': 'application/json'
       }
     });
@@ -244,32 +257,55 @@ async function fetchCustomersFromBC(userId: string): Promise<Customer[]> {
       return [];
     }
 
-    const data = await response.json();
-    return data.value || [];
+    const result = await response.json();
+    if (!result.success) {
+      console.warn('Failed to fetch customers:', result.error);
+      return [];
+    }
+
+    return result.data || [];
   } catch (error) {
     console.warn('Error fetching customers:', error);
     return [];
   }
 }
 
-// Fetch items from Business Central with token refresh
-async function fetchItemsFromBC(userId: string): Promise<Item[]> {
-  const bcToken = await getValidBusinessCentralToken(userId);
-  if (!bcToken) {
-    console.warn('Business Central token not found or could not be refreshed, returning empty items list');
-    return [];
-  }
-
-  const companyId = await getCompanyId(userId);
-  if (!companyId) {
-    console.warn('Company ID not found, returning empty items list');
-    return [];
-  }
-
+// Fetch items from Business Central with customer-specific pricing
+async function fetchItemsWithCustomerPricing(userId: string, customerNumber: string): Promise<Item[]> {
   try {
-    const response = await fetch(`https://api.businesscentral.dynamics.com/v2.0/Production/api/v2.0/companies(${companyId})/items`, {
+    // Use the business-central-data endpoint to get items with customer pricing
+    const response = await fetch(`${supabaseUrl}/functions/v1/business-central-data?type=items&customerNumber=${encodeURIComponent(customerNumber)}`, {
       headers: {
-        'Authorization': `Bearer ${bcToken}`,
+        'Authorization': `Bearer ${await getSupabaseToken(userId)}`,
+        'Content-Type': 'application/json'
+      }
+    });
+
+    if (!response.ok) {
+      console.warn(`Failed to fetch items with customer pricing: ${response.status} ${response.statusText}`);
+      return await fetchItemsFromBC(userId); // Fallback to standard pricing
+    }
+
+    const result = await response.json();
+    if (!result.success) {
+      console.warn('Failed to fetch items with customer pricing:', result.error);
+      return await fetchItemsFromBC(userId); // Fallback to standard pricing
+    }
+
+    return result.data || [];
+  } catch (error) {
+    console.warn('Error fetching items with customer pricing:', error);
+    return await fetchItemsFromBC(userId); // Fallback to standard pricing
+  }
+}
+
+// Fetch items from Business Central with standard pricing
+async function fetchItemsFromBC(userId: string): Promise<Item[]> {
+  try {
+    // Use the business-central-data endpoint to get items with standard pricing
+    const response = await fetch(`${supabaseUrl}/functions/v1/business-central-data?type=items`, {
+      headers: {
+        'Authorization': `Bearer ${await getSupabaseToken(userId)}`,
         'Content-Type': 'application/json'
       }
     });
@@ -279,12 +315,28 @@ async function fetchItemsFromBC(userId: string): Promise<Item[]> {
       return [];
     }
 
-    const data = await response.json();
-    return data.value || [];
+    const result = await response.json();
+    if (!result.success) {
+      console.warn('Failed to fetch items:', result.error);
+      return [];
+    }
+
+    return result.data || [];
   } catch (error) {
     console.warn('Error fetching items:', error);
     return [];
   }
+}
+
+// Get Supabase token for internal API calls
+async function getSupabaseToken(userId: string): Promise<string> {
+  // For internal calls, we can use the service role key or create a session token
+  // For now, we'll use a simple approach - in production, you might want to create a proper session token
+  const { data, error } = await supabase.auth.admin.generateAccessToken(userId);
+  if (error || !data) {
+    throw new Error('Failed to generate access token for internal API call');
+  }
+  return data.access_token;
 }
 
 // Get valid Google token with automatic refresh
@@ -518,7 +570,7 @@ async function refreshBusinessCentralToken(userId: string, tokenData: TokenData)
   }
 }
 
-// Analyze email content with AI
+// Analyze email content with AI (updated to include customer pricing)
 async function analyzeEmailWithAI(emailContent: string, items: Item[]): Promise<AnalyzedItem[]> {
   if (items.length === 0) {
     console.warn('No items available for analysis');
@@ -530,7 +582,8 @@ async function analyzeEmailWithAI(emailContent: string, items: Item[]): Promise<
       id: item.id,
       number: item.number,
       displayName: item.displayName,
-      unitPrice: item.unitPrice
+      unitPrice: item.unitPrice,
+      customerPrice: item.customerPrice || item.unitPrice
     }));
 
     const completion = await openai.chat.completions.create({
@@ -538,11 +591,11 @@ async function analyzeEmailWithAI(emailContent: string, items: Item[]): Promise<
       messages: [
         {
           role: 'system',
-          content: `You are a helpful assistant that extracts purchase order information from emails and matches them to a list of available items. Here is the list of available items: ${JSON.stringify(itemsList)}`
+          content: `You are a helpful assistant that extracts purchase order information from emails and matches them to a list of available items. Here is the list of available items with pricing: ${JSON.stringify(itemsList)}`
         },
         {
           role: 'user',
-          content: `Extract products with quantities from this email and match them to the available items list. For each product found, find the best matching item from the available items list.
+          content: `Extract products with quantities from this email and match them to the available items list. For each product found, find the best matching item from the available items list. Use the customerPrice if available, otherwise use unitPrice.
 
 Email content:
 ${emailContent}
@@ -556,7 +609,8 @@ Return the data in JSON format with the following structure:
       "id": "matched item id",
       "number": "matched item number",
       "displayName": "matched item display name",
-      "unitPrice": number
+      "unitPrice": number,
+      "customerPrice": number
     }
   }]
 }`
@@ -575,47 +629,7 @@ Return the data in JSON format with the following structure:
   }
 }
 
-// Helper functions for basic token operations (without refresh logic)
-async function getGoogleToken(userId: string): Promise<string | null> {
-  try {
-    const { data, error } = await supabase
-      .from('user_tokens')
-      .select('encrypted_access_token')
-      .eq('user_id', userId)
-      .eq('provider', 'google')
-      .single();
-
-    if (error || !data?.encrypted_access_token) {
-      return null;
-    }
-
-    return await decrypt(data.encrypted_access_token);
-  } catch (error) {
-    console.error('Error getting Google token:', error);
-    return null;
-  }
-}
-
-async function getBusinessCentralToken(userId: string): Promise<string | null> {
-  try {
-    const { data, error } = await supabase
-      .from('user_tokens')
-      .select('encrypted_access_token')
-      .eq('user_id', userId)
-      .eq('provider', 'business_central')
-      .single();
-
-    if (error || !data?.encrypted_access_token) {
-      return null;
-    }
-
-    return await decrypt(data.encrypted_access_token);
-  } catch (error) {
-    console.error('Error getting Business Central token:', error);
-    return null;
-  }
-}
-
+// Helper functions for basic token operations
 async function getCompanyId(userId: string): Promise<string | null> {
   try {
     const { data, error } = await supabase

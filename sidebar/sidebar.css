@@ -207,6 +207,36 @@ header {
   box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.1);
 }
 
+/* Customer Pricing Group Display */
+.pricing-info {
+  margin-top: 12px;
+  padding: 8px 12px;
+  background-color: #ecfdf5;
+  border: 1px solid #d1fae5;
+  border-radius: 6px;
+}
+
+.pricing-group-display {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.pricing-label {
+  font-size: 12px;
+  font-weight: 500;
+  color: #065f46;
+}
+
+.pricing-value {
+  font-size: 12px;
+  font-weight: 600;
+  color: #047857;
+  background-color: #a7f3d0;
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+
 /* Items section */
 .items-section {
   margin-top: 16px;
@@ -314,6 +344,30 @@ header {
   outline: none;
   border-color: #6366F1;
   box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.1);
+}
+
+/* Price display with customer pricing indicator */
+.price-field {
+  position: relative;
+}
+
+.price-field .customer-price-indicator {
+  position: absolute;
+  top: -8px;
+  right: 4px;
+  background-color: #10B981;
+  color: white;
+  font-size: 10px;
+  padding: 1px 4px;
+  border-radius: 3px;
+  font-weight: 500;
+}
+
+.price-field .standard-price {
+  font-size: 11px;
+  color: #64748b;
+  text-decoration: line-through;
+  margin-top: 2px;
 }
 
 /* Import progress */

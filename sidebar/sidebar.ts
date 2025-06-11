@@ -3,6 +3,8 @@ interface Customer {
   number: string;
   displayName: string;
   email: string;
+  customerPricingGroup?: string;
+  customerPricingGroupName?: string;
 }
 
 interface Item {
@@ -10,6 +12,7 @@ interface Item {
   number: string;
   displayName: string;
   unitPrice: number;
+  customerPrice?: number;
 }
 
 interface EmailData {
@@ -32,6 +35,7 @@ interface AnalyzedItem {
     number: string;
     displayName: string;
     unitPrice: number;
+    customerPrice?: number;
   };
 }
 
@@ -57,6 +61,8 @@ let currentCustomer: Customer | null = null;
 // Initialize DOM elements
 const customerSearch = document.getElementById('customer-search') as HTMLInputElement;
 const customerSelect = document.getElementById('customer-select') as HTMLSelectElement;
+const customerPricingInfo = document.getElementById('customer-pricing-info');
+const customerPricingGroup = document.getElementById('customer-pricing-group');
 const closeBtn = document.getElementById('close-btn') as HTMLButtonElement;
 const emailInfo = document.getElementById('email-info');
 const emailMetadata = document.getElementById('email-metadata');
@@ -76,7 +82,7 @@ const header = document.querySelector('header') as HTMLElement;
 if (!closeBtn || !emailInfo || !emailMetadata || !emailBody || !emailFrom || 
     !emailSubject || !emailDate || !addItemBtn || !itemsContainer || !exportErpBtn ||
     !importProgress || !createOrderStep || !addItemsStep || !customerSearch ||
-    !sidebarContainer || !header) {
+    !sidebarContainer || !header || !customerPricingInfo || !customerPricingGroup) {
   console.error('Required elements not found');
   throw new Error('Required elements not found');
 }
@@ -141,6 +147,17 @@ function updateCustomerSelect() {
   });
 }
 
+// Update customer pricing group display
+function updateCustomerPricingDisplay(customer: Customer | null) {
+  if (!customer || !customer.customerPricingGroup) {
+    customerPricingInfo.classList.add('hidden');
+    return;
+  }
+
+  customerPricingGroup.textContent = customer.customerPricingGroupName || customer.customerPricingGroup;
+  customerPricingInfo.classList.remove('hidden');
+}
+
 // Close sidebar
 closeBtn.addEventListener('click', () => {
   window.parent.postMessage({ action: 'closeSidebar' }, '*');
@@ -163,7 +180,11 @@ addItemBtn.addEventListener('click', () => {
         <select class="item-select">
           <option value="">Select an item...</option>
           ${items.map(item => `
-            <option value="${item.number}" data-price="${item.unitPrice}">
+            <option value="${item.number}" 
+                    data-price="${item.customerPrice || item.unitPrice}"
+                    data-standard-price="${item.unitPrice}"
+                    data-customer-price="${item.customerPrice || ''}"
+                    data-has-customer-price="${item.customerPrice && item.customerPrice !== item.unitPrice ? 'true' : 'false'}">
               ${item.displayName}
             </option>
           `).join('')}
@@ -173,7 +194,7 @@ addItemBtn.addEventListener('click', () => {
         <label>Quantity</label>
         <input type="number" min="1" value="1" class="item-quantity">
       </div>
-      <div class="item-field">
+      <div class="item-field price-field">
         <label>Price</label>
         <input type="number" min="0.00" step="0.01" value="0.00" class="item-price">
       </div>
@@ -205,22 +226,50 @@ addItemBtn.addEventListener('click', () => {
       filteredItems.forEach(item => {
         const option = document.createElement('option');
         option.value = item.number;
-        option.dataset.price = item.unitPrice.toString();
+        option.dataset.price = (item.customerPrice || item.unitPrice).toString();
+        option.dataset.standardPrice = item.unitPrice.toString();
+        option.dataset.customerPrice = (item.customerPrice || '').toString();
+        option.dataset.hasCustomerPrice = (item.customerPrice && item.customerPrice !== item.unitPrice) ? 'true' : 'false';
         option.textContent = item.displayName;
         itemSelect.appendChild(option);
       });
     });
   }
 
-  // Add item selection handler
+  // Add item selection handler with customer pricing display
   const priceInput = itemBox.querySelector('.item-price') as HTMLInputElement;
+  const priceField = itemBox.querySelector('.price-field') as HTMLElement;
   
   if (itemSelect) {
     itemSelect.addEventListener('change', (e) => {
       const select = e.target as HTMLSelectElement;
       const option = select.selectedOptions[0];
       if (option && priceInput) {
-        priceInput.value = option.dataset.price || '0.00';
+        const price = option.dataset.price || '0.00';
+        const standardPrice = option.dataset.standardPrice || '0.00';
+        const hasCustomerPrice = option.dataset.hasCustomerPrice === 'true';
+        
+        priceInput.value = price;
+        
+        // Remove existing pricing indicators
+        const existingIndicator = priceField.querySelector('.customer-price-indicator');
+        const existingStandardPrice = priceField.querySelector('.standard-price');
+        if (existingIndicator) existingIndicator.remove();
+        if (existingStandardPrice) existingStandardPrice.remove();
+        
+        // Add customer pricing indicator if applicable
+        if (hasCustomerPrice && currentCustomer?.customerPricingGroup) {
+          const indicator = document.createElement('div');
+          indicator.className = 'customer-price-indicator';
+          indicator.textContent = 'Customer Price';
+          priceField.appendChild(indicator);
+          
+          // Show standard price as reference
+          const standardPriceDiv = document.createElement('div');
+          standardPriceDiv.className = 'standard-price';
+          standardPriceDiv.textContent = `Standard: $${standardPrice}`;
+          priceField.appendChild(standardPriceDiv);
+        }
       }
     });
   }
@@ -264,7 +313,8 @@ window.addEventListener('message', async (event: MessageEvent) => {
       customers: analysisData.customers.length,
       items: analysisData.items.length,
       analyzedItems: analysisData.analyzedItems.length,
-      matchingCustomer: analysisData.matchingCustomer?.displayName || 'None'
+      matchingCustomer: analysisData.matchingCustomer?.displayName || 'None',
+      customerPricingGroup: analysisData.matchingCustomer?.customerPricingGroupName || 'None'
     });
     
     // Hide loading state and show sections
@@ -290,7 +340,9 @@ window.addEventListener('message', async (event: MessageEvent) => {
     if (analysisData.matchingCustomer) {
       customerSelect.value = analysisData.matchingCustomer.number;
       currentCustomer = analysisData.matchingCustomer;
-      console.log('Auto-selected matching customer:', analysisData.matchingCustomer.displayName);
+      updateCustomerPricingDisplay(currentCustomer);
+      console.log('Auto-selected matching customer:', analysisData.matchingCustomer.displayName, 
+                  'with pricing group:', analysisData.matchingCustomer.customerPricingGroupName || 'None');
     }
 
     // Clear existing items and add analyzed items
@@ -301,6 +353,10 @@ window.addEventListener('message', async (event: MessageEvent) => {
       
       analysisData.analyzedItems.forEach((analyzedItem: AnalyzedItem) => {
         if (analyzedItem.matchedItem) {
+          const hasCustomerPrice = analyzedItem.matchedItem.customerPrice && 
+                                   analyzedItem.matchedItem.customerPrice !== analyzedItem.matchedItem.unitPrice;
+          const displayPrice = analyzedItem.matchedItem.customerPrice || analyzedItem.matchedItem.unitPrice;
+          
           const itemBox = document.createElement('div');
           itemBox.className = 'item-box';
           itemBox.innerHTML = `
@@ -315,7 +371,10 @@ window.addEventListener('message', async (event: MessageEvent) => {
                   <option value="">Select an item...</option>
                   ${items.map(item => `
                     <option value="${item.number}" 
-                            data-price="${item.unitPrice}"
+                            data-price="${item.customerPrice || item.unitPrice}"
+                            data-standard-price="${item.unitPrice}"
+                            data-customer-price="${item.customerPrice || ''}"
+                            data-has-customer-price="${item.customerPrice && item.customerPrice !== item.unitPrice ? 'true' : 'false'}"
                             ${item.number === analyzedItem.matchedItem?.number ? 'selected' : ''}>
                       ${item.displayName}
                     </option>
@@ -326,9 +385,13 @@ window.addEventListener('message', async (event: MessageEvent) => {
                 <label>Quantity</label>
                 <input type="number" min="1" value="${analyzedItem.quantity}" class="item-quantity">
               </div>
-              <div class="item-field">
+              <div class="item-field price-field">
                 <label>Price</label>
-                <input type="number" min="0" step="0.01" value="${analyzedItem.matchedItem.unitPrice}" class="item-price">
+                <input type="number" min="0" step="0.01" value="${displayPrice}" class="item-price">
+                ${hasCustomerPrice ? `
+                  <div class="customer-price-indicator">Customer Price</div>
+                  <div class="standard-price">Standard: $${analyzedItem.matchedItem.unitPrice}</div>
+                ` : ''}
               </div>
             </div>
           `;
@@ -344,13 +407,38 @@ window.addEventListener('message', async (event: MessageEvent) => {
           // Add item selection handler
           const itemSelect = itemBox.querySelector('.item-select');
           const priceInput = itemBox.querySelector('.item-price') as HTMLInputElement;
+          const priceField = itemBox.querySelector('.price-field') as HTMLElement;
           
           if (itemSelect) {
             itemSelect.addEventListener('change', (e) => {
               const select = e.target as HTMLSelectElement;
               const option = select.selectedOptions[0];
               if (option && priceInput) {
-                priceInput.value = option.dataset.price || '0.00';
+                const price = option.dataset.price || '0.00';
+                const standardPrice = option.dataset.standardPrice || '0.00';
+                const hasCustomerPrice = option.dataset.hasCustomerPrice === 'true';
+                
+                priceInput.value = price;
+                
+                // Remove existing pricing indicators
+                const existingIndicator = priceField.querySelector('.customer-price-indicator');
+                const existingStandardPrice = priceField.querySelector('.standard-price');
+                if (existingIndicator) existingIndicator.remove();
+                if (existingStandardPrice) existingStandardPrice.remove();
+                
+                // Add customer pricing indicator if applicable
+                if (hasCustomerPrice && currentCustomer?.customerPricingGroup) {
+                  const indicator = document.createElement('div');
+                  indicator.className = 'customer-price-indicator';
+                  indicator.textContent = 'Customer Price';
+                  priceField.appendChild(indicator);
+                  
+                  // Show standard price as reference
+                  const standardPriceDiv = document.createElement('div');
+                  standardPriceDiv.className = 'standard-price';
+                  standardPriceDiv.textContent = `Standard: $${standardPrice}`;
+                  priceField.appendChild(standardPriceDiv);
+                }
               }
             });
           }
@@ -361,7 +449,7 @@ window.addEventListener('message', async (event: MessageEvent) => {
     }
 
     console.log(`Analysis complete! Loaded ${customers.length} customers, ${items.length} items, and ${analysisData.analyzedItems.length} analyzed items`);
-    showSuccess('Email analyzed successfully!');
+    showSuccess('Email analyzed successfully with customer pricing!');
   }
 
   // Keep the old handler for backward compatibility
@@ -375,6 +463,12 @@ window.addEventListener('message', async (event: MessageEvent) => {
 customerSelect.addEventListener('change', (e) => {
   const selectedNumber = (e.target as HTMLSelectElement).value;
   currentCustomer = customers.find(c => c.number === selectedNumber) || null;
+  updateCustomerPricingDisplay(currentCustomer);
+  
+  if (currentCustomer) {
+    console.log('Selected customer:', currentCustomer.displayName, 
+                'with pricing group:', currentCustomer.customerPricingGroupName || 'None');
+  }
 });
 
 function getItems(): OrderItem[] {
@@ -438,6 +532,7 @@ exportErpBtn.addEventListener('click', async () => {
     }
 
     console.log('Exporting order to ERP via edge function...');
+    console.log('Customer pricing group:', currentCustomer.customerPricingGroupName || 'None');
 
     // Show both steps as loading
     updateStepStatus(createOrderStep, 'loading');
@@ -489,7 +584,7 @@ exportErpBtn.addEventListener('click', async () => {
     }
 
     console.log('Order export successful:', result);
-    showSuccess(result.message || `Successfully created order #${result.orderNumber}`);
+    showSuccess(result.message || `Successfully created order #${result.orderNumber} with customer pricing!`);
 
   } catch (error) {
     console.error('Error exporting to ERP:', error);
