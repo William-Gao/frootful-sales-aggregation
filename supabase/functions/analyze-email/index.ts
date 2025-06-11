@@ -76,6 +76,20 @@ interface GmailResponse {
   };
 }
 
+interface TokenData {
+  id: string;
+  user_id: string;
+  provider: string;
+  encrypted_access_token: string;
+  encrypted_refresh_token?: string;
+  token_expires_at?: string;
+  tenant_id?: string;
+  company_id?: string;
+  company_name?: string;
+  created_at: string;
+  updated_at: string;
+}
+
 Deno.serve(async (req) => {
   // Handle CORS preflight requests
   if (req.method === 'OPTIONS') {
@@ -129,11 +143,11 @@ Deno.serve(async (req) => {
 
     console.log('Starting comprehensive email analysis for user:', userId);
 
-    // Step 1: Extract email from Gmail
+    // Step 1: Extract email from Gmail (with token refresh)
     console.log('Step 1: Extracting email from Gmail...');
     const emailData = await extractEmailFromGmail(emailId, userId);
     
-    // Step 2: Get Business Central data (customers and items)
+    // Step 2: Get Business Central data (customers and items) (with token refresh)
     console.log('Step 2: Fetching Business Central data...');
     const [customers, items] = await Promise.all([
       fetchCustomersFromBC(userId),
@@ -182,11 +196,11 @@ Deno.serve(async (req) => {
   }
 });
 
-// Extract email from Gmail API
+// Extract email from Gmail API with token refresh
 async function extractEmailFromGmail(emailId: string, userId: string): Promise<EmailData> {
-  const googleToken = await getGoogleToken(userId);
+  const googleToken = await getValidGoogleToken(userId);
   if (!googleToken) {
-    throw new Error('Google token not found. Please sign in again.');
+    throw new Error('Google token not found or could not be refreshed. Please sign in again.');
   }
 
   const response = await fetch(`https://gmail.googleapis.com/gmail/v1/users/me/messages/${emailId}?format=full`, {
@@ -203,12 +217,11 @@ async function extractEmailFromGmail(emailId: string, userId: string): Promise<E
   return parseEmailData(emailData);
 }
 
-// Fetch customers from Business Central
+// Fetch customers from Business Central with token refresh
 async function fetchCustomersFromBC(userId: string): Promise<Customer[]> {
-  const bcToken = await getBusinessCentralToken(userId);
-  console.log('This is the bcToken in fetchCustomersFromBC: ', bcToken);
+  const bcToken = await getValidBusinessCentralToken(userId);
   if (!bcToken) {
-    console.warn('Business Central token not found, returning empty customers list');
+    console.warn('Business Central token not found or could not be refreshed, returning empty customers list');
     return [];
   }
 
@@ -239,12 +252,11 @@ async function fetchCustomersFromBC(userId: string): Promise<Customer[]> {
   }
 }
 
-// Fetch items from Business Central
+// Fetch items from Business Central with token refresh
 async function fetchItemsFromBC(userId: string): Promise<Item[]> {
-  const bcToken = await getBusinessCentralToken(userId);
-  console.log('This is the bcToken in fetchItemsFromBC: ', bcToken);
+  const bcToken = await getValidBusinessCentralToken(userId);
   if (!bcToken) {
-    console.warn('Business Central token not found, returning empty items list');
+    console.warn('Business Central token not found or could not be refreshed, returning empty items list');
     return [];
   }
 
@@ -272,6 +284,237 @@ async function fetchItemsFromBC(userId: string): Promise<Item[]> {
   } catch (error) {
     console.warn('Error fetching items:', error);
     return [];
+  }
+}
+
+// Get valid Google token with automatic refresh
+async function getValidGoogleToken(userId: string): Promise<string | null> {
+  try {
+    console.log('Getting Google token for user:', userId);
+    
+    // Get current token data
+    const { data, error } = await supabase
+      .from('user_tokens')
+      .select('*')
+      .eq('user_id', userId)
+      .eq('provider', 'google')
+      .single();
+
+    if (error || !data) {
+      console.log('No Google token found for user');
+      return null;
+    }
+
+    const tokenData: TokenData = data;
+    
+    // Check if token is expired
+    if (tokenData.token_expires_at) {
+      const expiresAt = new Date(tokenData.token_expires_at);
+      const now = new Date();
+      const bufferTime = 5 * 60 * 1000; // 5 minutes buffer
+      
+      if (now.getTime() >= (expiresAt.getTime() - bufferTime)) {
+        console.log('Google token is expired or expiring soon, attempting refresh...');
+        
+        // Try to refresh the token
+        const refreshedToken = await refreshGoogleToken(userId, tokenData);
+        if (refreshedToken) {
+          console.log('Successfully refreshed Google token');
+          return refreshedToken;
+        } else {
+          console.warn('Failed to refresh Google token');
+          return null;
+        }
+      }
+    }
+
+    // Token is still valid, decrypt and return
+    const decryptedToken = await decrypt(tokenData.encrypted_access_token);
+    console.log('Using existing valid Google token');
+    return decryptedToken;
+    
+  } catch (error) {
+    console.error('Error getting valid Google token:', error);
+    return null;
+  }
+}
+
+// Get valid Business Central token with automatic refresh
+async function getValidBusinessCentralToken(userId: string): Promise<string | null> {
+  try {
+    console.log('Getting Business Central token for user:', userId);
+    
+    // Get current token data
+    const { data, error } = await supabase
+      .from('user_tokens')
+      .select('*')
+      .eq('user_id', userId)
+      .eq('provider', 'business_central')
+      .single();
+
+    if (error || !data) {
+      console.log('No Business Central token found for user');
+      return null;
+    }
+
+    const tokenData: TokenData = data;
+    
+    // Check if token is expired
+    if (tokenData.token_expires_at) {
+      const expiresAt = new Date(tokenData.token_expires_at);
+      const now = new Date();
+      const bufferTime = 5 * 60 * 1000; // 5 minutes buffer
+      
+      if (now.getTime() >= (expiresAt.getTime() - bufferTime)) {
+        console.log('Business Central token is expired or expiring soon, attempting refresh...');
+        
+        // Try to refresh the token
+        const refreshedToken = await refreshBusinessCentralToken(userId, tokenData);
+        if (refreshedToken) {
+          console.log('Successfully refreshed Business Central token');
+          return refreshedToken;
+        } else {
+          console.warn('Failed to refresh Business Central token');
+          return null;
+        }
+      }
+    }
+
+    // Token is still valid, decrypt and return
+    const decryptedToken = await decrypt(tokenData.encrypted_access_token);
+    console.log('Using existing valid Business Central token');
+    return decryptedToken;
+    
+  } catch (error) {
+    console.error('Error getting valid Business Central token:', error);
+    return null;
+  }
+}
+
+// Refresh Google token using refresh token
+async function refreshGoogleToken(userId: string, tokenData: TokenData): Promise<string | null> {
+  try {
+    if (!tokenData.encrypted_refresh_token) {
+      console.warn('No refresh token available for Google');
+      return null;
+    }
+
+    const refreshToken = await decrypt(tokenData.encrypted_refresh_token);
+    
+    // Google OAuth2 token refresh
+    const response = await fetch('https://oauth2.googleapis.com/token', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+      },
+      body: new URLSearchParams({
+        client_id: Deno.env.get('GOOGLE_CLIENT_ID') || '',
+        client_secret: Deno.env.get('GOOGLE_CLIENT_SECRET') || '',
+        refresh_token: refreshToken,
+        grant_type: 'refresh_token',
+      }),
+    });
+
+    if (!response.ok) {
+      console.error('Failed to refresh Google token:', response.status, response.statusText);
+      return null;
+    }
+
+    const tokenResponse = await response.json();
+    
+    // Calculate new expiry time
+    const expiresAt = new Date(Date.now() + (tokenResponse.expires_in * 1000));
+    
+    // Encrypt new access token
+    const encryptedAccessToken = await encrypt(tokenResponse.access_token);
+    
+    // Update token in database
+    const { error: updateError } = await supabase
+      .from('user_tokens')
+      .update({
+        encrypted_access_token: encryptedAccessToken,
+        token_expires_at: expiresAt.toISOString(),
+        updated_at: new Date().toISOString()
+      })
+      .eq('user_id', userId)
+      .eq('provider', 'google');
+
+    if (updateError) {
+      console.error('Failed to update refreshed Google token:', updateError);
+      return null;
+    }
+
+    console.log('Successfully refreshed and updated Google token');
+    return tokenResponse.access_token;
+    
+  } catch (error) {
+    console.error('Error refreshing Google token:', error);
+    return null;
+  }
+}
+
+// Refresh Business Central token using refresh token
+async function refreshBusinessCentralToken(userId: string, tokenData: TokenData): Promise<string | null> {
+  try {
+    if (!tokenData.encrypted_refresh_token || !tokenData.tenant_id) {
+      console.warn('No refresh token or tenant ID available for Business Central');
+      return null;
+    }
+
+    const refreshToken = await decrypt(tokenData.encrypted_refresh_token);
+    
+    // Microsoft OAuth2 token refresh
+    const response = await fetch(`https://login.microsoftonline.com/${tokenData.tenant_id}/oauth2/v2.0/token`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+      },
+      body: new URLSearchParams({
+        client_id: Deno.env.get('BC_CLIENT_ID') || '',
+        client_secret: Deno.env.get('BC_CLIENT_SECRET') || '',
+        refresh_token: refreshToken,
+        grant_type: 'refresh_token',
+        scope: 'https://api.businesscentral.dynamics.com/user_impersonation offline_access',
+      }),
+    });
+
+    if (!response.ok) {
+      console.error('Failed to refresh Business Central token:', response.status, response.statusText);
+      return null;
+    }
+
+    const tokenResponse = await response.json();
+    
+    // Calculate new expiry time
+    const expiresAt = new Date(Date.now() + (tokenResponse.expires_in * 1000));
+    
+    // Encrypt new tokens
+    const encryptedAccessToken = await encrypt(tokenResponse.access_token);
+    const encryptedRefreshToken = tokenResponse.refresh_token ? await encrypt(tokenResponse.refresh_token) : tokenData.encrypted_refresh_token;
+    
+    // Update token in database
+    const { error: updateError } = await supabase
+      .from('user_tokens')
+      .update({
+        encrypted_access_token: encryptedAccessToken,
+        encrypted_refresh_token: encryptedRefreshToken,
+        token_expires_at: expiresAt.toISOString(),
+        updated_at: new Date().toISOString()
+      })
+      .eq('user_id', userId)
+      .eq('provider', 'business_central');
+
+    if (updateError) {
+      console.error('Failed to update refreshed Business Central token:', updateError);
+      return null;
+    }
+
+    console.log('Successfully refreshed and updated Business Central token');
+    return tokenResponse.access_token;
+    
+  } catch (error) {
+    console.error('Error refreshing Business Central token:', error);
+    return null;
   }
 }
 
@@ -332,7 +575,7 @@ Return the data in JSON format with the following structure:
   }
 }
 
-// Helper functions for token management
+// Helper functions for basic token operations (without refresh logic)
 async function getGoogleToken(userId: string): Promise<string | null> {
   try {
     const { data, error } = await supabase
@@ -391,6 +634,41 @@ async function getCompanyId(userId: string): Promise<string | null> {
     console.error('Error getting company ID:', error);
     return null;
   }
+}
+
+// Encryption functions
+async function encrypt(text: string): Promise<string> {
+  const ENCRYPTION_KEY = Deno.env.get('TOKEN_ENCRYPTION_KEY') || 'default-key-for-development-only-change-in-production';
+  
+  const encoder = new TextEncoder();
+  const data = encoder.encode(text);
+  
+  // Generate a random IV
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  
+  // Import the encryption key
+  const key = await crypto.subtle.importKey(
+    'raw',
+    encoder.encode(ENCRYPTION_KEY.padEnd(32, '0').slice(0, 32)),
+    { name: 'AES-GCM' },
+    false,
+    ['encrypt']
+  );
+  
+  // Encrypt the data
+  const encrypted = await crypto.subtle.encrypt(
+    { name: 'AES-GCM', iv },
+    key,
+    data
+  );
+  
+  // Combine IV and encrypted data
+  const combined = new Uint8Array(iv.length + encrypted.byteLength);
+  combined.set(iv);
+  combined.set(new Uint8Array(encrypted), iv.length);
+  
+  // Return base64 encoded result
+  return btoa(String.fromCharCode(...combined));
 }
 
 // Decrypt function
