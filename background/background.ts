@@ -205,6 +205,7 @@ async function comprehensiveEmailAnalysis(emailId: string): Promise<{ success: b
     console.log('Calling comprehensive analyze-email endpoint for email:', emailId);
 
     // Call the comprehensive analyze-email edge function
+    console.log('Calling supabase for comprehensive analysis');
     const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/analyze-email`, {
       method: 'POST',
       headers: {
@@ -219,8 +220,9 @@ async function comprehensiveEmailAnalysis(emailId: string): Promise<{ success: b
       console.error('Comprehensive analysis error response:', errorText);
       throw new Error(`Analysis failed: ${response.status} ${response.statusText}`);
     }
-    
-    const result: ComprehensiveAnalysisResult = await response.json();
+    const response_text = await response.json();
+    console.log('This is the result from supabase call: ', response_text);
+    const result: ComprehensiveAnalysisResult = response_text;
     
     if (!result.success) {
       throw new Error(result.error || 'Analysis returned error');

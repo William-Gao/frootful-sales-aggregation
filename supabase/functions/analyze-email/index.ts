@@ -120,45 +120,11 @@ Deno.serve(async (req) => {
     let userId: string;
 
     // Verify token and get user
-    try {
-      const { data: { user }, error } = await supabase.auth.getUser(token);
-      if (user && !error) {
-        userId = user.id;
-      } else {
-        throw new Error('Invalid Supabase token');
-      }
-    } catch (supabaseError) {
-      // Fallback to Google token verification
-      try {
-        const tokenInfoResponse = await fetch(`https://oauth2.googleapis.com/tokeninfo?access_token=${token}`);
-        
-        if (!tokenInfoResponse.ok) {
-          return new Response(
-            JSON.stringify({ success: false, error: 'Invalid token' }),
-            {
-              status: 401,
-              headers: {
-                'Content-Type': 'application/json',
-                ...corsHeaders
-              }
-            }
-          );
-        }
-
-        const tokenInfo = await tokenInfoResponse.json();
-        userId = tokenInfo.sub;
-      } catch (googleError) {
-        return new Response(
-          JSON.stringify({ success: false, error: 'Token verification failed' }),
-          {
-            status: 401,
-            headers: {
-              'Content-Type': 'application/json',
-              ...corsHeaders
-            }
-          }
-        );
-      }
+    const { data: { user }, error } = await supabase.auth.getUser(token);
+    if (user && !error) {
+      userId = user.id;
+    } else {
+      throw new Error('Invalid Supabase token');
     }
 
     console.log('Starting comprehensive email analysis for user:', userId);
@@ -240,6 +206,7 @@ async function extractEmailFromGmail(emailId: string, userId: string): Promise<E
 // Fetch customers from Business Central
 async function fetchCustomersFromBC(userId: string): Promise<Customer[]> {
   const bcToken = await getBusinessCentralToken(userId);
+  console.log('This is the bcToken in fetchCustomersFromBC: ', bcToken);
   if (!bcToken) {
     console.warn('Business Central token not found, returning empty customers list');
     return [];
@@ -275,6 +242,7 @@ async function fetchCustomersFromBC(userId: string): Promise<Customer[]> {
 // Fetch items from Business Central
 async function fetchItemsFromBC(userId: string): Promise<Item[]> {
   const bcToken = await getBusinessCentralToken(userId);
+  console.log('This is the bcToken in fetchItemsFromBC: ', bcToken);
   if (!bcToken) {
     console.warn('Business Central token not found, returning empty items list');
     return [];
