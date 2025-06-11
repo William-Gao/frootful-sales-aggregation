@@ -416,7 +416,7 @@ function updateStepStatus(step: HTMLElement, status: 'loading' | 'success' | 'er
   }
 }
 
-// Export to ERP functionality using edge functions
+// Export to ERP functionality using the new edge function (one-step process)
 exportErpBtn.addEventListener('click', async () => {
   try {
     if (!currentCustomer) {
@@ -424,6 +424,7 @@ exportErpBtn.addEventListener('click', async () => {
     }
     
     exportErpBtn.disabled = true;
+    exportErpBtn.textContent = 'Creating Order...';
     importProgress.classList.remove('hidden');
     
     const items = getItems();
@@ -436,98 +437,72 @@ exportErpBtn.addEventListener('click', async () => {
       throw new Error('Not authenticated');
     }
 
-    console.log('Getting Business Central token info via edge function...');
+    console.log('Exporting order to ERP via edge function...');
 
-    // Get company info using edge function
-    const companyResponse = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/token-manager?provider=business_central`, {
+    // Show both steps as loading
+    updateStepStatus(createOrderStep, 'loading');
+    updateStepStatus(addItemsStep, 'loading');
+
+    // Call the new export-order-to-erp edge function (one-step process)
+    const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/export-order-to-erp`, {
+      method: 'POST',
       headers: {
         'Authorization': `Bearer ${authToken}`,
         'Content-Type': 'application/json'
-      }
-    });
-
-    const companyResult = await companyResponse.json();
-    if (!companyResult.success || !companyResult.tokens || companyResult.tokens.length === 0) {
-      throw new Error('Business Central not connected');
-    }
-
-    const bcToken = companyResult.tokens[0];
-    const companyId = bcToken.company_id;
-    const companyName = bcToken.company_name;
-    const tenantId = bcToken.tenant_id;
-
-    console.log('Creating order in Business Central...');
-
-    // Step 1: Create Order
-    updateStepStatus(createOrderStep, 'loading');
-    const orderResponse = await fetch(`https://api.businesscentral.dynamics.com/v2.0/Production/api/v2.0/companies(${companyId})/salesOrders/`, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${bcToken.access_token}`,
-        'Content-Type': 'application/json'
       },
       body: JSON.stringify({
-        orderDate: new Date().toISOString().split('T')[0],
-        customerNumber: currentCustomer.number,
-        currencyCode: "USD"
+        orderData: {
+          customerNumber: currentCustomer.number,
+          items: items
+        }
       })
     });
 
-    if (!orderResponse.ok) {
-      throw new Error(`Failed to create order: ${orderResponse.statusText}`);
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error('Export to ERP error response:', errorText);
+      throw new Error(`Export failed: ${response.status} ${response.statusText}`);
     }
 
-    const order = await orderResponse.json();
-    const orderId = order.id;
-    const orderNumber = order.number;
+    const result = await response.json();
     
+    if (!result.success) {
+      throw new Error(result.error || 'Export returned error');
+    }
+
+    // Update step statuses to success
     updateStepStatus(createOrderStep, 'success');
-    
-    // Add order link to step text
-    const orderLink = document.createElement('a');
-    orderLink.href = `https://businesscentral.dynamics.com/${tenantId}/Production/?company=${encodeURIComponent(companyName)}&page=42&filter='Sales Header'.'No.' IS '${orderNumber}'`;
-    orderLink.className = 'order-link';
-    orderLink.target = '_blank';
-    orderLink.textContent = `View Order #${orderNumber}`;
-    
-    const stepText = createOrderStep.querySelector('.step-text');
-    if (stepText) {
-      stepText.appendChild(orderLink);
-    }
-
-    // Step 2: Add Items
-    updateStepStatus(addItemsStep, 'loading');
-    for (const item of items) {
-      const lineResponse = await fetch(`https://api.businesscentral.dynamics.com/v2.0/Production/api/v2.0/companies(${companyId})/salesOrders(${orderId})/salesOrderLines`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${bcToken.access_token}`,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          lineObjectNumber: item.itemName,
-          lineType: 'Item',
-          quantity: item.quantity,
-          unitPrice: item.price
-        })
-      });
-
-      if (!lineResponse.ok) {
-        throw new Error(`Failed to add item: ${lineResponse.statusText}`);
-      }
-    }
     updateStepStatus(addItemsStep, 'success');
 
-    showSuccess('Successfully created order');
+    // Add order link to step text
+    if (result.deepLink && result.orderNumber) {
+      const orderLink = document.createElement('a');
+      orderLink.href = result.deepLink;
+      orderLink.className = 'order-link';
+      orderLink.target = '_blank';
+      orderLink.textContent = `View Order #${result.orderNumber}`;
+      
+      const stepText = createOrderStep.querySelector('.step-text');
+      if (stepText) {
+        stepText.appendChild(orderLink);
+      }
+    }
+
+    console.log('Order export successful:', result);
+    showSuccess(result.message || `Successfully created order #${result.orderNumber}`);
+
   } catch (error) {
-    console.error('Error creating order:', error);
+    console.error('Error exporting to ERP:', error);
+    
+    // Update step statuses to error
     if (createOrderStep.querySelector('.step-indicator.loading')) {
       updateStepStatus(createOrderStep, 'error');
     }
     if (addItemsStep.querySelector('.step-indicator.loading')) {
       updateStepStatus(addItemsStep, 'error');
     }
-    showError(error instanceof Error ? error.message : 'Failed to create order');
+    
+    showError(error instanceof Error ? error.message : 'Failed to export order to ERP');
   } finally {
     exportErpBtn.disabled = false;
     exportErpBtn.textContent = 'Export to ERP';
