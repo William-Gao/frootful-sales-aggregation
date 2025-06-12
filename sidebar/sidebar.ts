@@ -232,7 +232,7 @@ addItemBtn.addEventListener('click', () => {
       const selectedOption = itemSelect.selectedOptions[0];
       const basePrice = selectedOption ? selectedOption.dataset.price || '0.00' : '0.00';
       
-      // Create price field
+      // Create price field with revert option
       const priceField = document.createElement('div');
       priceField.className = 'price-field';
       priceField.innerHTML = `
@@ -240,8 +240,34 @@ addItemBtn.addEventListener('click', () => {
         <input type="number" min="0" step="0.01" value="${basePrice}" class="item-price">
       `;
       
-      // Insert price field and hide override link
+      // Create revert container
+      const revertContainer = document.createElement('div');
+      revertContainer.className = 'revert-pricing-container';
+      revertContainer.innerHTML = `
+        <a href="#" class="revert-pricing-link">
+          Revert to default pricing
+          <div class="revert-pricing-tooltip">
+            Remove custom pricing and let Business Central use its default pricing.
+          </div>
+        </a>
+      `;
+      
+      // Add revert functionality
+      const revertLink = revertContainer.querySelector('.revert-pricing-link') as HTMLAnchorElement;
+      revertLink.addEventListener('click', (e) => {
+        e.preventDefault();
+        
+        // Remove price field and revert container
+        priceField.remove();
+        revertContainer.remove();
+        
+        // Show override link again
+        overrideContainer.style.display = 'block';
+      });
+      
+      // Insert price field and revert option, hide override link
       itemFields.appendChild(priceField);
+      itemFields.appendChild(revertContainer);
       overrideContainer.style.display = 'none';
     });
   }
@@ -361,7 +387,7 @@ window.addEventListener('message', async (event: MessageEvent) => {
               const selectedOption = itemSelect.selectedOptions[0];
               const basePrice = selectedOption ? selectedOption.dataset.price || '0.00' : '0.00';
               
-              // Create price field
+              // Create price field with revert option
               const priceField = document.createElement('div');
               priceField.className = 'price-field';
               priceField.innerHTML = `
@@ -369,8 +395,34 @@ window.addEventListener('message', async (event: MessageEvent) => {
                 <input type="number" min="0" step="0.01" value="${basePrice}" class="item-price">
               `;
               
-              // Insert price field and hide override link
+              // Create revert container
+              const revertContainer = document.createElement('div');
+              revertContainer.className = 'revert-pricing-container';
+              revertContainer.innerHTML = `
+                <a href="#" class="revert-pricing-link">
+                  Revert to default pricing
+                  <div class="revert-pricing-tooltip">
+                    Remove custom pricing and let Business Central use its default pricing.
+                  </div>
+                </a>
+              `;
+              
+              // Add revert functionality
+              const revertLink = revertContainer.querySelector('.revert-pricing-link') as HTMLAnchorElement;
+              revertLink.addEventListener('click', (e) => {
+                e.preventDefault();
+                
+                // Remove price field and revert container
+                priceField.remove();
+                revertContainer.remove();
+                
+                // Show override link again
+                overrideContainer.style.display = 'block';
+              });
+              
+              // Insert price field and revert option, hide override link
               itemFields.appendChild(priceField);
+              itemFields.appendChild(revertContainer);
               overrideContainer.style.display = 'none';
             });
           }
