@@ -53,6 +53,11 @@ interface AnalyzedItem {
   };
 }
 
+interface AnalysisResult {
+  orderLines: AnalyzedItem[];
+  requestedDeliveryDate?: string; // ISO date string
+}
+
 interface GmailResponse {
   id: string;
   threadId: string;
@@ -160,11 +165,14 @@ Deno.serve(async (req) => {
     console.log('Step 4: Fetching items...');
     const items = await fetchItemsFromBC(userId);
 
-    // Step 5: Analyze email content and match items using AI
+    // Step 5: Analyze email content and match items using AI (now includes delivery date)
     console.log('Step 5: Analyzing email content with AI...');
-    const analyzedItems = await analyzeEmailWithAI(emailData.body, items);
+    const analysisResult = await analyzeEmailWithAI(emailData.body, items);
 
-    console.log('Analysis complete! Found', analyzedItems.length, 'items');
+    console.log('Analysis complete! Found', analysisResult.orderLines.length, 'items');
+    if (analysisResult.requestedDeliveryDate) {
+      console.log('Requested delivery date:', analysisResult.requestedDeliveryDate);
+    }
 
     return new Response(JSON.stringify({
       success: true,
@@ -173,7 +181,8 @@ Deno.serve(async (req) => {
         customers: customers,
         items: items,
         matchingCustomer: matchingCustomer,
-        analyzedItems: analyzedItems
+        analyzedItems: analysisResult.orderLines,
+        requestedDeliveryDate: analysisResult.requestedDeliveryDate
       }
     }), {
       headers: {
@@ -571,11 +580,11 @@ async function refreshBusinessCentralToken(userId: string, tokenData: TokenData)
   }
 }
 
-// Analyze email content with AI
-async function analyzeEmailWithAI(emailContent: string, items: Item[]): Promise<AnalyzedItem[]> {
+// Analyze email content with AI - now includes delivery date extraction
+async function analyzeEmailWithAI(emailContent: string, items: Item[]): Promise<AnalysisResult> {
   if (items.length === 0) {
     console.warn('No items available for analysis');
-    return [];
+    return { orderLines: [] };
   }
 
   try {
@@ -591,11 +600,11 @@ async function analyzeEmailWithAI(emailContent: string, items: Item[]): Promise<
       messages: [
         {
           role: 'system',
-          content: `You are a helpful assistant that extracts purchase order information from emails and matches them to a list of available items. Here is the list of available items with pricing: ${JSON.stringify(itemsList)}`
+          content: `You are a helpful assistant that extracts purchase order information from emails and matches them to a list of available items. Here is the list of available items: ${JSON.stringify(itemsList)}`
         },
         {
           role: 'user',
-          content: `Extract products with quantities from this email and match them to the available items list. For each product found, find the best matching item from the available items list.
+          content: `Extract products with quantities and requested delivery date from this email and match them to the available items list. For each product found, find the best matching item from the available items list.
 
 Email content:
 ${emailContent}
@@ -611,8 +620,20 @@ Return the data in JSON format with the following structure:
       "displayName": "matched item display name",
       "unitPrice": number
     }
-  }]
-}`
+  }],
+  "requestedDeliveryDate": "YYYY-MM-DD" // ISO date format, only if a delivery date is mentioned in the email
+}
+
+For the delivery date, look for phrases like:
+- "need by [date]"
+- "deliver by [date]"
+- "required by [date]"
+- "delivery date [date]"
+- "ship by [date]"
+- "due [date]"
+- Any other indication of when the order should be delivered
+
+If no delivery date is mentioned, omit the requestedDeliveryDate field entirely.`
         }
       ],
       temperature: 0.7,
@@ -621,10 +642,13 @@ Return the data in JSON format with the following structure:
     });
 
     const analysis = JSON.parse(completion.choices[0].message.content);
-    return analysis.orderLines || [];
+    return {
+      orderLines: analysis.orderLines || [],
+      requestedDeliveryDate: analysis.requestedDeliveryDate
+    };
   } catch (error) {
     console.error('Error analyzing email with AI:', error);
-    return [];
+    return { orderLines: [] };
   }
 }
 

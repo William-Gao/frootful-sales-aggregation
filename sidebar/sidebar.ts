@@ -43,6 +43,7 @@ interface ComprehensiveAnalysisData {
   items: Item[];
   matchingCustomer?: Customer;
   analyzedItems: AnalyzedItem[];
+  requestedDeliveryDate?: string; // ISO date string
 }
 
 interface OrderItem {
@@ -51,10 +52,17 @@ interface OrderItem {
   price?: number; // Optional - only include if price is available
 }
 
+interface OrderData {
+  customerNumber: string;
+  items: OrderItem[];
+  requestedDeliveryDate?: string; // ISO date string
+}
+
 let customers: Customer[] = [];
 let filteredCustomers: Customer[] = [];
 let items: Item[] = [];
 let currentCustomer: Customer | null = null;
+let requestedDeliveryDate: string | null = null;
 
 const PRICING_OVERRIDE_TOOLTIP_TEXT = "Click to manually set a price and override the pricing rules you have set in your ERP"
 const REVERT_PRICING_OVERRIDE_TOOLTIP_TEXT = "Click to revert to the pricing rules set in your ERP"
@@ -284,7 +292,7 @@ async function getAuthToken(): Promise<string | null> {
   return session?.access_token ?? null;
 }
 
-// Handle comprehensive analysis data - replaces the old loadEmailData handler
+// Handle comprehensive analysis data - now includes delivery date
 window.addEventListener('message', async (event: MessageEvent) => {
   if (event.data.action === 'loadComprehensiveData') {
     const analysisData: ComprehensiveAnalysisData = event.data.data;
@@ -294,8 +302,12 @@ window.addEventListener('message', async (event: MessageEvent) => {
       customers: analysisData.customers.length,
       items: analysisData.items.length,
       analyzedItems: analysisData.analyzedItems.length,
-      matchingCustomer: analysisData.matchingCustomer?.displayName || 'None'
+      matchingCustomer: analysisData.matchingCustomer?.displayName || 'None',
+      requestedDeliveryDate: analysisData.requestedDeliveryDate || 'None'
     });
+    
+    // Store delivery date globally
+    requestedDeliveryDate = analysisData.requestedDeliveryDate || null;
     
     // Hide loading state and show sections
     const loadingState = emailInfo.querySelector('.loading-state');
@@ -321,6 +333,11 @@ window.addEventListener('message', async (event: MessageEvent) => {
       customerSelect.value = analysisData.matchingCustomer.number;
       currentCustomer = analysisData.matchingCustomer;
       console.log('Auto-selected matching customer:', analysisData.matchingCustomer.displayName);
+    }
+
+    // Add delivery date display if found
+    if (requestedDeliveryDate) {
+      addDeliveryDateDisplay(requestedDeliveryDate);
     }
 
     // Clear existing items and add analyzed items
@@ -446,6 +463,33 @@ window.addEventListener('message', async (event: MessageEvent) => {
   }
 });
 
+// Add delivery date display to the UI
+function addDeliveryDateDisplay(deliveryDate: string): void {
+  const deliveryDateBox = document.createElement('div');
+  deliveryDateBox.className = 'content-box';
+  deliveryDateBox.innerHTML = `
+    <label>Requested Delivery Date</label>
+    <input type="date" id="delivery-date-input" value="${deliveryDate}" class="delivery-date-input">
+    <div class="delivery-date-note">
+      <small>Extracted from email content. You can modify this date if needed.</small>
+    </div>
+  `;
+  
+  // Insert after customer selection
+  const customerBox = document.querySelector('.content-box');
+  if (customerBox && customerBox.parentNode) {
+    customerBox.parentNode.insertBefore(deliveryDateBox, customerBox.nextSibling);
+  }
+  
+  // Update global variable when date changes
+  const dateInput = deliveryDateBox.querySelector('#delivery-date-input') as HTMLInputElement;
+  if (dateInput) {
+    dateInput.addEventListener('change', (e) => {
+      requestedDeliveryDate = (e.target as HTMLInputElement).value;
+    });
+  }
+}
+
 // Handle customer selection
 customerSelect.addEventListener('change', (e) => {
   const selectedNumber = (e.target as HTMLSelectElement).value;
@@ -504,7 +548,7 @@ function updateStepStatus(step: HTMLElement, status: 'loading' | 'success' | 'er
   }
 }
 
-// Export to ERP functionality using the new edge function (one-step process)
+// Export to ERP functionality - now includes delivery date
 exportErpBtn.addEventListener('click', async () => {
   try {
     if (!currentCustomer) {
@@ -526,24 +570,33 @@ exportErpBtn.addEventListener('click', async () => {
     }
 
     console.log('Exporting order to ERP via edge function...');
+    if (requestedDeliveryDate) {
+      console.log('Including requested delivery date:', requestedDeliveryDate);
+    }
 
     // Show both steps as loading
     updateStepStatus(createOrderStep, 'loading');
     updateStepStatus(addItemsStep, 'loading');
 
-    // Call the new export-order-to-erp edge function (one-step process)
+    // Prepare order data with optional delivery date
+    const orderData: OrderData = {
+      customerNumber: currentCustomer.number,
+      items: items
+    };
+
+    // Include delivery date if available
+    if (requestedDeliveryDate) {
+      orderData.requestedDeliveryDate = requestedDeliveryDate;
+    }
+
+    // Call the export-order-to-erp edge function
     const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/export-order-to-erp`, {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${authToken}`,
         'Content-Type': 'application/json'
       },
-      body: JSON.stringify({
-        orderData: {
-          customerNumber: currentCustomer.number,
-          items: items
-        }
-      })
+      body: JSON.stringify({ orderData })
     });
 
     if (!response.ok) {

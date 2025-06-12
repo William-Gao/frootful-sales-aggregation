@@ -20,6 +20,7 @@ interface OrderItem {
 interface OrderData {
   customerNumber: string;
   items: OrderItem[];
+  requestedDeliveryDate?: string; // ISO date string (YYYY-MM-DD)
 }
 
 interface TokenData {
@@ -91,6 +92,9 @@ Deno.serve(async (req) => {
     }
 
     console.log('Creating order for customer:', orderData.customerNumber, 'with', orderData.items.length, 'items');
+    if (orderData.requestedDeliveryDate) {
+      console.log('Requested delivery date:', orderData.requestedDeliveryDate);
+    }
 
     // Get valid Business Central token (with refresh if needed)
     const bcToken = await getValidBusinessCentralToken(userId);
@@ -132,17 +136,28 @@ Deno.serve(async (req) => {
 
     // Step 1: Create Sales Order
     console.log('Creating sales order in Business Central...');
+    
+    // Build the order creation payload
+    const orderPayload: any = {
+      orderDate: new Date().toISOString().split('T')[0],
+      customerNumber: orderData.customerNumber,
+      currencyCode: "USD"
+    };
+
+    // Add requested delivery date if provided
+    if (orderData.requestedDeliveryDate) {
+      // Business Central uses "requestedDeliveryDate" field for this
+      orderPayload.requestedDeliveryDate = orderData.requestedDeliveryDate;
+      console.log('Setting requested delivery date to:', orderData.requestedDeliveryDate);
+    }
+
     const orderResponse = await fetch(`https://api.businesscentral.dynamics.com/v2.0/Production/api/v2.0/companies(${companyId})/salesOrders/`, {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${bcToken}`,
         'Content-Type': 'application/json'
       },
-      body: JSON.stringify({
-        orderDate: new Date().toISOString().split('T')[0],
-        customerNumber: orderData.customerNumber,
-        currencyCode: "USD"
-      })
+      body: JSON.stringify(orderPayload)
     });
 
     if (!orderResponse.ok) {
@@ -213,6 +228,10 @@ Deno.serve(async (req) => {
 
     console.log('Order creation completed successfully!');
 
+    const successMessage = orderData.requestedDeliveryDate 
+      ? `Successfully created order #${orderNumber} with ${addedItems.length} items and delivery date ${orderData.requestedDeliveryDate}`
+      : `Successfully created order #${orderNumber} with ${addedItems.length} items`;
+
     return new Response(
       JSON.stringify({
         success: true,
@@ -220,7 +239,8 @@ Deno.serve(async (req) => {
         orderId: orderId,
         deepLink: deepLink,
         addedItems: addedItems,
-        message: `Successfully created order #${orderNumber} with ${addedItems.length} items`
+        requestedDeliveryDate: orderData.requestedDeliveryDate,
+        message: successMessage
       }),
       {
         headers: {
