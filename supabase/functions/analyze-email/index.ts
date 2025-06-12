@@ -599,7 +599,7 @@ async function analyzeEmailWithAI(emailContent: string, items: Item[]): Promise<
     const currentDate = new Date().toISOString().split('T')[0]; // YYYY-MM-DD format
 
     const completion = await openai.chat.completions.create({
-      model: 'gpt-3.5-turbo',
+      model: 'gpt-4o',
       messages: [
         {
           role: 'system',
