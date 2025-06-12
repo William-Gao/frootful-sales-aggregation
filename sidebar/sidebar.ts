@@ -48,7 +48,7 @@ interface ComprehensiveAnalysisData {
 interface OrderItem {
   itemName: string;
   quantity: number;
-  price: number;
+  price?: number; // Optional - only include if price is available
 }
 
 let customers: Customer[] = [];
@@ -148,10 +148,105 @@ closeBtn.addEventListener('click', () => {
   window.parent.postMessage({ action: 'closeSidebar' }, '*');
 });
 
+// Create price field with lock/unlock functionality
+function createPriceField(initialPrice: number, isLocked: boolean = true): HTMLElement {
+  const priceField = document.createElement('div');
+  priceField.className = 'item-field price-field';
+  
+  priceField.innerHTML = `
+    <div class="price-field-header">
+      <label>Price</label>
+      <button type="button" class="price-lock-btn ${isLocked ? 'locked' : 'unlocked'}" title="${isLocked ? 'Click to edit price manually' : 'Click to use automatic pricing'}">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          ${isLocked 
+            ? '<rect width="18" height="11" x="3" y="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>' 
+            : '<rect width="18" height="11" x="3" y="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 5-5 5 5 0 0 1 5 5v4"/>'}
+        </svg>
+      </button>
+      <button type="button" class="price-help-icon">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="10"/>
+          <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/>
+          <path d="M12 17h.01"/>
+        </svg>
+        <div class="price-help-tooltip">
+          🔒 Locked: Price automatically set from Business Central<br>
+          🔓 Unlocked: You can manually edit the price
+        </div>
+      </button>
+    </div>
+    <div class="price-input-container">
+      <input type="number" min="0" step="0.01" value="${initialPrice}" class="item-price" ${isLocked ? 'disabled' : ''}>
+      ${isLocked ? '<div class="price-source-indicator">Auto</div>' : ''}
+    </div>
+  `;
+
+  // Add lock/unlock functionality
+  const lockBtn = priceField.querySelector('.price-lock-btn') as HTMLButtonElement;
+  const priceInput = priceField.querySelector('.item-price') as HTMLInputElement;
+  const inputContainer = priceField.querySelector('.price-input-container') as HTMLElement;
+
+  lockBtn.addEventListener('click', () => {
+    const isCurrentlyLocked = lockBtn.classList.contains('locked');
+    
+    if (isCurrentlyLocked) {
+      // Unlock - allow manual editing
+      lockBtn.classList.remove('locked');
+      lockBtn.classList.add('unlocked');
+      lockBtn.title = 'Click to use automatic pricing';
+      priceInput.disabled = false;
+      
+      // Remove auto indicator
+      const indicator = inputContainer.querySelector('.price-source-indicator');
+      if (indicator) indicator.remove();
+      
+      // Update lock icon
+      lockBtn.innerHTML = `
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <rect width="18" height="11" x="3" y="11" rx="2" ry="2"/>
+          <path d="M7 11V7a5 5 0 0 1 5-5 5 5 0 0 1 5 5v4"/>
+        </svg>
+      `;
+    } else {
+      // Lock - use automatic pricing
+      lockBtn.classList.remove('unlocked');
+      lockBtn.classList.add('locked');
+      lockBtn.title = 'Click to edit price manually';
+      priceInput.disabled = true;
+      
+      // Add auto indicator
+      const indicator = document.createElement('div');
+      indicator.className = 'price-source-indicator';
+      indicator.textContent = 'Auto';
+      inputContainer.appendChild(indicator);
+      
+      // Reset to original price from selected item
+      const itemSelect = priceField.closest('.item-box')?.querySelector('.item-select') as HTMLSelectElement;
+      if (itemSelect && itemSelect.selectedOptions[0]) {
+        const originalPrice = itemSelect.selectedOptions[0].dataset.price || '0.00';
+        priceInput.value = originalPrice;
+      }
+      
+      // Update lock icon
+      lockBtn.innerHTML = `
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <rect width="18" height="11" x="3" y="11" rx="2" ry="2"/>
+          <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+        </svg>
+      `;
+    }
+  });
+
+  return priceField;
+}
+
 // Add item with search and autocomplete
 addItemBtn.addEventListener('click', () => {
   const itemBox = document.createElement('div');
   itemBox.className = 'item-box';
+  
+  const priceField = createPriceField(0, true);
+  
   itemBox.innerHTML = `
     <div class="item-header">
       <span class="item-title">Item ${itemsContainer.children.length + 1}</span>
@@ -175,12 +270,14 @@ addItemBtn.addEventListener('click', () => {
         <label>Quantity</label>
         <input type="number" min="1" value="1" class="item-quantity">
       </div>
-      <div class="item-field">
-        <label>Price</label>
-        <input type="number" min="0.00" step="0.01" value="0.00" class="item-price">
-      </div>
     </div>
   `;
+
+  // Insert the price field
+  const itemFields = itemBox.querySelector('.item-fields');
+  if (itemFields) {
+    itemFields.appendChild(priceField);
+  }
 
   // Add delete functionality
   const deleteBtn = itemBox.querySelector('.delete-item-btn');
@@ -215,7 +312,8 @@ addItemBtn.addEventListener('click', () => {
   }
 
   // Add item selection handler
-  const priceInput = itemBox.querySelector('.item-price') as HTMLInputElement;
+  const priceInput = priceField.querySelector('.item-price') as HTMLInputElement;
+  const lockBtn = priceField.querySelector('.price-lock-btn') as HTMLButtonElement;
   
   if (itemSelect) {
     itemSelect.addEventListener('change', (e) => {
@@ -223,7 +321,11 @@ addItemBtn.addEventListener('click', () => {
       const option = select.selectedOptions[0];
       if (option && priceInput) {
         const price = option.dataset.price || '0.00';
-        priceInput.value = price;
+        
+        // Only update price if locked (automatic mode)
+        if (lockBtn.classList.contains('locked')) {
+          priceInput.value = price;
+        }
       }
     });
   }
@@ -286,6 +388,9 @@ window.addEventListener('message', async (event: MessageEvent) => {
         if (analyzedItem.matchedItem) {
           const itemBox = document.createElement('div');
           itemBox.className = 'item-box';
+          
+          const priceField = createPriceField(analyzedItem.matchedItem.unitPrice, true);
+          
           itemBox.innerHTML = `
             <div class="item-header">
               <span class="item-title">Item ${itemsContainer.children.length + 1}</span>
@@ -309,12 +414,14 @@ window.addEventListener('message', async (event: MessageEvent) => {
                 <label>Quantity</label>
                 <input type="number" min="1" value="${analyzedItem.quantity}" class="item-quantity">
               </div>
-              <div class="item-field">
-                <label>Price</label>
-                <input type="number" min="0" step="0.01" value="${analyzedItem.matchedItem.unitPrice}" class="item-price">
-              </div>
             </div>
           `;
+
+          // Insert the price field
+          const itemFields = itemBox.querySelector('.item-fields');
+          if (itemFields) {
+            itemFields.appendChild(priceField);
+          }
 
           // Add delete functionality
           const deleteBtn = itemBox.querySelector('.delete-item-btn');
@@ -326,7 +433,8 @@ window.addEventListener('message', async (event: MessageEvent) => {
 
           // Add item selection handler
           const itemSelect = itemBox.querySelector('.item-select');
-          const priceInput = itemBox.querySelector('.item-price') as HTMLInputElement;
+          const priceInput = priceField.querySelector('.item-price') as HTMLInputElement;
+          const lockBtn = priceField.querySelector('.price-lock-btn') as HTMLButtonElement;
           
           if (itemSelect) {
             itemSelect.addEventListener('change', (e) => {
@@ -334,7 +442,11 @@ window.addEventListener('message', async (event: MessageEvent) => {
               const option = select.selectedOptions[0];
               if (option && priceInput) {
                 const price = option.dataset.price || '0.00';
-                priceInput.value = price;
+                
+                // Only update price if locked (automatic mode)
+                if (lockBtn.classList.contains('locked')) {
+                  priceInput.value = price;
+                }
               }
             });
           }
@@ -373,13 +485,23 @@ function getItems(): OrderItem[] {
     const itemSelect = box.querySelector('.item-select') as HTMLSelectElement;
     const quantityInput = box.querySelector('.item-quantity') as HTMLInputElement;
     const priceInput = box.querySelector('.item-price') as HTMLInputElement;
+    const lockBtn = box.querySelector('.price-lock-btn') as HTMLButtonElement;
     
     if (itemSelect && quantityInput && priceInput) {
-      items.push({
+      const orderItem: OrderItem = {
         itemName: itemSelect.value,
-        quantity: parseInt(quantityInput.value, 10),
-        price: parseFloat(priceInput.value)
-      });
+        quantity: parseInt(quantityInput.value, 10)
+      };
+      
+      // Only include price if it's unlocked (manually set) or if there's a valid price
+      const isUnlocked = lockBtn && lockBtn.classList.contains('unlocked');
+      const priceValue = parseFloat(priceInput.value);
+      
+      if (isUnlocked || (priceValue > 0)) {
+        orderItem.price = priceValue;
+      }
+      
+      items.push(orderItem);
     }
   });
   

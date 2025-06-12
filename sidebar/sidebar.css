@@ -316,6 +316,127 @@ header {
   box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.1);
 }
 
+/* Price field with lock/unlock functionality */
+.price-field {
+  position: relative;
+}
+
+.price-field-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 4px;
+}
+
+.price-field-header label {
+  margin-bottom: 0;
+}
+
+.price-lock-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 2px;
+  border-radius: 3px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #64748b;
+  transition: all 0.2s ease;
+}
+
+.price-lock-btn:hover {
+  background-color: #f1f5f9;
+  color: #334155;
+}
+
+.price-lock-btn.locked {
+  color: #dc2626;
+}
+
+.price-lock-btn.unlocked {
+  color: #059669;
+}
+
+.price-help-icon {
+  background: none;
+  border: none;
+  cursor: help;
+  padding: 2px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #94a3b8;
+  transition: all 0.2s ease;
+  position: relative;
+}
+
+.price-help-icon:hover {
+  background-color: #f1f5f9;
+  color: #64748b;
+}
+
+.price-help-tooltip {
+  position: absolute;
+  bottom: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  background-color: #1f2937;
+  color: white;
+  padding: 8px 12px;
+  border-radius: 6px;
+  font-size: 12px;
+  line-height: 1.4;
+  white-space: nowrap;
+  z-index: 1000;
+  opacity: 0;
+  visibility: hidden;
+  transition: all 0.2s ease;
+  margin-bottom: 4px;
+  max-width: 200px;
+  white-space: normal;
+  text-align: center;
+}
+
+.price-help-tooltip::after {
+  content: '';
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  border: 4px solid transparent;
+  border-top-color: #1f2937;
+}
+
+.price-help-icon:hover .price-help-tooltip {
+  opacity: 1;
+  visibility: visible;
+}
+
+.price-input-container {
+  position: relative;
+}
+
+.item-price:disabled {
+  background-color: #f8fafc;
+  color: #64748b;
+  cursor: not-allowed;
+}
+
+.price-source-indicator {
+  position: absolute;
+  top: -8px;
+  right: 4px;
+  background-color: #10B981;
+  color: white;
+  font-size: 10px;
+  padding: 1px 4px;
+  border-radius: 3px;
+  font-weight: 500;
+  pointer-events: none;
+}
+
 /* Import progress */
 .import-progress {
   margin: 16px 0;

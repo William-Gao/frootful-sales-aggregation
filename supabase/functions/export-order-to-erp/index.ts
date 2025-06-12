@@ -14,7 +14,7 @@ const supabase = createClient(supabaseUrl, supabaseServiceKey);
 interface OrderItem {
   itemName: string;
   quantity: number;
-  price: number;
+  price?: number; // Optional - only include if price is available
 }
 
 interface OrderData {
@@ -163,18 +163,28 @@ Deno.serve(async (req) => {
     
     for (const item of orderData.items) {
       try {
+        // Build the request body - only include unitPrice if price is provided
+        const lineData: any = {
+          lineObjectNumber: item.itemName,
+          lineType: 'Item',
+          quantity: item.quantity
+        };
+
+        // Only include unitPrice if price is available
+        if (item.price !== undefined && item.price > 0) {
+          lineData.unitPrice = item.price;
+          console.log(`Adding item ${item.itemName} with custom price: ${item.price}`);
+        } else {
+          console.log(`Adding item ${item.itemName} with default Business Central pricing`);
+        }
+
         const lineResponse = await fetch(`https://api.businesscentral.dynamics.com/v2.0/Production/api/v2.0/companies(${companyId})/salesOrders(${orderId})/salesOrderLines`, {
           method: 'POST',
           headers: {
             'Authorization': `Bearer ${bcToken}`,
             'Content-Type': 'application/json'
           },
-          body: JSON.stringify({
-            lineObjectNumber: item.itemName,
-            lineType: 'Item',
-            quantity: item.quantity,
-            unitPrice: item.price
-          })
+          body: JSON.stringify(lineData)
         });
 
         if (!lineResponse.ok) {
@@ -187,11 +197,11 @@ Deno.serve(async (req) => {
         addedItems.push({
           itemName: item.itemName,
           quantity: item.quantity,
-          price: item.price,
+          price: item.price || addedItem.unitPrice, // Use provided price or BC calculated price
           lineId: addedItem.id
         });
         
-        console.log(`Added item: ${item.itemName} (qty: ${item.quantity}, price: ${item.price})`);
+        console.log(`Added item: ${item.itemName} (qty: ${item.quantity}, price: ${item.price || addedItem.unitPrice})`);
       } catch (itemError) {
         console.error(`Error adding item ${item.itemName}:`, itemError);
         // Continue with other items even if one fails
