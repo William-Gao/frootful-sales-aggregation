@@ -56,6 +56,9 @@ let filteredCustomers: Customer[] = [];
 let items: Item[] = [];
 let currentCustomer: Customer | null = null;
 
+const PRICING_OVERRIDE_TOOLTIP_TEXT = "Click to manually set a price and override the pricing rules you have set in your ERP"
+const REVERT_PRICING_OVERRIDE_TOOLTIP_TEXT = "Click to revert to the pricing rules set in your ERP"
+
 // Initialize DOM elements
 const customerSearch = document.getElementById('customer-search') as HTMLInputElement;
 const customerSelect = document.getElementById('customer-select') as HTMLSelectElement;
@@ -181,7 +184,7 @@ addItemBtn.addEventListener('click', () => {
       <a href="#" class="override-pricing-link">
         Override pricing
         <div class="override-pricing-tooltip">
-          Click to manually set a custom price for this item. Otherwise, Business Central will use its default pricing.
+          ${PRICING_OVERRIDE_TOOLTIP_TEXT}
         </div>
       </a>
     </div>
@@ -359,7 +362,7 @@ window.addEventListener('message', async (event: MessageEvent) => {
               <a href="#" class="override-pricing-link">
                 Override pricing
                 <div class="override-pricing-tooltip">
-                  Click to manually set a custom price for this item. Otherwise, Business Central will use its default pricing.
+                  ${PRICING_OVERRIDE_TOOLTIP_TEXT}
                 </div>
               </a>
             </div>
@@ -402,7 +405,7 @@ window.addEventListener('message', async (event: MessageEvent) => {
                 <a href="#" class="revert-pricing-link">
                   Revert to default pricing
                   <div class="revert-pricing-tooltip">
-                    Remove custom pricing and let Business Central use its default pricing.
+                    ${REVERT_PRICING_OVERRIDE_TOOLTIP_TEXT}
                   </div>
                 </a>
               `;
