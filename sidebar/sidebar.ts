@@ -548,6 +548,25 @@ function updateStepStatus(step: HTMLElement, status: 'loading' | 'success' | 'er
   }
 }
 
+// Function to open popup window for Business Central order
+function openOrderPopup(url: string, orderNumber: string): void {
+  const width = 1200;
+  const height = 800;
+  const left = (screen.width - width) / 2;
+  const top = (screen.height - height) / 2;
+  
+  const popup = window.open(
+    url,
+    `bc-order-${orderNumber}`,
+    `width=${width},height=${height},left=${left},top=${top},scrollbars=yes,resizable=yes,status=yes,location=yes,toolbar=no,menubar=no`
+  );
+  
+  if (!popup) {
+    console.warn('Popup blocked, falling back to new tab');
+    window.open(url, '_blank');
+  }
+}
+
 // Export to ERP functionality - now includes delivery date
 exportErpBtn.addEventListener('click', async () => {
   try {
@@ -615,13 +634,18 @@ exportErpBtn.addEventListener('click', async () => {
     updateStepStatus(createOrderStep, 'success');
     updateStepStatus(addItemsStep, 'success');
 
-    // Add order link to step text
+    // Add order link to step text with popup functionality
     if (result.deepLink && result.orderNumber) {
       const orderLink = document.createElement('a');
-      orderLink.href = result.deepLink;
+      orderLink.href = '#';
       orderLink.className = 'order-link';
-      orderLink.target = '_blank';
       orderLink.textContent = `View Order #${result.orderNumber}`;
+      
+      // Add click handler for popup
+      orderLink.addEventListener('click', (e) => {
+        e.preventDefault();
+        openOrderPopup(result.deepLink, result.orderNumber);
+      });
       
       const stepText = createOrderStep.querySelector('.step-text');
       if (stepText) {

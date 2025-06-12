@@ -580,7 +580,7 @@ async function refreshBusinessCentralToken(userId: string, tokenData: TokenData)
   }
 }
 
-// Analyze email content with AI - now includes delivery date extraction
+// Analyze email content with AI - now includes delivery date extraction and current date
 async function analyzeEmailWithAI(emailContent: string, items: Item[]): Promise<AnalysisResult> {
   if (items.length === 0) {
     console.warn('No items available for analysis');
@@ -595,12 +595,17 @@ async function analyzeEmailWithAI(emailContent: string, items: Item[]): Promise<
       unitPrice: item.unitPrice
     }));
 
+    // Get current date for context
+    const currentDate = new Date().toISOString().split('T')[0]; // YYYY-MM-DD format
+
     const completion = await openai.chat.completions.create({
       model: 'gpt-3.5-turbo',
       messages: [
         {
           role: 'system',
-          content: `You are a helpful assistant that extracts purchase order information from emails and matches them to a list of available items. Here is the list of available items: ${JSON.stringify(itemsList)}`
+          content: `You are a helpful assistant that extracts purchase order information from emails and matches them to a list of available items. Here is the list of available items: ${JSON.stringify(itemsList)}
+
+IMPORTANT: Today's date is ${currentDate}. When extracting delivery dates, ensure they are in the future and make sense in context. If a date appears to be from a past year (like 2022), interpret it as the current year (2025) instead.`
         },
         {
           role: 'user',
@@ -632,6 +637,8 @@ For the delivery date, look for phrases like:
 - "ship by [date]"
 - "due [date]"
 - Any other indication of when the order should be delivered
+
+IMPORTANT: If you find a delivery date that appears to be from a past year (like 2022), interpret it as the current year (2025). Only include dates that make sense as future delivery dates.
 
 If no delivery date is mentioned, omit the requestedDeliveryDate field entirely.`
         }
