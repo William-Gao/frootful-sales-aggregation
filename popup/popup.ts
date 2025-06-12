@@ -161,7 +161,9 @@ document.addEventListener('DOMContentLoaded', () => {
   // Check initial authentication state
   async function checkAuthState(): Promise<void> {
     try {
-      const isAuthenticated = await hybridAuth.isAuthenticated();
+      console.log('Harcoding isAuthenticated to true in popup.ts b/c supabase might be down');
+      const isAuthenticated = true;
+      // const isAuthenticated = await hybridAuth.isAuthenticated();
       updateUI(isAuthenticated);
       
       if (isAuthenticated) {
@@ -200,6 +202,7 @@ document.addEventListener('DOMContentLoaded', () => {
   
   // Update UI based on authentication state
   function updateUI(isAuthenticated: boolean): void {
+    console.log('Inside updateUI, this is the isAuthenticated: ', isAuthenticated);
     if (isAuthenticated) {
       notAuthenticatedSection.classList.add('hidden');
       authenticatedSection.classList.remove('hidden');

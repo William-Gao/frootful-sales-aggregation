@@ -1,6 +1,3 @@
-// Hybrid Authentication Manager for Chrome Extension
-// Updated to work with localhost-served auth pages and proper TypeScript
-
 import { supabaseClient } from './supabaseClient.js';
 import { providerTokenManager } from './tokenManager.js';
 
@@ -239,7 +236,7 @@ class HybridAuthManager {
 
   async isAuthenticated(): Promise<boolean> {
     console.log('inside isAuthenticated within hybridAuth');
-    const session = this.supabase.auth.getSession();
+    const { data: { session }, error } = await this.supabase.auth.getSession();
     console.log('This is session: ', session);
     return session !== null;
   }

@@ -96,42 +96,6 @@ header {
   font-size: 14px;
 }
 
-/* Features section */
-.features-section {
-  background-color: #f8fafc;
-  padding: 16px;
-  border-radius: 8px;
-  border-left: 4px solid #6366F1;
-}
-
-.features-section h4 {
-  font-size: 14px;
-  font-weight: 600;
-  color: #334155;
-  margin-bottom: 8px;
-}
-
-.features-section ul {
-  list-style: none;
-  padding: 0;
-}
-
-.features-section li {
-  color: #64748b;
-  font-size: 13px;
-  margin-bottom: 4px;
-  padding-left: 16px;
-  position: relative;
-}
-
-.features-section li:before {
-  content: "✓";
-  position: absolute;
-  left: 0;
-  color: #10B981;
-  font-weight: bold;
-}
-
 /* User info */
 .user-info {
   display: flex;
