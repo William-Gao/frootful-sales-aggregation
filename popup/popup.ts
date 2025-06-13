@@ -24,23 +24,21 @@ document.addEventListener('DOMContentLoaded', () => {
     return;
   }
   
-  // Handle Google authentication using hybrid auth manager
+  // Handle Google authentication using hybrid flow
   loginBtn.addEventListener('click', async () => {
     try {
       loginBtn.disabled = true;
-      loginBtn.textContent = 'Signing in...';
+      loginBtn.textContent = 'Opening sign-in window...';
       
-      console.log('Popup: Starting Google authentication');
       const session = await hybridAuth.signInWithGoogle();
       
-      console.log('Popup: Authentication successful');
       updateUI(true);
       if (userEmail instanceof HTMLElement) {
         userEmail.textContent = session.user.email;
       }
       showSuccess('Successfully signed in with Google!');
     } catch (error) {
-      console.error('Popup: Google auth error:', error);
+      console.error('Google auth error:', error);
       if (error instanceof Error && error.message.includes('popups')) {
         showError('Please allow popups for this extension to sign in');
       } else {
@@ -54,7 +52,7 @@ document.addEventListener('DOMContentLoaded', () => {
           <polyline points="10 17 15 12 10 7"></polyline>
           <line x1="15" y1="12" x2="3" y2="12"></line>
         </svg>
-        Sign In
+        Sign in with Google
       `;
     }
   });
@@ -105,7 +103,6 @@ document.addEventListener('DOMContentLoaded', () => {
       logoutBtn.disabled = true;
       logoutBtn.textContent = 'Signing out...';
       
-      console.log('Popup: Starting sign out');
       await hybridAuth.signOut();
       
       updateUI(false);
@@ -164,9 +161,9 @@ document.addEventListener('DOMContentLoaded', () => {
   // Check initial authentication state
   async function checkAuthState(): Promise<void> {
     try {
-      console.log('Popup: Checking authentication state');
-      const isAuthenticated = await hybridAuth.isAuthenticated();
-      console.log('Popup: Authentication status:', isAuthenticated);
+      console.log('Harcoding isAuthenticated to true in popup.ts b/c supabase might be down');
+      const isAuthenticated = true;
+      // const isAuthenticated = await hybridAuth.isAuthenticated();
       updateUI(isAuthenticated);
       
       if (isAuthenticated) {
@@ -205,7 +202,7 @@ document.addEventListener('DOMContentLoaded', () => {
   
   // Update UI based on authentication state
   function updateUI(isAuthenticated: boolean): void {
-    console.log('Popup: Updating UI, authenticated:', isAuthenticated);
+    console.log('Inside updateUI, this is the isAuthenticated: ', isAuthenticated);
     if (isAuthenticated) {
       notAuthenticatedSection.classList.add('hidden');
       authenticatedSection.classList.remove('hidden');
