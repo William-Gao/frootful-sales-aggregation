@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "Frootful",
   "version": "1.0.0",
-  "description": "Extract and analyze email content from Gmail and integrate with Business Central ERP systems",
+  "description": "Convert your email orders directly into your ERP and go from 23 clicks to 2.",
   "icons": {
     "16": "icons/icon16.png",
     "48": "icons/icon48.png",
