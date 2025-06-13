@@ -98,9 +98,15 @@ document.addEventListener('DOMContentLoaded', async () => {
     loadingState.style.display = 'none';
     successState.style.display = 'block';
     
-    // Don't auto-close the window - let the user see the success message
-    // and close manually or let the parent handle it
-    console.log('Authentication successful - keeping window open for user confirmation');
+    // Keep window open longer to ensure proper communication
+    // Don't auto-close - let the parent extension handle closing
+    console.log('Authentication successful - keeping window open for proper communication');
+    
+    // Optional: Close after a longer delay to ensure communication completes
+    setTimeout(() => {
+      console.log('Closing auth window after successful communication');
+      window.close();
+    }, 3000); // Increased delay to 3 seconds
   }
 
   function showError(message) {

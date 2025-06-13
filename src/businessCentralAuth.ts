@@ -50,7 +50,7 @@ export async function authenticateBusinessCentral(): Promise<string> {
     const codeVerifier = generateRandomString(64);
     const codeChallenge = await generateCodeChallenge(codeVerifier);
     
-    // Construct auth URL with proper parameters to force account selection
+    // Construct auth URL - use select_account to show account picker
     const authUrl = `https://login.microsoftonline.com/${TENANT_ID}/oauth2/v2.0/authorize?` +
       `client_id=${CLIENT_ID}` +
       `&response_type=code` +
@@ -59,7 +59,7 @@ export async function authenticateBusinessCentral(): Promise<string> {
       `&state=${state}` +
       `&code_challenge=${codeChallenge}` +
       `&code_challenge_method=S256` +
-      `&prompt=consent` + // Force consent screen to ensure OAuth flow
+      `&prompt=select_account` + // Show account picker instead of forcing consent
       `&response_mode=query`; // Ensure response comes back as query parameters
 
     console.log('Business Central auth URL:', authUrl);

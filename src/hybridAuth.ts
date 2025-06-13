@@ -210,9 +210,11 @@ class HybridAuthManager {
           return;
         }
 
-        // Set up success handler
+        // Set up success handler with improved timing
         const successHandler: AuthSuccessHandler = async (session: AuthSession) => {
-          try {          
+          try {
+            console.log('Auth success handler called, processing session...');
+            
             // Set the supabase session  
             if (this.supabase) {
               await this.supabase.auth.setSession(session);
@@ -236,20 +238,23 @@ class HybridAuthManager {
             // Notify other parts of the extension about auth state change
             this.notifyAuthStateChange(true, session.user);
             
+            console.log('Authentication process completed successfully');
             resolve(session);
           } catch (error) {
             console.error('Error during auth completion:', error);
             // Still resolve with session even if backend storage fails
             resolve(session);
           } finally {
-            // Don't close the auth window immediately - let it close naturally
-            // or keep it open for debugging
-            this.cleanup(false);
+            // Delay cleanup to ensure all operations complete
+            setTimeout(() => {
+              this.cleanup(false); // Don't force close the window immediately
+            }, 1000);
           }
         };
 
         // Set up error handler
         const errorHandler: AuthErrorHandler = (error: string) => {
+          console.error('Auth error handler called:', error);
           reject(new Error(error));
           this.cleanup(true);
         };
