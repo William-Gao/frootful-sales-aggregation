@@ -85,6 +85,13 @@ document.addEventListener('DOMContentLoaded', () => {
       bcLoginBtn.textContent = 'Connecting...';
       
       console.log('Starting Business Central authentication...');
+      
+      // Clear any existing BC tokens to force fresh authentication
+      if (typeof chrome !== 'undefined' && chrome.storage) {
+        await chrome.storage.local.remove(['bc_tokens']);
+        console.log('Cleared existing BC tokens to force fresh auth');
+      }
+      
       const token = await authenticateBusinessCentral();
       
       console.log('Business Central authentication successful, loading companies...');
@@ -200,20 +207,44 @@ document.addEventListener('DOMContentLoaded', () => {
   async function checkBusinessCentralConnection(): Promise<void> {
     try {
       console.log('Checking Business Central connection status...');
-      const bcToken = await hybridAuth.getAccessToken();
-      if (bcToken) {
-        // Try to load companies to test BC connection
-        const companies = await fetchCompanies(bcToken);
-        if (companies.length > 0) {
-          console.log('Business Central already connected, loading companies...');
-          await loadCompanies(bcToken);
-          bcLoginBtn.classList.add('hidden');
-          bcConnected.classList.remove('hidden');
+      
+      // Check if we have stored BC tokens
+      if (typeof chrome !== 'undefined' && chrome.storage) {
+        const result = await chrome.storage.local.get(['bc_tokens']);
+        if (result.bc_tokens) {
+          const tokenData = JSON.parse(result.bc_tokens);
+          
+          // Check if token is still valid
+          if (tokenData.expires_at && Date.now() < tokenData.expires_at) {
+            console.log('Found valid Business Central token, testing connection...');
+            
+            try {
+              const companies = await fetchCompanies(tokenData.access_token);
+              if (companies.length > 0) {
+                console.log('Business Central already connected, loading companies...');
+                await loadCompanies(tokenData.access_token);
+                bcLoginBtn.classList.add('hidden');
+                bcConnected.classList.remove('hidden');
+                return;
+              }
+            } catch (error) {
+              console.log('Business Central token invalid or expired:', error);
+              // Clear invalid token
+              await chrome.storage.local.remove(['bc_tokens']);
+            }
+          } else {
+            console.log('Business Central token expired, clearing...');
+            await chrome.storage.local.remove(['bc_tokens']);
+          }
         }
       }
+      
+      // BC not connected or token invalid
+      console.log('Business Central not connected');
+      bcLoginBtn.classList.remove('hidden');
+      bcConnected.classList.add('hidden');
     } catch (error) {
-      console.log('Business Central not connected or connection failed:', error);
-      // BC not connected, show login button
+      console.log('Error checking Business Central connection:', error);
       bcLoginBtn.classList.remove('hidden');
       bcConnected.classList.add('hidden');
     }

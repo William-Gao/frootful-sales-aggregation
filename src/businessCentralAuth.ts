@@ -50,7 +50,7 @@ export async function authenticateBusinessCentral(): Promise<string> {
     const codeVerifier = generateRandomString(64);
     const codeChallenge = await generateCodeChallenge(codeVerifier);
     
-    // Construct auth URL - use select_account to avoid auto-login
+    // Construct auth URL with proper parameters to force account selection
     const authUrl = `https://login.microsoftonline.com/${TENANT_ID}/oauth2/v2.0/authorize?` +
       `client_id=${CLIENT_ID}` +
       `&response_type=code` +
@@ -59,22 +59,34 @@ export async function authenticateBusinessCentral(): Promise<string> {
       `&state=${state}` +
       `&code_challenge=${codeChallenge}` +
       `&code_challenge_method=S256` +
-      `&prompt=select_account`; // This ensures user sees account selection
+      `&prompt=consent` + // Force consent screen to ensure OAuth flow
+      `&response_mode=query`; // Ensure response comes back as query parameters
 
-    console.log('Launching Business Central auth flow...');
+    console.log('Business Central auth URL:', authUrl);
+    console.log('Redirect URI:', REDIRECT_URI);
 
-    // Launch auth flow
+    // Launch auth flow with proper configuration
     const redirectUrl = await chrome.identity.launchWebAuthFlow({
       url: authUrl,
       interactive: true
     });
 
+    console.log('Received redirect URL:', redirectUrl);
+
     // Extract code from redirect URL
     const url = new URL(redirectUrl);
     const code = url.searchParams.get('code');
     const returnedState = url.searchParams.get('state');
+    const error = url.searchParams.get('error');
+    const errorDescription = url.searchParams.get('error_description');
+
+    if (error) {
+      console.error('OAuth error:', error, errorDescription);
+      throw new Error(`Authentication failed: ${error} - ${errorDescription}`);
+    }
 
     if (!code || returnedState !== state) {
+      console.error('Invalid auth response - code:', !!code, 'state match:', returnedState === state);
       throw new Error('Invalid auth response');
     }
 
@@ -94,6 +106,12 @@ export async function authenticateBusinessCentral(): Promise<string> {
         code_verifier: codeVerifier
       })
     });
+
+    if (!tokenResponse.ok) {
+      const errorText = await tokenResponse.text();
+      console.error('Token exchange failed:', tokenResponse.status, errorText);
+      throw new Error(`Token exchange failed: ${tokenResponse.status}`);
+    }
 
     const tokens = await tokenResponse.json();
     
