@@ -98,10 +98,9 @@ document.addEventListener('DOMContentLoaded', async () => {
     loadingState.style.display = 'none';
     successState.style.display = 'block';
     
-    // Keep window open for debugging - comment out to auto-close
-    setTimeout(() => {
-      window.close();
-    }, 2000);
+    // Don't auto-close the window - let the user see the success message
+    // and close manually or let the parent handle it
+    console.log('Authentication successful - keeping window open for user confirmation');
   }
 
   function showError(message) {

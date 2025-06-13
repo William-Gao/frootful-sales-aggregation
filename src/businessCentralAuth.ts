@@ -1,5 +1,6 @@
 import { supabaseClient } from './supabaseClient.js';
 import { providerTokenManager } from './tokenManager.js';
+import { hybridAuth } from './hybridAuth.js';
 
 const CLIENT_ID = '4c92a998-6af5-4c2a-b16e-80ba1c6b9b3b';
 const TENANT_ID = 'common';
@@ -15,25 +16,26 @@ export interface Company {
 
 export async function authenticateBusinessCentral(): Promise<string> {
   try {
-    // First check if user is authenticated with Google using Supabase
-    const supabase = await supabaseClient;
-    const { data: { session }, error } = await supabase.auth.getSession();
+    // First check if user is authenticated with Google using hybrid auth
+    const isGoogleAuthenticated = await hybridAuth.isAuthenticated();
     
-    if (!session || error) {
+    if (!isGoogleAuthenticated) {
       throw new Error('Please sign in with Google first before connecting to Business Central');
     }
 
-    console.log('Google authentication verified via Supabase session');
+    console.log('Google authentication verified, proceeding with Business Central auth');
 
     // Check if we have a valid Business Central token stored
     const storedToken = await getBusinessCentralToken();
     if (storedToken && await isTokenValid(storedToken)) {
+      console.log('Using existing valid Business Central token');
       return storedToken.access_token;
     }
 
     // If we have a refresh token, try to refresh
     if (storedToken?.refresh_token) {
       try {
+        console.log('Attempting to refresh Business Central token');
         return await refreshToken(storedToken.refresh_token);
       } catch (error) {
         console.error('Token refresh failed:', error);
@@ -41,12 +43,14 @@ export async function authenticateBusinessCentral(): Promise<string> {
       }
     }
 
+    console.log('Starting new Business Central authentication flow');
+
     // Generate random state and code verifier for PKCE
     const state = generateRandomString(32);
     const codeVerifier = generateRandomString(64);
     const codeChallenge = await generateCodeChallenge(codeVerifier);
     
-    // Construct auth URL
+    // Construct auth URL - use select_account to avoid auto-login
     const authUrl = `https://login.microsoftonline.com/${TENANT_ID}/oauth2/v2.0/authorize?` +
       `client_id=${CLIENT_ID}` +
       `&response_type=code` +
@@ -55,7 +59,9 @@ export async function authenticateBusinessCentral(): Promise<string> {
       `&state=${state}` +
       `&code_challenge=${codeChallenge}` +
       `&code_challenge_method=S256` +
-      `&prompt=select_account`;
+      `&prompt=select_account`; // This ensures user sees account selection
+
+    console.log('Launching Business Central auth flow...');
 
     // Launch auth flow
     const redirectUrl = await chrome.identity.launchWebAuthFlow({
@@ -71,6 +77,8 @@ export async function authenticateBusinessCentral(): Promise<string> {
     if (!code || returnedState !== state) {
       throw new Error('Invalid auth response');
     }
+
+    console.log('Authorization code received, exchanging for tokens...');
 
     // Exchange code for token
     const tokenResponse = await fetch(`https://login.microsoftonline.com/${TENANT_ID}/oauth2/v2.0/token`, {
@@ -90,8 +98,11 @@ export async function authenticateBusinessCentral(): Promise<string> {
     const tokens = await tokenResponse.json();
     
     if (!tokens.access_token) {
+      console.error('Token exchange failed:', tokens);
       throw new Error('Failed to get access token');
     }
+
+    console.log('Business Central tokens received successfully');
 
     // Parse and store tenant ID from the token
     const tenantId = await parseTenantIdFromToken(tokens.access_token);
@@ -120,7 +131,7 @@ export async function authenticateBusinessCentral(): Promise<string> {
 
     return tokens.access_token;
   } catch (error) {
-    console.error('Authentication error:', error);
+    console.error('Business Central authentication error:', error);
     throw error;
   }
 }

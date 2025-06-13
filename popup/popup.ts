@@ -23,28 +23,43 @@ document.addEventListener('DOMContentLoaded', () => {
     console.error('Required elements not found');
     return;
   }
+
+  let isAuthenticating = false;
   
   // Handle Google authentication using hybrid flow
   loginBtn.addEventListener('click', async () => {
+    if (isAuthenticating) {
+      console.log('Authentication already in progress');
+      return;
+    }
+
     try {
+      isAuthenticating = true;
       loginBtn.disabled = true;
-      loginBtn.textContent = 'Opening sign-in window...';
+      loginBtn.textContent = 'Signing in...';
       
+      console.log('Starting Google authentication...');
       const session = await hybridAuth.signInWithGoogle();
       
+      console.log('Google authentication successful, updating UI...');
       updateUI(true);
       if (userEmail instanceof HTMLElement) {
         userEmail.textContent = session.user.email;
       }
       showSuccess('Successfully signed in with Google!');
+      
+      // Check if Business Central is already connected
+      await checkBusinessCentralConnection();
+      
     } catch (error) {
       console.error('Google auth error:', error);
       if (error instanceof Error && error.message.includes('popups')) {
         showError('Please allow popups for this extension to sign in');
       } else {
-        showError('Failed to sign in with Google');
+        showError('Failed to sign in with Google: ' + (error instanceof Error ? error.message : 'Unknown error'));
       }
     } finally {
+      isAuthenticating = false;
       loginBtn.disabled = false;
       loginBtn.innerHTML = `
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -52,19 +67,27 @@ document.addEventListener('DOMContentLoaded', () => {
           <polyline points="10 17 15 12 10 7"></polyline>
           <line x1="15" y1="12" x2="3" y2="12"></line>
         </svg>
-        Sign in with Google
+        Sign In
       `;
     }
   });
 
   // Handle Business Central authentication
   bcLoginBtn.addEventListener('click', async () => {
+    if (isAuthenticating) {
+      console.log('Authentication already in progress');
+      return;
+    }
+
     try {
+      isAuthenticating = true;
       bcLoginBtn.disabled = true;
       bcLoginBtn.textContent = 'Connecting...';
       
+      console.log('Starting Business Central authentication...');
       const token = await authenticateBusinessCentral();
       
+      console.log('Business Central authentication successful, loading companies...');
       // Load companies after successful authentication
       await loadCompanies(token);
       bcLoginBtn.classList.add('hidden');
@@ -75,11 +98,17 @@ document.addEventListener('DOMContentLoaded', () => {
       if (error instanceof Error && error.message.includes('sign in with Google')) {
         showError('Please sign in with Google first before connecting to Business Central');
       } else {
-        showError('Failed to connect to Business Central');
+        showError('Failed to connect to Business Central: ' + (error instanceof Error ? error.message : 'Unknown error'));
       }
     } finally {
+      isAuthenticating = false;
       bcLoginBtn.disabled = false;
-      bcLoginBtn.textContent = 'Connect to Business Central';
+      bcLoginBtn.innerHTML = `
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"></path>
+        </svg>
+        Connect to Business Central
+      `;
     }
   });
 
@@ -99,12 +128,20 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Handle logout
   logoutBtn.addEventListener('click', async () => {
+    if (isAuthenticating) {
+      console.log('Authentication in progress, cannot logout');
+      return;
+    }
+
     try {
+      isAuthenticating = true;
       logoutBtn.disabled = true;
       logoutBtn.textContent = 'Signing out...';
       
+      console.log('Starting sign out process...');
       await hybridAuth.signOut();
       
+      console.log('Sign out successful, updating UI...');
       updateUI(false);
       // Reset BC connection state
       bcLoginBtn.classList.remove('hidden');
@@ -114,6 +151,7 @@ document.addEventListener('DOMContentLoaded', () => {
       console.error('Logout error:', error);
       showError('Failed to sign out completely');
     } finally {
+      isAuthenticating = false;
       logoutBtn.disabled = false;
       logoutBtn.innerHTML = `
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -157,13 +195,37 @@ document.addEventListener('DOMContentLoaded', () => {
       throw error;
     }
   }
+
+  // Check Business Central connection status
+  async function checkBusinessCentralConnection(): Promise<void> {
+    try {
+      console.log('Checking Business Central connection status...');
+      const bcToken = await hybridAuth.getAccessToken();
+      if (bcToken) {
+        // Try to load companies to test BC connection
+        const companies = await fetchCompanies(bcToken);
+        if (companies.length > 0) {
+          console.log('Business Central already connected, loading companies...');
+          await loadCompanies(bcToken);
+          bcLoginBtn.classList.add('hidden');
+          bcConnected.classList.remove('hidden');
+        }
+      }
+    } catch (error) {
+      console.log('Business Central not connected or connection failed:', error);
+      // BC not connected, show login button
+      bcLoginBtn.classList.remove('hidden');
+      bcConnected.classList.add('hidden');
+    }
+  }
   
   // Check initial authentication state
   async function checkAuthState(): Promise<void> {
     try {
-      // console.log('Harcoding isAuthenticated to true in popup.ts b/c supabase might be down');
-      // const isAuthenticated = true;
+      console.log('Checking initial authentication state...');
       const isAuthenticated = await hybridAuth.isAuthenticated();
+      console.log('Authentication state:', isAuthenticated);
+      
       updateUI(isAuthenticated);
       
       if (isAuthenticated) {
@@ -173,23 +235,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
         
         // Check if Business Central is also connected
-        try {
-          const bcToken = await hybridAuth.getAccessToken();
-          if (bcToken) {
-            // Try to load companies to test BC connection
-            const companies = await fetchCompanies(bcToken);
-            if (companies.length > 0) {
-              await loadCompanies(bcToken);
-              bcLoginBtn.classList.add('hidden');
-              bcConnected.classList.remove('hidden');
-            }
-          }
-        } catch (error) {
-          console.error('Error loading BC companies:', error);
-          // BC not connected, show login button
-          bcLoginBtn.classList.remove('hidden');
-          bcConnected.classList.add('hidden');
-        }
+        await checkBusinessCentralConnection();
       }
     } catch (error) {
       console.error('Error checking auth state:', error);
@@ -202,13 +248,16 @@ document.addEventListener('DOMContentLoaded', () => {
   
   // Update UI based on authentication state
   function updateUI(isAuthenticated: boolean): void {
-    console.log('Inside updateUI, this is the isAuthenticated: ', isAuthenticated);
+    console.log('Updating UI, authenticated:', isAuthenticated);
     if (isAuthenticated) {
       notAuthenticatedSection.classList.add('hidden');
       authenticatedSection.classList.remove('hidden');
     } else {
       notAuthenticatedSection.classList.remove('hidden');
       authenticatedSection.classList.add('hidden');
+      // Reset BC state when not authenticated
+      bcLoginBtn.classList.remove('hidden');
+      bcConnected.classList.add('hidden');
     }
   }
   
@@ -256,5 +305,20 @@ document.addEventListener('DOMContentLoaded', () => {
     setTimeout(() => {
       errorDiv.remove();
     }, 5000);
+  }
+
+  // Listen for auth state changes from other parts of the extension
+  if (typeof chrome !== 'undefined' && chrome.runtime) {
+    chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+      if (message.action === 'authStateChanged') {
+        console.log('Received auth state change:', message.isAuthenticated);
+        updateUI(message.isAuthenticated);
+        if (message.isAuthenticated && message.user) {
+          if (userEmail instanceof HTMLElement) {
+            userEmail.textContent = message.user.email;
+          }
+        }
+      }
+    });
   }
 });
