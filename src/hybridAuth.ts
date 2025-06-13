@@ -1,3 +1,6 @@
+// Universal Authentication Manager for Chrome Extension
+// Works in background scripts, content scripts, and popup scripts
+
 import { supabaseClient } from './supabaseClient.js';
 import { providerTokenManager } from './tokenManager.js';
 
@@ -5,7 +8,7 @@ export interface AuthSession {
   access_token: string;
   refresh_token?: string;
   expires_at?: number;
-  user: any; // Keep as any to preserve flexibility
+  user: any;
   provider_token: string;
   provider_refresh_token: string;
 }
@@ -33,7 +36,6 @@ declare global {
 class HybridAuthManager {
   private static instance: HybridAuthManager;
   private currentSession: AuthSession | null = null;
-  private authWindow: Window | null = null;
   private supabase: any = null;
 
   static getInstance(): HybridAuthManager {
@@ -45,26 +47,6 @@ class HybridAuthManager {
 
   constructor() {
     console.log('HybridAuthManager constructor called');
-    
-    // Listen for messages from auth callback
-    if (typeof chrome !== 'undefined' && chrome.runtime) {
-      chrome.runtime.onMessageExternal.addListener(
-        (message: AuthMessage, sender: chrome.runtime.MessageSender, sendResponse: (response: any) => void) => {
-          if (message.action === 'authComplete') {
-            this.handleAuthComplete(message.session);
-            sendResponse({ success: true });
-          }
-        }
-      );
-    }
-
-    // Also listen for postMessage events (fallback)
-    window.addEventListener('message', (event: MessageEvent<AuthMessage>) => {
-      if (event.data.action === 'authComplete') {
-        this.handleAuthComplete(event.data.session);
-      }
-    });
-
     this.initializeSupabase();
   }
 
@@ -77,53 +59,124 @@ class HybridAuthManager {
     }
   }
 
+  // Environment detection methods
+  canUseWindowAuth(): boolean {
+    return typeof window !== 'undefined' && typeof window.open === 'function';
+  }
+
+  canUseChromeIdentity(): boolean {
+    return typeof chrome !== 'undefined' && 
+           chrome.identity && 
+           typeof chrome.identity.getAuthToken === 'function';
+  }
+
+  getAvailableAuthMethods(): string[] {
+    const methods: string[] = [];
+    if (this.canUseWindowAuth()) methods.push('window');
+    if (this.canUseChromeIdentity()) methods.push('chrome-identity');
+    return methods;
+  }
+
+  // Main sign-in method - automatically chooses best available method
   async signInWithGoogle(): Promise<AuthSession> {
+    console.log('Available auth methods:', this.getAvailableAuthMethods());
+    
+    if (this.canUseWindowAuth()) {
+      console.log('Using window-based authentication');
+      return this.signInWithGoogleWindow();
+    } else if (this.canUseChromeIdentity()) {
+      console.log('Using Chrome Identity API authentication');
+      return this.signInWithChromeIdentity();
+    } else {
+      throw new Error('No authentication method available in this environment');
+    }
+  }
+
+  // Chrome Identity API method (for background scripts)
+  async signInWithChromeIdentity(): Promise<AuthSession> {
+    return new Promise<AuthSession>((resolve, reject) => {
+      if (!this.canUseChromeIdentity()) {
+        reject(new Error('Chrome Identity API not available'));
+        return;
+      }
+
+      chrome.identity.getAuthToken({ interactive: true }, async (token) => {
+        if (chrome.runtime.lastError) {
+          reject(new Error(chrome.runtime.lastError.message));
+          return;
+        }
+
+        if (!token) {
+          reject(new Error('Failed to get auth token'));
+          return;
+        }
+
+        try {
+          // Get user info from Google
+          const userResponse = await fetch('https://www.googleapis.com/oauth2/v2/userinfo', {
+            headers: {
+              'Authorization': `Bearer ${token}`
+            }
+          });
+
+          if (!userResponse.ok) {
+            throw new Error('Failed to get user info');
+          }
+
+          const userInfo = await userResponse.json();
+
+          // Create session object
+          const session: AuthSession = {
+            access_token: token,
+            user: {
+              id: userInfo.id,
+              email: userInfo.email,
+              user_metadata: {
+                full_name: userInfo.name,
+                avatar_url: userInfo.picture
+              }
+            },
+            provider_token: token,
+            provider_refresh_token: ''
+          };
+
+          // Store session and tokens
+          await this.handleAuthSuccess(session);
+          resolve(session);
+        } catch (error) {
+          reject(error);
+        }
+      });
+    });
+  }
+
+  // Window-based authentication (for content scripts/popups)
+  async signInWithGoogleWindow(): Promise<AuthSession> {
     return new Promise<AuthSession>((resolve, reject) => {
       try {
-        // Use localhost URL since you're serving with npx serve
         const loginUrl = 'http://localhost:5173/auth/login.html';
         
         console.log('Opening auth window:', loginUrl);
         
-        // Open popup window
-        this.authWindow = window.open(
+        const authWindow = window.open(
           loginUrl,
           '_blank',
           'width=500,height=600,scrollbars=yes,resizable=yes,status=yes,location=yes,toolbar=no,menubar=no'
         );
 
-        if (!this.authWindow) {
+        if (!authWindow) {
           reject(new Error('Failed to open authentication window. Please allow popups for this site.'));
           return;
         }
 
         // Set up success handler
         const successHandler: AuthSuccessHandler = async (session: AuthSession) => {
-          try {          
-            // Set the supabase session  
-            if (this.supabase) {
-              await this.supabase.auth.setSession(session);
-              console.log('Successfully set Supabase session');
-            }
-            
-            // Store the session locally
-            this.currentSession = session;
-            await this.storeSession(session);
-            
-            // Store the provider tokens in backend
-            await providerTokenManager.storeTokens({
-              provider: 'google',
-              accessToken: session.provider_token || session.access_token,
-              refreshToken: session.provider_refresh_token || session.refresh_token,
-              expiresAt: session.expires_at ? new Date(session.expires_at * 1000).toISOString() : undefined
-            });
-            
-            console.log('Successfully stored provider tokens in backend');
+          try {
+            await this.handleAuthSuccess(session);
             resolve(session);
           } catch (error) {
             console.error('Error during auth completion:', error);
-            // Still resolve with session even if backend storage fails
-            resolve(session);
+            resolve(session); // Still resolve even if backend storage fails
           } finally {
             this.cleanup();
           }
@@ -141,7 +194,7 @@ class HybridAuthManager {
 
         // Check if window was closed manually
         const checkClosed = setInterval(() => {
-          if (this.authWindow?.closed) {
+          if (authWindow?.closed) {
             clearInterval(checkClosed);
             reject(new Error('Authentication window was closed'));
             this.cleanup();
@@ -150,8 +203,8 @@ class HybridAuthManager {
 
         // Timeout after 5 minutes
         setTimeout(() => {
-          if (this.authWindow && !this.authWindow.closed) {
-            this.authWindow.close();
+          if (authWindow && !authWindow.closed) {
+            authWindow.close();
             reject(new Error('Authentication timeout'));
             this.cleanup();
           }
@@ -163,10 +216,31 @@ class HybridAuthManager {
     });
   }
 
-  private handleAuthComplete(session: AuthSession): void {
-    console.log('Auth complete received:', session.user?.email || 'Unknown user');
-    if (window.frootfulAuthSuccess) {
-      window.frootfulAuthSuccess(session);
+  // Handle successful authentication (common logic)
+  private async handleAuthSuccess(session: AuthSession): Promise<void> {
+    try {
+      // Set the supabase session if available
+      if (this.supabase) {
+        await this.supabase.auth.setSession(session);
+        console.log('Successfully set Supabase session');
+      }
+      
+      // Store the session locally
+      this.currentSession = session;
+      await this.storeSession(session);
+      
+      // Store the provider tokens in backend
+      await providerTokenManager.storeTokens({
+        provider: 'google',
+        accessToken: session.provider_token || session.access_token,
+        refreshToken: session.provider_refresh_token || session.refresh_token,
+        expiresAt: session.expires_at ? new Date(session.expires_at * 1000).toISOString() : undefined
+      });
+      
+      console.log('Successfully stored provider tokens in backend');
+    } catch (error) {
+      console.error('Error during auth success handling:', error);
+      // Don't throw - we still want to complete authentication
     }
   }
 
@@ -178,8 +252,7 @@ class HybridAuthManager {
           frootful_session_expires: session.expires_at
         });
         console.log('Stored session in chrome.storage');
-      } else {
-        // Fallback to localStorage
+      } else if (typeof localStorage !== 'undefined') {
         localStorage.setItem('frootful_session', JSON.stringify(session));
         if (session.expires_at) {
           localStorage.setItem('frootful_session_expires', session.expires_at.toString());
@@ -204,8 +277,7 @@ class HybridAuthManager {
         const result = await chrome.storage.local.get(['frootful_session', 'frootful_session_expires']);
         sessionData = result.frootful_session;
         expiresAt = result.frootful_session_expires;
-      } else {
-        // Fallback to localStorage
+      } else if (typeof localStorage !== 'undefined') {
         sessionData = localStorage.getItem('frootful_session');
         const expiresStr = localStorage.getItem('frootful_session_expires');
         expiresAt = expiresStr ? parseInt(expiresStr, 10) : null;
@@ -235,10 +307,28 @@ class HybridAuthManager {
   }
 
   async isAuthenticated(): Promise<boolean> {
-    console.log('inside isAuthenticated within hybridAuth');
-    const { data: { session }, error } = await this.supabase.auth.getSession();
-    console.log('This is session: ', session);
-    return session !== null;
+    console.log('Checking authentication status...');
+    
+    // First check local session
+    const session = await this.getCurrentSession();
+    if (session) {
+      console.log('Found valid local session');
+      return true;
+    }
+
+    // Then check Supabase session if available
+    try {
+      if (this.supabase) {
+        const { data: { session: supabaseSession }, error } = await this.supabase.auth.getSession();
+        console.log('Supabase session check:', supabaseSession ? 'Found' : 'Not found');
+        return supabaseSession !== null && !error;
+      }
+    } catch (error) {
+      console.error('Error checking Supabase session:', error);
+    }
+
+    console.log('No valid session found');
+    return false;
   }
 
   async signOut(): Promise<void> {
@@ -265,15 +355,14 @@ class HybridAuthManager {
         console.warn('Failed to clear tokens from backend:', error);
       }
       
-      // Revoke Google token if available
-      const session = await this.getCurrentSession();
-      if (session?.provider_token || session?.access_token) {
+      // Revoke Google token if available and Chrome Identity is available
+      if (this.canUseChromeIdentity()) {
         try {
-          const tokenToRevoke = session.provider_token || session.access_token;
-          await fetch(`https://accounts.google.com/o/oauth2/revoke?token=${tokenToRevoke}`);
-          console.log('Successfully revoked Google token');
+          chrome.identity.removeCachedAuthToken({ token: '' }, () => {
+            console.log('Cleared Chrome Identity cache');
+          });
         } catch (error) {
-          console.error('Failed to revoke Google token:', error);
+          console.error('Failed to clear Chrome Identity cache:', error);
         }
       }
     } catch (error) {
@@ -286,8 +375,7 @@ class HybridAuthManager {
     try {
       if (typeof chrome !== 'undefined' && chrome.storage) {
         await chrome.storage.local.remove(['frootful_session', 'frootful_session_expires']);
-      } else {
-        // Fallback to localStorage
+      } else if (typeof localStorage !== 'undefined') {
         localStorage.removeItem('frootful_session');
         localStorage.removeItem('frootful_session_expires');
       }
@@ -305,15 +393,11 @@ class HybridAuthManager {
   }
 
   private cleanup(): void {
-    // Keep window open for debugging - comment out to auto-close
-    if (this.authWindow) {
-      this.authWindow.close();
-      this.authWindow = null;
+    // Clean up global handlers (only if window is available)
+    if (typeof window !== 'undefined') {
+      delete window.frootfulAuthSuccess;
+      delete window.frootfulAuthError;
     }
-    
-    // Clean up global handlers
-    delete window.frootfulAuthSuccess;
-    delete window.frootfulAuthError;
   }
 
   // Get access token for API calls - prioritize provider_token

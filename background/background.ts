@@ -1,6 +1,6 @@
 // Background service worker for Frootful Gmail Extension
 
-import { supabaseClient } from "../src/supabaseClient.js";
+import { hybridAuth } from "../src/hybridAuth.js";
 
 // Types
 interface Port {
@@ -59,6 +59,7 @@ interface ComprehensiveAnalysisResult {
     items: Item[];
     matchingCustomer?: Customer;
     analyzedItems: AnalyzedItem[];
+    requestedDeliveryDate?: string;
   };
   error?: string;
 }
@@ -85,33 +86,31 @@ chrome.runtime.onConnect.addListener((port: Port) => {
   port.onMessage.addListener(async (message: { action: string; emailId?: string }) => {
     try {
       if (message.action === 'authenticate') {
-        const token = await authenticate();
-        port.postMessage({ action: 'authenticate', success: true, token });
+        console.log('Background: Handling authenticate request');
+        const session = await hybridAuth.signInWithChromeIdentity();
+        port.postMessage({ action: 'authenticate', success: true, session });
       }
       
       if (message.action === 'revokeAuthentication') {
-        await revokeAuthentication();
+        console.log('Background: Handling revokeAuthentication request');
+        await hybridAuth.signOut();
         port.postMessage({ action: 'revokeAuthentication', success: true });
       }
       
       if (message.action === 'extractEmail' && message.emailId) {
-        // Use comprehensive analyze-email endpoint instead of separate extraction
+        console.log('Background: Handling extractEmail request for:', message.emailId);
         const result = await comprehensiveEmailAnalysis(message.emailId);
         port.postMessage({ action: 'extractEmail', ...result });
       }
       
       if (message.action === 'checkAuthState') {
-        console.log('Checking auth state via Supabase session');
-        const { data: { session }, error } = await supabaseClient.auth.getSession();
-        console.log('Supabase session in background.ts:', session ? 'Found' : 'Not found');
-        // const isAuthenticated = session !== null && !error;
-        const isAuthenticated = true;
-        console.log('hardcoding isAuthenticated to true in background.ts b/c supabase might be down: ');
-
+        console.log('Background: Checking auth state via HybridAuthManager');
+        const isAuthenticated = await hybridAuth.isAuthenticated();
+        console.log('Background: Authentication status:', isAuthenticated);
         port.postMessage({ action: 'checkAuthState', isAuthenticated });
       }
     } catch (error) {
-      console.error('Error in message handler:', error);
+      console.error('Error in background message handler:', error);
       port.postMessage({ 
         action: message.action,
         success: false, 
@@ -121,94 +120,16 @@ chrome.runtime.onConnect.addListener((port: Port) => {
   });
 });
 
-// Get auth token from Supabase session
-async function getAuthToken(): Promise<string | null> {
-  try {
-    const { data: { session }, error } = await supabaseClient.auth.getSession();
-    
-    if (error || !session) {
-      console.error('No valid Supabase session found');
-      return null;
-    }
-    
-    // Return the access token for API calls
-    return session.access_token;
-  } catch (error) {
-    console.error('Error getting auth token:', error);
-    return null;
-  }
-}
-
-// Authentication functions - keep existing Chrome Identity for initial auth
-async function authenticate(): Promise<string> {
-  return new Promise((resolve, reject) => {
-    chrome.identity.getAuthToken({ interactive: true }, (token) => {
-      if (chrome.runtime.lastError) {
-        reject(chrome.runtime.lastError);
-        return;
-      }
-      
-      if (token) {
-        // Notify all connected ports about authentication state
-        ports.forEach(port => {
-          port.postMessage({ 
-            action: 'authStateChanged',
-            isAuthenticated: true 
-          });
-        });
-        resolve(token);
-      } else {
-        reject(new Error('Failed to get auth token'));
-      }
-    });
-  });
-}
-
-// Revoke authentication
-async function revokeAuthentication(): Promise<void> {
-  return new Promise((resolve, reject) => {
-    chrome.identity.getAuthToken({ interactive: false }, async (token) => {
-      if (token) {
-        try {
-          // Revoke token with Google
-          await fetch(`https://accounts.google.com/o/oauth2/revoke?token=${token}`);
-          
-          // Remove token from cache
-          chrome.identity.removeCachedAuthToken({ token: token }, () => {
-            // Also sign out from Supabase
-            supabaseClient.auth.signOut();
-            
-            // Notify all connected ports about authentication state
-            ports.forEach(port => {
-              port.postMessage({ 
-                action: 'authStateChanged',
-                isAuthenticated: false 
-              });
-            });
-            resolve();
-          });
-        } catch (error) {
-          reject(error);
-        }
-      } else {
-        resolve(); // No token to revoke
-      }
-    });
-  });
-}
-
-// Comprehensive email analysis using the new endpoint
+// Comprehensive email analysis using the analyze-email endpoint
 async function comprehensiveEmailAnalysis(emailId: string): Promise<{ success: boolean; data?: ComprehensiveAnalysisResult['data']; error?: string }> {
   try {
-    const authToken = await getAuthToken();
+    const authToken = await hybridAuth.getAccessToken();
     if (!authToken) {
       throw new Error('User not authenticated');
     }
 
-    console.log('Calling comprehensive analyze-email endpoint for email:', emailId);
+    console.log('Background: Calling comprehensive analyze-email endpoint for email:', emailId);
 
-    // Call the comprehensive analyze-email edge function
-    console.log('Calling supabase for comprehensive analysis');
     const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/analyze-email`, {
       method: 'POST',
       headers: {
@@ -220,23 +141,23 @@ async function comprehensiveEmailAnalysis(emailId: string): Promise<{ success: b
     
     if (!response.ok) {
       const errorText = await response.text();
-      console.error('Comprehensive analysis error response:', errorText);
+      console.error('Background: Comprehensive analysis error response:', errorText);
       throw new Error(`Analysis failed: ${response.status} ${response.statusText}`);
     }
-    const response_text = await response.json();
-    console.log('This is the result from supabase call: ', response_text);
-    const result: ComprehensiveAnalysisResult = response_text;
+    
+    const result: ComprehensiveAnalysisResult = await response.json();
     
     if (!result.success) {
       throw new Error(result.error || 'Analysis returned error');
     }
     
-    console.log('Comprehensive analysis successful:', {
+    console.log('Background: Comprehensive analysis successful:', {
       email: result.data?.email?.subject || 'Unknown',
       customers: result.data?.customers?.length || 0,
       items: result.data?.items?.length || 0,
       analyzedItems: result.data?.analyzedItems?.length || 0,
-      matchingCustomer: result.data?.matchingCustomer?.displayName || 'None'
+      matchingCustomer: result.data?.matchingCustomer?.displayName || 'None',
+      requestedDeliveryDate: result.data?.requestedDeliveryDate || 'None'
     });
     
     return {
@@ -244,7 +165,7 @@ async function comprehensiveEmailAnalysis(emailId: string): Promise<{ success: b
       data: result.data
     };
   } catch (error) {
-    console.error('Error in comprehensive email analysis:', error);
+    console.error('Background: Error in comprehensive email analysis:', error);
     return {
       success: false,
       error: error instanceof Error ? error.message : 'Unknown error'

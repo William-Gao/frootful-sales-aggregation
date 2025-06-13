@@ -1,5 +1,7 @@
 // Main content script for Frootful Gmail Extension
 
+import { hybridAuth } from '../src/hybridAuth.js';
+
 interface EmailData {
   id: string;
   threadId: string;
@@ -43,6 +45,7 @@ interface ComprehensiveAnalysisData {
   items: Item[];
   matchingCustomer?: Customer;
   analyzedItems: AnalyzedItem[];
+  requestedDeliveryDate?: string;
 }
 
 interface Port {
@@ -63,20 +66,20 @@ let lastUrl: string | null = null;
 
 // Initialize connection to background script
 function initializeConnection(): void {
-  console.log('This is port at the very beginning of the file: ', port);
+  console.log('Content: Initializing connection to background script');
   if (port) {
     try {
       port.postMessage({ action: 'ping' });
-      console.log('pinged port');
+      console.log('Content: Pinged existing port');
     } catch (e) {
       // Port is disconnected, create new connection
       port = null;
-      console.log('port is disconnected');
+      console.log('Content: Port is disconnected');
     }
   }
-  console.log('Initializing connection to background script');
+  
   if (!port) {
-    console.log('Adding some listeners');
+    console.log('Content: Creating new port connection');
     port = chrome.runtime.connect({ name: 'frootful-content' });
     
     port.onMessage.addListener((message: any) => {
@@ -90,15 +93,15 @@ function initializeConnection(): void {
       }
       
       if (message.action === 'checkAuthState') {
-        console.log('listener for checkAuthState event in content.ts');
-        console.log('This is message: ', message);
+        console.log('Content: Received auth state check response:', message.isAuthenticated);
         isAuthenticated = message.isAuthenticated;
         init();
       }
     });
   }
-  console.log('THis is port right before postMessage to checkAuthState: ', port);
+  
   // Check if user is authenticated
+  console.log('Content: Requesting auth state check');
   port.postMessage({ action: 'checkAuthState' });
 }
 
@@ -207,6 +210,7 @@ function handleExtractClick(e: MouseEvent): void {
   removeSidebar();
   
   // Request comprehensive email analysis
+  console.log('Content: Requesting email extraction for:', currentEmailId);
   port.postMessage({
     action: 'extractEmail',
     emailId: currentEmailId
@@ -225,17 +229,18 @@ function handleExtractResponse(response: { success: boolean; data?: Comprehensiv
   }
   
   if (response.success && response.data) {
-    console.log('Received comprehensive analysis data:', {
+    console.log('Content: Received comprehensive analysis data:', {
       email: response.data.email.subject,
       customers: response.data.customers.length,
       items: response.data.items.length,
       analyzedItems: response.data.analyzedItems.length,
-      matchingCustomer: response.data.matchingCustomer?.displayName || 'None'
+      matchingCustomer: response.data.matchingCustomer?.displayName || 'None',
+      requestedDeliveryDate: response.data.requestedDeliveryDate || 'None'
     });
     
     showSidebar(response.data);
   } else {
-    console.error('Error in comprehensive analysis:', response.error || 'Unknown error');
+    console.error('Content: Error in comprehensive analysis:', response.error || 'Unknown error');
     showError('Failed to analyze email: ' + (response.error || 'Unknown error'));
   }
 }
