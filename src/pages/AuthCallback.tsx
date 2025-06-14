@@ -62,9 +62,8 @@ const AuthCallback: React.FC = () => {
       await supabaseClient.auth.setSession(sessionData);
       console.log('set session in supabase: ');
 
-      console.log('Test setting something in more global storage');
       console.log('test sending post message from window');
-// After getting session from Supabase or parsing from URL hash
+      // After getting session from Supabase or parsing from URL hash
       window.postMessage(
         {
           source: "frootful-auth",

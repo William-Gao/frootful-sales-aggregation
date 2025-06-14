@@ -253,8 +253,20 @@ document.addEventListener('DOMContentLoaded', () => {
   // Check SPA authentication state
   async function checkSPAAuthState(): Promise<{ isAuthenticated: boolean; user?: any }> {
     try {
-      const { data: { session }, error } = await supabaseClient.auth.getSession();
-      console.log('CheckSPAAuthState - this is session: ', session);
+      let { data: { session }, error } = await supabaseClient.auth.getSession();
+
+      if (!session) {
+        console.log('No supabase session detected, checking local storage');
+        session = await chrome.storage.local.get('session')
+        if (session) {
+          await supabaseClient.auth.setSession(session);
+          console.log("Found session in local storage, ✅ Supabase session hydrated");
+        } else {
+          console.warn("⚠️ No session found in chrome.storage.local or supabase. Unauthenticated");
+          return { isAuthenticated: false }
+        }
+      }
+      console.log('Found a session from supabase getSession() method');
       return { isAuthenticated: true, user: session.user };
     } catch (error) {
       console.error('Error checking SPA auth state:', error);
