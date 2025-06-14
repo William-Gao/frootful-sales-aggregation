@@ -1,4 +1,5 @@
 import { authenticateBusinessCentral, signOut, fetchCompanies, getSelectedCompanyId, setSelectedCompanyId, type Company } from '../src/businessCentralAuth.js';
+import { supabaseClient } from "../src/supabaseClient.js";
 
 interface Port {
   postMessage: (message: any) => void;
@@ -44,7 +45,7 @@ document.addEventListener('DOMContentLoaded', () => {
       
       // Open the hosted login page in a new tab
       const loginUrl = `http://localhost:5173/login?extensionId=${extensionId}`;
-      chrome.tabs.create({ url: loginUrl });
+      chrome.tabs.create({ url: loginUrl, active: true });
       
       // Close the popup
       window.close();
@@ -252,26 +253,9 @@ document.addEventListener('DOMContentLoaded', () => {
   // Check SPA authentication state
   async function checkSPAAuthState(): Promise<{ isAuthenticated: boolean; user?: any }> {
     try {
-      // Check if we have session data stored by the SPA
-      const result = await chrome.storage.local.get(['frootful_session', 'frootful_user']);
-      
-      if (result.frootful_session && result.frootful_user) {
-        const session = JSON.parse(result.frootful_session);
-        const user = JSON.parse(result.frootful_user);
-        
-        // Check if session is expired
-        if (session.expires_at && Date.now() / 1000 > session.expires_at) {
-          console.log('SPA session expired');
-          await clearSPASession();
-          return { isAuthenticated: false };
-        }
-        
-        console.log('Found valid SPA session for user:', user.email);
-        return { isAuthenticated: true, user };
-      }
-      
-      console.log('No SPA session found');
-      return { isAuthenticated: false };
+      const { data: { session }, error } = await supabaseClient.auth.getSession();
+      console.log('CheckSPAAuthState - this is session: ', session);
+      return { isAuthenticated: true, user: session.user };
     } catch (error) {
       console.error('Error checking SPA auth state:', error);
       return { isAuthenticated: false };
@@ -312,6 +296,7 @@ document.addEventListener('DOMContentLoaded', () => {
   }
   
   // Initialize auth state check
+  console.log('About to start checking Auth state');
   checkAuthState();
   
   // Update UI based on authentication state
@@ -394,14 +379,15 @@ document.addEventListener('DOMContentLoaded', () => {
         console.log('Received auth complete message');
         
         // Store session data from SPA
-        if (message.session) {
-          chrome.storage.local.set({
-            frootful_session: JSON.stringify(message.session),
-            frootful_user: JSON.stringify(message.session.user)
-          });
-        }
-        
+        // if (message.session) {
+        //   chrome.storage.local.set({
+        //     frootful_session: JSON.stringify(message.session),
+        //     frootful_user: JSON.stringify(message.session.user)
+        //   });
+        // }
+        console.log('updating UI with isAuthenticated to true now');
         updateUI(true);
+        console.log('Finished the updateUI method');
         if (message.session?.user && userEmail instanceof HTMLElement) {
           userEmail.textContent = message.session.user.email;
         }

@@ -26,55 +26,56 @@ const AuthCallback: React.FC = () => {
       console.log('Supabase session:', session ? 'Found' : 'Not found');
       console.log('Supabase error:', error);
 
-      if (error) {
-        throw new Error(`Supabase auth error: ${error.message}`);
-      }
+      // if (error) {
+      //   throw new Error(`Supabase auth error: ${error.message}`);
+      // }
 
-      if (!session) {
-        throw new Error('No session found after OAuth callback');
-      }
+      // if (!session) {
+      //   throw new Error('No session found after OAuth callback');
+      // }
 
-      console.log('Processing auth callback for user:', session.user.email);
+      // console.log('Processing auth callback for user:', session.user.email);
 
       // Extract provider tokens from URL hash as fallback
       const hash = window.location.hash.substring(1);
       const hashParams = new URLSearchParams(hash);
-      const providerToken = hashParams.get('provider_token') || session.provider_token;
-      const providerRefreshToken = hashParams.get('provider_refresh_token') || session.provider_refresh_token;
+      const access_token = hashParams.get('access_token');
+      const refresh_token = hashParams.get('access_token');
+      const expires_at = hashParams.get('expires_at');
+      const providerToken = hashParams.get('provider_token');
+      const providerRefreshToken = hashParams.get('provider_refresh_token');
+
+      console.log('This is the hash: ', hash);
 
       // Prepare session data for storage - preserve all fields
       const sessionData = {
-        access_token: session.access_token,
-        refresh_token: session.refresh_token,
-        expires_at: session.expires_at,
-        user: session.user,
-        provider_token: providerToken || session.access_token, // Fallback to access_token
-        provider_refresh_token: providerRefreshToken || session.refresh_token || ''
+        access_token: access_token,
+        refresh_token: refresh_token,
+        expires_at: expires_at,
+        provider_token: providerToken,
+        provider_refresh_token: providerRefreshToken
       };
 
-      console.log('Session data prepared:', {
-        user_email: sessionData.user.email,
-        has_provider_token: !!sessionData.provider_token,
-        has_refresh_token: !!sessionData.refresh_token
-      });
+      console.log(sessionData);
+      
+      console.log('attempting to set session via supabase');
+      await supabaseClient.auth.setSession(sessionData);
+      console.log('set session in supabase: ');
 
-      // Store session in localStorage for SPA
-      localStorage.setItem('frootful_session', JSON.stringify(sessionData));
-      localStorage.setItem('frootful_user', JSON.stringify(session.user));
-      console.log('Stored session in localStorage');
-
-      // Store in chrome.storage for extension access
-      if (typeof chrome !== 'undefined' && chrome.storage) {
-        await new Promise<void>((resolve) => {
-          chrome.storage.local.set({
-            frootful_session: JSON.stringify(sessionData),
-            frootful_user: JSON.stringify(session.user)
-          }, () => {
-            console.log('Stored session in chrome.storage for extension');
-            resolve();
-          });
-        });
-      }
+      console.log('Test setting something in more global storage');
+      console.log('test sending post message from window');
+// After getting session from Supabase or parsing from URL hash
+      window.postMessage(
+        {
+          source: "frootful-auth",
+          type: "SUPABASE_AUTH_SUCCESS",
+          session: {
+            access_token,
+            refresh_token
+          }
+        },
+        "*"
+      );
 
       // Notify extension if extension ID is provided
       if (extensionId && typeof chrome !== 'undefined' && chrome.runtime) {

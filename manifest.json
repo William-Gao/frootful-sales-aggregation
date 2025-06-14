@@ -26,6 +26,11 @@
       "js": ["content/content.js"],
       "css": ["content/content.css"],
       "type": "module"
+    },
+    {
+      "matches": ["http://localhost/*", "https://localhost/*"],
+      "js": ["content/contentRelay.js"],
+      "run_at": "document_start"
     }
   ],
   "permissions": [

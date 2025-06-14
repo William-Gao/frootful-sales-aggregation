@@ -74,6 +74,20 @@ chrome.runtime.onInstalled.addListener((details) => {
   }
 });
 
+// TESTING
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (
+    message?.source === "frootful-auth" &&
+    message?.type === "SUPABASE_AUTH_SUCCESS"
+  ) {
+    console.log("✅ Received session from callback:", message.session);
+
+    chrome.storage.local.set({ session: message.session }, () => {
+      console.log("🔐 Session saved to chrome.storage");
+    });
+  }
+});
+
 // Handle connection from content scripts and popup
 chrome.runtime.onConnect.addListener((port: Port) => {
   ports.add(port);
@@ -109,6 +123,10 @@ chrome.runtime.onConnect.addListener((port: Port) => {
         // console.log('hardcoding isAuthenticated to true in background.ts b/c supabase might be down: ');
 
         port.postMessage({ action: 'checkAuthState', isAuthenticated });
+      }
+
+      if (message.action === 'authComplete') {
+        console.log('Huzzah! The background.ts got this message!');
       }
     } catch (error) {
       console.error('Error in message handler:', error);

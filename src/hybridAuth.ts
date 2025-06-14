@@ -53,6 +53,7 @@ class HybridAuthManager {
       chrome.runtime.onMessageExternal.addListener(
         (message: AuthMessage, sender: chrome.runtime.MessageSender, sendResponse: (response: any) => void) => {
           if (message.action === 'authComplete') {
+            console.log('Inside the listen for messages from auth callback section');
             this.handleAuthComplete(message.session);
             sendResponse({ success: true });
           }
@@ -62,6 +63,7 @@ class HybridAuthManager {
 
     // Also listen for postMessage events (fallback)
     if (typeof window !== 'undefined') {
+      console.log('Inside the postMessages thing, window !==undefined');
       window.addEventListener('message', (event: MessageEvent<AuthMessage>) => {
         if (event.data.action === 'authComplete') {
           this.handleAuthComplete(event.data.session);
@@ -189,6 +191,7 @@ class HybridAuthManager {
   async signInWithGoogleWindow(): Promise<AuthSession> {
     return new Promise<AuthSession>((resolve, reject) => {
       try {
+        console.log('is signInWithGoogleWindow still running????');
         // Get extension ID for callback
         const extensionId = typeof chrome !== 'undefined' && chrome.runtime ? chrome.runtime.id : '';
         
@@ -220,16 +223,19 @@ class HybridAuthManager {
             console.log('Auth success handler called, processing session...');
             
             // Set the supabase session  
-            if (this.supabase) {
-              await this.supabase.auth.setSession(session);
-              console.log('Successfully set Supabase session');
-            }
+            // if (this.supabase) {
+            //   await this.supabase.auth.setSession(session);
+            //   console.log('Successfully set Supabase session');
+            // }
             
             // Store the session locally
-            this.currentSession = session;
-            await this.storeSession(session);
+            // this.currentSession = session;
+            // await this.storeSession(session);
             
             // Store the provider tokens in backend
+
+            const { data: { session }, error } = await supabaseClient.auth.getSession();
+            console.log('THis is session in hybridauth.ts file: ', session);
             await providerTokenManager.storeTokens({
               provider: 'google',
               accessToken: session.provider_token || session.access_token,
@@ -293,10 +299,34 @@ class HybridAuthManager {
     });
   }
 
-  private handleAuthComplete(session: AuthSession): void {
-    console.log('Auth complete received:', session.user?.email || 'Unknown user');
-    if (typeof window !== 'undefined' && window.frootfulAuthSuccess) {
-      window.frootfulAuthSuccess(session);
+  private async handleAuthComplete(session: AuthSession): void {
+    console.log('HybridAuth.ts - Auth complete received:', session.user?.email || 'Unknown user');
+    try {
+      const { data: { session }, error } = await supabaseClient.auth.getSession();
+      console.log('THis is session in hybridauth.ts file: ', session);
+      await providerTokenManager.storeTokens({
+        provider: 'google',
+        accessToken: session.provider_token || session.access_token,
+        refreshToken: session.provider_refresh_token || session.refresh_token,
+        expiresAt: session.expires_at ? new Date(session.expires_at * 1000).toISOString() : undefined
+      });
+      
+      console.log('Successfully stored provider tokens in backend');
+      
+      // Notify other parts of the extension about auth state change
+      this.notifyAuthStateChange(true, session.user);
+      
+      console.log('Authentication process completed successfully');
+      resolve(session);
+    } catch (error) {
+      console.error('Error during auth completion:', error);
+      // Still resolve with session even if backend storage fails
+      resolve(session);
+    } finally {
+      // Delay cleanup to ensure all operations complete
+      setTimeout(() => {
+        this.cleanup(false); // Don't force close the window immediately
+      }, 1000);
     }
   }
 
