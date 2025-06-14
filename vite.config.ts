@@ -53,7 +53,11 @@ export default defineConfig({
           }
           return '[name].js';
         },
-        chunkFileNames: '[name].js',
+        chunkFileNames: (chunkInfo) => {
+          // Prevent underscore prefixes in chunk names
+          const name = chunkInfo.name || 'chunk';
+          return name.startsWith('_') ? name.substring(1) + '.js' : '[name].js';
+        },
         assetFileNames: (assetInfo) => {
           if (assetInfo.name?.endsWith('.css')) {
             if (assetInfo.name.includes('content/')) {
@@ -74,7 +78,13 @@ export default defineConfig({
           }
           return '[name][extname]';
         },
-        manualChunks: undefined // Disable code splitting
+        manualChunks: (id) => {
+          // Prevent automatic chunking that creates underscore files
+          if (id.includes('node_modules')) {
+            return 'vendor';
+          }
+          return undefined;
+        }
       }
     },
     outDir: 'dist',
