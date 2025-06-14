@@ -1,3 +1,4 @@
+// Update the window-based authentication to use the new login URL
 import { supabaseClient } from './supabaseClient.js';
 import { providerTokenManager } from './tokenManager.js';
 
@@ -101,7 +102,7 @@ class HybridAuthManager {
     
     try {
       if (this.canUseWindowAuth()) {
-        console.log('Using window-based authentication');
+        console.log('Using window-based authentication with new SPA flow');
         return await this.signInWithGoogleWindow();
       } else if (this.canUseChromeIdentity()) {
         console.log('Using Chrome Identity API authentication');
@@ -184,12 +185,15 @@ class HybridAuthManager {
     });
   }
 
-  // Window-based authentication (for content scripts and popups)
+  // Window-based authentication (for content scripts and popups) - Updated to use new SPA
   async signInWithGoogleWindow(): Promise<AuthSession> {
     return new Promise<AuthSession>((resolve, reject) => {
       try {
-        // Use localhost URL since you're serving with npx serve
-        const loginUrl = 'http://localhost:5173/auth/login.html';
+        // Get extension ID for callback
+        const extensionId = typeof chrome !== 'undefined' && chrome.runtime ? chrome.runtime.id : '';
+        
+        // Use the new SPA login URL
+        const loginUrl = `http://localhost:5173/login?extensionId=${extensionId}`;
         
         console.log('Opening auth window:', loginUrl);
         

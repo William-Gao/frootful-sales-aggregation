@@ -85,7 +85,9 @@ document.addEventListener('DOMContentLoaded', async () => {
         }, '*');
         showSuccess();
       } else {
-        showError('Unable to communicate with extension');
+        // Redirect to dashboard since we can't communicate with extension
+        console.log('No opener window, redirecting to dashboard...');
+        window.location.href = '/dashboard';
       }
     }
 
@@ -98,15 +100,11 @@ document.addEventListener('DOMContentLoaded', async () => {
     loadingState.style.display = 'none';
     successState.style.display = 'block';
     
-    // Keep window open longer to ensure proper communication
-    // Don't auto-close - let the parent extension handle closing
-    console.log('Authentication successful - keeping window open for proper communication');
-    
-    // Optional: Close after a longer delay to ensure communication completes
+    // Redirect to dashboard after a short delay
     setTimeout(() => {
-      console.log('Closing auth window after successful communication');
-      window.close();
-    }, 3000); // Increased delay to 3 seconds
+      console.log('Redirecting to dashboard...');
+      window.location.href = '/dashboard';
+    }, 2000);
   }
 
   function showError(message) {

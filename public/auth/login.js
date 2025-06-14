@@ -1,11 +1,15 @@
 document.addEventListener('DOMContentLoaded', () => {
   const btn = document.getElementById('google-signin');
   btn.addEventListener('click', () => {
+    // Get extension ID from URL params if available
+    const urlParams = new URLSearchParams(window.location.search);
+    const extensionId = urlParams.get('extensionId');
+    
     // 1) Base Supabase URL
     const SUPA_URL = 'https://zkglvdfppodwlgzhfgqs.supabase.co';
 
     // 2) Where we want to end up after Supabase has exchanged the code
-    const callback = `${window.location.origin}/auth/callback.html`;
+    const callback = `${window.location.origin}/auth/callback${extensionId ? `?extensionId=${extensionId}` : ''}`;
     const encoded = encodeURIComponent(callback);
 
     // 3) Build the authorize URL (code flow → gets refresh_token)
