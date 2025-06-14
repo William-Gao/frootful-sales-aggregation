@@ -26,7 +26,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   let isAuthenticating = false;
   
-  // Handle Google authentication using hybrid flow
+  // Handle Google authentication - redirect to hosted login page
   loginBtn.addEventListener('click', async () => {
     if (isAuthenticating) {
       console.log('Authentication already in progress');
@@ -36,28 +36,23 @@ document.addEventListener('DOMContentLoaded', () => {
     try {
       isAuthenticating = true;
       loginBtn.disabled = true;
-      loginBtn.textContent = 'Signing in...';
+      loginBtn.textContent = 'Opening login page...';
       
-      console.log('Starting Google authentication...');
-      const session = await hybridAuth.signInWithGoogle();
+      console.log('Redirecting to hosted login page...');
       
-      console.log('Google authentication successful, updating UI...');
-      updateUI(true);
-      if (userEmail instanceof HTMLElement) {
-        userEmail.textContent = session.user.email;
-      }
-      showSuccess('Successfully signed in with Google!');
+      // Get extension ID for callback
+      const extensionId = chrome.runtime.id;
       
-      // Check if Business Central is already connected
-      await checkBusinessCentralConnection();
+      // Open the hosted login page in a new tab
+      const loginUrl = `http://localhost:5173/login?extensionId=${extensionId}`;
+      chrome.tabs.create({ url: loginUrl });
+      
+      // Close the popup
+      window.close();
       
     } catch (error) {
-      console.error('Google auth error:', error);
-      if (error instanceof Error && error.message.includes('popups')) {
-        showError('Please allow popups for this extension to sign in');
-      } else {
-        showError('Failed to sign in with Google: ' + (error instanceof Error ? error.message : 'Unknown error'));
-      }
+      console.error('Login redirect error:', error);
+      showError('Failed to open login page: ' + (error instanceof Error ? error.message : 'Unknown error'));
     } finally {
       isAuthenticating = false;
       loginBtn.disabled = false;
@@ -349,6 +344,15 @@ document.addEventListener('DOMContentLoaded', () => {
             userEmail.textContent = message.user.email;
           }
         }
+      }
+      
+      if (message.action === 'authComplete') {
+        console.log('Received auth complete message');
+        updateUI(true);
+        if (message.session?.user && userEmail instanceof HTMLElement) {
+          userEmail.textContent = message.session.user.email;
+        }
+        checkBusinessCentralConnection();
       }
     });
   }
