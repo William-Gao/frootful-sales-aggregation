@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { CheckCircle, ExternalLink, Settings, Zap, Building2, Database, ArrowRight, Loader2 } from 'lucide-react';
+import { supabaseClient } from '../supabaseClient';
 
 interface User {
   id: string;
@@ -48,23 +49,15 @@ const Dashboard: React.FC = () => {
 
   const checkAuthState = async () => {
     try {
-      // Check if we have a session from URL hash (OAuth callback)
-      const hash = window.location.hash.substring(1);
-      const params = new URLSearchParams(hash);
-      const accessToken = params.get('access_token');
+      // First check if we have a Supabase session
+      const { data: { session }, error } = await supabaseClient.auth.getSession();
       
-      if (accessToken) {
-        // We have tokens from OAuth callback, get user info
-        const providerToken = params.get('provider_token') || accessToken;
-        const userResponse = await fetch(`https://www.googleapis.com/oauth2/v1/userinfo?access_token=${providerToken}`);
-        const userInfo = await userResponse.json();
-        setUser(userInfo);
+      if (session && !error) {
+        console.log('Found Supabase session for user:', session.user.email);
+        setUser(session.user);
         
-        // Store session and notify extension
-        await storeSession(accessToken, params, userInfo);
-        
-        // Clear hash from URL
-        window.history.replaceState(null, '', window.location.pathname + window.location.search);
+        // Store session data for consistency
+        await storeSessionData(session);
       } else {
         // Check for existing session in localStorage
         const sessionData = localStorage.getItem('frootful_session');
@@ -82,9 +75,11 @@ const Dashboard: React.FC = () => {
             return;
           }
           
+          console.log('Found localStorage session for user:', user.email);
           setUser(user);
         } else {
           // No valid session, redirect to login
+          console.log('No valid session found, redirecting to login');
           window.location.href = '/login';
           return;
         }
@@ -124,31 +119,26 @@ const Dashboard: React.FC = () => {
     }
   };
 
-  const storeSession = async (accessToken: string, params: URLSearchParams, userInfo: any) => {
+  const storeSessionData = async (session: any) => {
     try {
-      const refreshToken = params.get('refresh_token');
-      const expiresIn = params.get('expires_in');
-      const providerToken = params.get('provider_token');
-      const providerRefreshToken = params.get('provider_refresh_token');
-
       const sessionData = {
-        access_token: accessToken,
-        refresh_token: refreshToken || '',
-        expires_at: expiresIn ? Math.floor(Date.now() / 1000) + parseInt(expiresIn, 10) : undefined,
-        user: userInfo,
-        provider_token: providerToken || accessToken,
-        provider_refresh_token: providerRefreshToken || refreshToken || ''
+        access_token: session.access_token,
+        refresh_token: session.refresh_token,
+        expires_at: session.expires_at,
+        user: session.user,
+        provider_token: session.provider_token || session.access_token,
+        provider_refresh_token: session.provider_refresh_token || session.refresh_token || ''
       };
 
       // Store in localStorage
       localStorage.setItem('frootful_session', JSON.stringify(sessionData));
-      localStorage.setItem('frootful_user', JSON.stringify(userInfo));
+      localStorage.setItem('frootful_user', JSON.stringify(session.user));
 
       // Also store in chrome.storage for extension access
       if (typeof chrome !== 'undefined' && chrome.storage) {
         chrome.storage.local.set({
           frootful_session: JSON.stringify(sessionData),
-          frootful_user: JSON.stringify(userInfo)
+          frootful_user: JSON.stringify(session.user)
         });
       }
 
@@ -191,17 +181,26 @@ const Dashboard: React.FC = () => {
     window.open('https://mail.google.com', '_blank');
   };
 
-  const clearSession = () => {
+  const clearSession = async () => {
+    // Clear localStorage
     localStorage.removeItem('frootful_session');
     localStorage.removeItem('frootful_user');
     
+    // Clear chrome.storage
     if (typeof chrome !== 'undefined' && chrome.storage) {
       chrome.storage.local.remove(['frootful_session', 'frootful_user']);
     }
+
+    // Sign out from Supabase
+    try {
+      await supabaseClient.auth.signOut();
+    } catch (error) {
+      console.warn('Error signing out from Supabase:', error);
+    }
   };
 
-  const handleSignOut = () => {
-    clearSession();
+  const handleSignOut = async () => {
+    await clearSession();
     window.location.href = '/login';
   };
 
@@ -235,12 +234,12 @@ const Dashboard: React.FC = () => {
               {user && (
                 <div className="flex items-center space-x-3">
                   <div className="text-right">
-                    <p className="text-sm font-medium text-gray-900">{user.name || user.email}</p>
+                    <p className="text-sm font-medium text-gray-900">{user.user_metadata?.full_name || user.email}</p>
                     <p className="text-xs text-gray-500">Connected to Gmail</p>
                   </div>
-                  {user.picture && (
+                  {user.user_metadata?.avatar_url && (
                     <img
-                      src={user.picture}
+                      src={user.user_metadata.avatar_url}
                       alt="Profile"
                       className="w-8 h-8 rounded-full"
                     />

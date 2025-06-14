@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { CheckCircle, Loader2, AlertCircle } from 'lucide-react';
-import { getSupabaseClient } from 'supabaseClient.ts'
+import { supabaseClient } from '../supabaseClient';
 
 const AuthCallback: React.FC = () => {
   const [status, setStatus] = useState<'loading' | 'success' | 'error'>('loading');
@@ -12,93 +12,97 @@ const AuthCallback: React.FC = () => {
 
   const handleAuthCallback = async () => {
     try {
-      console.log('Auth success handler called, processing session...');
+      console.log('Auth callback processing started...');
+      
       // Get URL parameters
       const urlParams = new URLSearchParams(window.location.search);
       const extensionId = urlParams.get('extensionId');
       
-      // Get session from URL hash (Supabase OAuth callback)
-      const hash = window.location.hash.substring(1);
-      const hashParams = new URLSearchParams(hash);
-      const accessToken = hashParams.get('access_token');
-      const refreshToken = hashParams.get('refresh_token');
-      const expiresIn = hashParams.get('expires_in');
-      const providerToken = hashParams.get('provider_token');
-      const providerRefreshToken = hashParams.get('provider_refresh_token');
+      console.log('Extension ID from URL:', extensionId);
 
-    
-      // Initialize Supabase
-      const supabase = await getSupabaseClient();
-
-      console.log('This is hash inside the AuthCallback.tsx: ', hash);
-      console.log('This is supabase inside the AuthCallback.tsx: ', supabase);
-
+      // Get session from Supabase (it should automatically detect the OAuth callback)
       const { data: { session }, error } = await supabaseClient.auth.getSession();
-      console.log('This is session data from supabase get session: ', session);
+      
+      console.log('Supabase session:', session ? 'Found' : 'Not found');
+      console.log('Supabase error:', error);
 
-      if (!accessToken) {
-        throw new Error('No access token found in callback');
+      if (error) {
+        throw new Error(`Supabase auth error: ${error.message}`);
       }
 
-      console.log('Processing auth callback with tokens, first trying to store the session using the supabase method');
+      if (!session) {
+        throw new Error('No session found after OAuth callback');
+      }
 
-      
-            
-      // Set the supabase session'
+      console.log('Processing auth callback for user:', session.user.email);
+
+      // Extract provider tokens from URL hash as fallback
+      const hash = window.location.hash.substring(1);
+      const hashParams = new URLSearchParams(hash);
+      const providerToken = hashParams.get('provider_token') || session.provider_token;
+      const providerRefreshToken = hashParams.get('provider_refresh_token') || session.provider_refresh_token;
+
+      // Prepare session data for storage - preserve all fields
       const sessionData = {
         access_token: session.access_token,
         refresh_token: session.refresh_token,
         expires_at: session.expires_at,
-        user: session.user, // Keep full user object
+        user: session.user,
         provider_token: providerToken || session.access_token, // Fallback to access_token
         provider_refresh_token: providerRefreshToken || session.refresh_token || ''
       };
-      await supabase.storeSession(sessionData);
-      // Get user info from Google
-      const userResponse = await fetch(`https://www.googleapis.com/oauth2/v1/userinfo?access_token=${providerToken || accessToken}`);
-      
-      if (!userResponse.ok) {
-        throw new Error('Failed to get user information');
-      }
-      
-      const userInfo = await userResponse.json();
-      console.log('Got user info:', userInfo.email);
+
+      console.log('Session data prepared:', {
+        user_email: sessionData.user.email,
+        has_provider_token: !!sessionData.provider_token,
+        has_refresh_token: !!sessionData.refresh_token
+      });
 
       // Store session in localStorage for SPA
       localStorage.setItem('frootful_session', JSON.stringify(sessionData));
-      localStorage.setItem('frootful_user', JSON.stringify(userInfo));
+      localStorage.setItem('frootful_user', JSON.stringify(session.user));
       console.log('Stored session in localStorage');
 
+      // Store in chrome.storage for extension access
+      if (typeof chrome !== 'undefined' && chrome.storage) {
+        await new Promise<void>((resolve) => {
+          chrome.storage.local.set({
+            frootful_session: JSON.stringify(sessionData),
+            frootful_user: JSON.stringify(session.user)
+          }, () => {
+            console.log('Stored session in chrome.storage for extension');
+            resolve();
+          });
+        });
+      }
+
       // Notify extension if extension ID is provided
-      if (extensionId) {
+      if (extensionId && typeof chrome !== 'undefined' && chrome.runtime) {
         console.log('Notifying extension:', extensionId);
         
         try {
-          // Try chrome.runtime.sendMessage first
-          if (typeof chrome !== 'undefined' && chrome.runtime) {
-            chrome.runtime.sendMessage(extensionId, {
-              action: 'authComplete',
-              session: sessionData
-            }, (response) => {
-              if (chrome.runtime.lastError) {
-                console.warn('Chrome runtime error:', chrome.runtime.lastError);
-              } else {
-                console.log('Successfully notified extension via chrome.runtime');
-              }
-            });
-          }
-
-          // Also store in chrome.storage for the extension to access
-          if (typeof chrome !== 'undefined' && chrome.storage) {
-            chrome.storage.local.set({
-              frootful_session: JSON.stringify(sessionData),
-              frootful_user: JSON.stringify(userInfo)
-            }, () => {
-              console.log('Stored session in chrome.storage for extension');
-            });
-          }
+          chrome.runtime.sendMessage(extensionId, {
+            action: 'authComplete',
+            session: sessionData
+          }, (response) => {
+            if (chrome.runtime.lastError) {
+              console.warn('Chrome runtime error:', chrome.runtime.lastError);
+            } else {
+              console.log('Successfully notified extension via chrome.runtime');
+            }
+          });
         } catch (error) {
-          console.warn('Could not notify extension:', error);
+          console.warn('Could not send message to extension:', error);
+        }
+
+        // Also try sending to current extension context
+        try {
+          chrome.runtime.sendMessage({
+            action: 'authComplete',
+            session: sessionData
+          });
+        } catch (error) {
+          console.warn('Could not send message to current extension context:', error);
         }
       }
 

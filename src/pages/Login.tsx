@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { LogIn, Shield, Zap } from 'lucide-react';
-import AuthAPI from '../api/auth';
+import { supabaseClient } from '../supabaseClient';
 
 const Login: React.FC = () => {
   const [isLoading, setIsLoading] = useState(false);
@@ -24,10 +24,23 @@ const Login: React.FC = () => {
         return;
       }
 
-      // Check if user is already signed in using our auth API
-      const { isAuthenticated } = await AuthAPI.checkAuth();
-      if (isAuthenticated) {
+      // Check if user is already signed in using Supabase
+      const { data: { session }, error } = await supabaseClient.auth.getSession();
+      if (session && !error) {
+        console.log('User already authenticated, redirecting to dashboard');
         window.location.href = '/dashboard';
+        return;
+      }
+
+      // Check localStorage as fallback
+      const sessionData = localStorage.getItem('frootful_session');
+      if (sessionData) {
+        const session = JSON.parse(sessionData);
+        if (session.expires_at && Date.now() / 1000 < session.expires_at) {
+          console.log('Found valid localStorage session, redirecting to dashboard');
+          window.location.href = '/dashboard';
+          return;
+        }
       }
     } catch (error) {
       console.error('Error checking auth state:', error);
@@ -55,6 +68,8 @@ const Login: React.FC = () => {
         `&access_type=offline` +
         `&prompt=consent` +
         `&scopes=email profile https://www.googleapis.com/auth/gmail.readonly`;
+
+      console.log('Redirecting to Google OAuth:', authUrl);
 
       // Redirect to Google OAuth
       window.location.href = authUrl;
