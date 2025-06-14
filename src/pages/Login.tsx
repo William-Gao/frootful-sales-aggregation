@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { LogIn, Shield, Zap } from 'lucide-react';
+import AuthAPI from '../api/auth';
 
 const Login: React.FC = () => {
   const [isLoading, setIsLoading] = useState(false);
@@ -23,16 +24,10 @@ const Login: React.FC = () => {
         return;
       }
 
-      // Check if user is already signed in
-      const response = await fetch('/api/auth/check', {
-        credentials: 'include'
-      });
-      
-      if (response.ok) {
-        const { isAuthenticated } = await response.json();
-        if (isAuthenticated) {
-          window.location.href = '/dashboard';
-        }
+      // Check if user is already signed in using our auth API
+      const { isAuthenticated } = await AuthAPI.checkAuth();
+      if (isAuthenticated) {
+        window.location.href = '/dashboard';
       }
     } catch (error) {
       console.error('Error checking auth state:', error);

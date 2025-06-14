@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { CheckCircle, Loader2, AlertCircle } from 'lucide-react';
+import AuthAPI from '../api/auth';
 
 const AuthCallback: React.FC = () => {
   const [status, setStatus] = useState<'loading' | 'success' | 'error'>('loading');
@@ -30,29 +31,25 @@ const AuthCallback: React.FC = () => {
 
       // Get user info from Google
       const userResponse = await fetch(`https://www.googleapis.com/oauth2/v1/userinfo?access_token=${providerToken || accessToken}`);
+      
+      if (!userResponse.ok) {
+        throw new Error('Failed to get user information');
+      }
+      
       const userInfo = await userResponse.json();
 
       // Prepare session data
       const sessionData = {
         access_token: accessToken,
-        refresh_token: refreshToken,
+        refresh_token: refreshToken || '',
         expires_at: expiresIn ? Math.floor(Date.now() / 1000) + parseInt(expiresIn, 10) : undefined,
         user: userInfo,
         provider_token: providerToken || accessToken,
         provider_refresh_token: providerRefreshToken || refreshToken || ''
       };
 
-      // Store session in backend
-      await fetch('/api/auth/session', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        credentials: 'include',
-        body: JSON.stringify({
-          session: sessionData
-        })
-      });
+      // Store session using our auth API
+      await AuthAPI.storeSessionAPI(sessionData);
 
       // Notify extension if extension ID is provided
       if (extensionId && typeof chrome !== 'undefined' && chrome.runtime) {
@@ -61,6 +58,7 @@ const AuthCallback: React.FC = () => {
             action: 'authComplete',
             session: sessionData
           });
+          console.log('Successfully notified extension');
         } catch (error) {
           console.warn('Could not notify extension:', error);
         }

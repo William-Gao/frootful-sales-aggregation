@@ -1,11 +1,12 @@
 import React, { useEffect, useState } from 'react';
 import { CheckCircle, ExternalLink, Settings, Zap, Building2, Database, ArrowRight, Loader2 } from 'lucide-react';
+import AuthAPI from '../api/auth';
 
 interface User {
   id: string;
   email: string;
   name?: string;
-  avatar_url?: string;
+  picture?: string;
 }
 
 interface ERPConnection {
@@ -55,23 +56,21 @@ const Dashboard: React.FC = () => {
       
       if (accessToken) {
         // We have tokens from OAuth callback, get user info
-        const userResponse = await fetch(`https://www.googleapis.com/oauth2/v1/userinfo?access_token=${accessToken}`);
+        const providerToken = params.get('provider_token') || accessToken;
+        const userResponse = await fetch(`https://www.googleapis.com/oauth2/v1/userinfo?access_token=${providerToken}`);
         const userInfo = await userResponse.json();
         setUser(userInfo);
         
         // Store session and notify extension
-        await storeSession(accessToken, userInfo);
+        await storeSession(accessToken, params, userInfo);
         
         // Clear hash from URL
         window.history.replaceState(null, '', window.location.pathname + window.location.search);
       } else {
-        // Check for existing session
-        const response = await fetch('/api/auth/user', {
-          credentials: 'include'
-        });
+        // Check for existing session using our auth API
+        const { isAuthenticated, user: userData } = await AuthAPI.checkAuth();
         
-        if (response.ok) {
-          const userData = await response.json();
+        if (isAuthenticated && userData) {
           setUser(userData);
         } else {
           // No valid session, redirect to login
@@ -89,51 +88,43 @@ const Dashboard: React.FC = () => {
 
   const checkERPConnections = async () => {
     try {
-      // Check Business Central connection status
-      const response = await fetch('/api/erp/status', {
-        credentials: 'include'
-      });
+      // Check ERP connection status using our auth API
+      const { connections } = await AuthAPI.getERPStatus();
       
-      if (response.ok) {
-        const { connections } = await response.json();
-        
-        setErpConnections(prev => prev.map(erp => {
-          const connection = connections.find((c: any) => c.provider === erp.provider);
-          if (connection) {
-            return {
-              ...erp,
-              status: connection.connected ? 'connected' : 'disconnected',
-              companyName: connection.companyName
-            };
-          }
-          return erp;
-        }));
-      }
+      setErpConnections(prev => prev.map(erp => {
+        const connection = connections.find((c: any) => c.provider === erp.provider);
+        if (connection) {
+          return {
+            ...erp,
+            status: connection.connected ? 'connected' : 'disconnected',
+            companyName: connection.companyName
+          };
+        }
+        return erp;
+      }));
     } catch (error) {
       console.error('Error checking ERP connections:', error);
     }
   };
 
-  const storeSession = async (accessToken: string, userInfo: any) => {
+  const storeSession = async (accessToken: string, params: URLSearchParams, userInfo: any) => {
     try {
-      // Store session in backend
-      await fetch('/api/auth/session', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        credentials: 'include',
-        body: JSON.stringify({
-          accessToken,
-          user: userInfo
-        })
-      });
+      const refreshToken = params.get('refresh_token');
+      const expiresIn = params.get('expires_in');
+      const providerToken = params.get('provider_token');
+      const providerRefreshToken = params.get('provider_refresh_token');
 
-      // Notify extension about auth state change
-      notifyExtension('authStateChanged', {
-        isAuthenticated: true,
-        user: userInfo
-      });
+      const sessionData = {
+        access_token: accessToken,
+        refresh_token: refreshToken || '',
+        expires_at: expiresIn ? Math.floor(Date.now() / 1000) + parseInt(expiresIn, 10) : undefined,
+        user: userInfo,
+        provider_token: providerToken || accessToken,
+        provider_refresh_token: providerRefreshToken || refreshToken || ''
+      };
+
+      // Store session using our auth API
+      await AuthAPI.storeSessionAPI(sessionData);
     } catch (error) {
       console.error('Error storing session:', error);
     }
@@ -144,17 +135,9 @@ const Dashboard: React.FC = () => {
       setConnectingProvider(provider);
       
       if (provider === 'business_central') {
-        // Start Business Central OAuth flow
-        const response = await fetch('/api/erp/business-central/auth-url', {
-          credentials: 'include'
-        });
-        
-        if (response.ok) {
-          const { authUrl } = await response.json();
-          window.location.href = authUrl;
-        } else {
-          throw new Error('Failed to get auth URL');
-        }
+        // Start Business Central OAuth flow using our auth API
+        const { authUrl } = await AuthAPI.getBusinessCentralAuthUrl();
+        window.location.href = authUrl;
       } else {
         // Handle other ERP providers
         alert(`${provider} integration coming soon!`);
@@ -167,22 +150,13 @@ const Dashboard: React.FC = () => {
     }
   };
 
-  const notifyExtension = (action: string, data: any) => {
-    try {
-      // Try to send message to extension
-      if (typeof chrome !== 'undefined' && chrome.runtime) {
-        chrome.runtime.sendMessage(data.extensionId || chrome.runtime.id, {
-          action,
-          ...data
-        });
-      }
-    } catch (error) {
-      console.warn('Could not notify extension:', error);
-    }
-  };
-
   const openGmail = () => {
     window.open('https://mail.google.com', '_blank');
+  };
+
+  const handleSignOut = () => {
+    AuthAPI.clearSession();
+    window.location.href = '/login';
   };
 
   if (isLoading) {
@@ -218,18 +192,28 @@ const Dashboard: React.FC = () => {
                     <p className="text-sm font-medium text-gray-900">{user.name || user.email}</p>
                     <p className="text-xs text-gray-500">Connected to Gmail</p>
                   </div>
-                  {user.avatar_url && (
+                  {user.picture && (
                     <img
-                      src={user.avatar_url}
+                      src={user.picture}
                       alt="Profile"
                       className="w-8 h-8 rounded-full"
                     />
                   )}
                 </div>
               )}
-              <button className="p-2 text-gray-400 hover:text-gray-600 transition-colors">
-                <Settings className="w-5 h-5" />
-              </button>
+              <div className="relative group">
+                <button className="p-2 text-gray-400 hover:text-gray-600 transition-colors">
+                  <Settings className="w-5 h-5" />
+                </button>
+                <div className="absolute right-0 mt-2 w-48 bg-white rounded-md shadow-lg py-1 z-10 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200">
+                  <button
+                    onClick={handleSignOut}
+                    className="block w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
+                  >
+                    Sign Out
+                  </button>
+                </div>
+              </div>
             </div>
           </div>
         </div>
