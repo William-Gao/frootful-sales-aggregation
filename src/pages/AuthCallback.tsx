@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { CheckCircle, Loader2, AlertCircle } from 'lucide-react';
+import { getSupabaseClient } from 'supabaseClient.ts'
 
 const AuthCallback: React.FC = () => {
   const [status, setStatus] = useState<'loading' | 'success' | 'error'>('loading');
@@ -11,6 +12,7 @@ const AuthCallback: React.FC = () => {
 
   const handleAuthCallback = async () => {
     try {
+      console.log('Auth success handler called, processing session...');
       // Get URL parameters
       const urlParams = new URLSearchParams(window.location.search);
       const extensionId = urlParams.get('extensionId');
@@ -24,12 +26,34 @@ const AuthCallback: React.FC = () => {
       const providerToken = hashParams.get('provider_token');
       const providerRefreshToken = hashParams.get('provider_refresh_token');
 
+    
+      // Initialize Supabase
+      const supabase = await getSupabaseClient();
+
+      console.log('This is hash inside the AuthCallback.tsx: ', hash);
+      console.log('This is supabase inside the AuthCallback.tsx: ', supabase);
+
+      const { data: { session }, error } = await supabaseClient.auth.getSession();
+      console.log('This is session data from supabase get session: ', session);
+
       if (!accessToken) {
         throw new Error('No access token found in callback');
       }
 
-      console.log('Processing auth callback with tokens...');
+      console.log('Processing auth callback with tokens, first trying to store the session using the supabase method');
 
+      
+            
+      // Set the supabase session'
+      const sessionData = {
+        access_token: session.access_token,
+        refresh_token: session.refresh_token,
+        expires_at: session.expires_at,
+        user: session.user, // Keep full user object
+        provider_token: providerToken || session.access_token, // Fallback to access_token
+        provider_refresh_token: providerRefreshToken || session.refresh_token || ''
+      };
+      await supabase.storeSession(sessionData);
       // Get user info from Google
       const userResponse = await fetch(`https://www.googleapis.com/oauth2/v1/userinfo?access_token=${providerToken || accessToken}`);
       
@@ -39,16 +63,6 @@ const AuthCallback: React.FC = () => {
       
       const userInfo = await userResponse.json();
       console.log('Got user info:', userInfo.email);
-
-      // Prepare session data
-      const sessionData = {
-        access_token: accessToken,
-        refresh_token: refreshToken || '',
-        expires_at: expiresIn ? Math.floor(Date.now() / 1000) + parseInt(expiresIn, 10) : undefined,
-        user: userInfo,
-        provider_token: providerToken || accessToken,
-        provider_refresh_token: providerRefreshToken || refreshToken || ''
-      };
 
       // Store session in localStorage for SPA
       localStorage.setItem('frootful_session', JSON.stringify(sessionData));
