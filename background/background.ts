@@ -74,17 +74,85 @@ chrome.runtime.onInstalled.addListener((details) => {
   }
 });
 
-// TESTING
+// Handle authentication and sign-out messages
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-  if (
-    message?.source === "frootful-auth" &&
-    message?.type === "SUPABASE_AUTH_SUCCESS"
-  ) {
-    console.log("✅ Received session from callback:", message.session);
+  console.log('Background script received message:', message);
+  
+  if (message?.source === "frootful-auth") {
+    if (message?.type === "SUPABASE_AUTH_SUCCESS") {
+      console.log("✅ Received session from callback:", message.session);
 
-    chrome.storage.local.set({ session: message.session }, () => {
-      console.log("🔐 Session saved to chrome.storage");
+      chrome.storage.local.set({ session: message.session }, () => {
+        console.log("🔐 Session saved to chrome.storage");
+      });
+      
+      // Notify all connected ports about authentication state
+      ports.forEach(port => {
+        port.postMessage({ 
+          action: 'authStateChanged',
+          isAuthenticated: true 
+        });
+      });
+    } else if (message?.type === "SUPABASE_SIGN_OUT") {
+      console.log("🚪 Received sign out from SPA");
+      
+      // Clear all stored session data
+      chrome.storage.local.remove([
+        'session', 
+        'frootful_session', 
+        'frootful_user',
+        'bc_tokens' // Also clear Business Central tokens on sign out
+      ], () => {
+        console.log("🧹 Cleared all session data from chrome.storage");
+      });
+      
+      // Sign out from Supabase
+      supabaseClient.auth.signOut().then(() => {
+        console.log("🚪 Signed out from Supabase");
+      }).catch((error) => {
+        console.warn("Error signing out from Supabase:", error);
+      });
+      
+      // Notify all connected ports about authentication state
+      ports.forEach(port => {
+        port.postMessage({ 
+          action: 'authStateChanged',
+          isAuthenticated: false 
+        });
+      });
+    }
+  }
+  
+  // Handle direct sign out action
+  if (message?.action === 'signOut') {
+    console.log("🚪 Received direct sign out action");
+    
+    // Clear all stored session data
+    chrome.storage.local.remove([
+      'session', 
+      'frootful_session', 
+      'frootful_user',
+      'bc_tokens' // Also clear Business Central tokens on sign out
+    ], () => {
+      console.log("🧹 Cleared all session data from chrome.storage");
     });
+    
+    // Sign out from Supabase
+    supabaseClient.auth.signOut().then(() => {
+      console.log("🚪 Signed out from Supabase");
+    }).catch((error) => {
+      console.warn("Error signing out from Supabase:", error);
+    });
+    
+    // Notify all connected ports about authentication state
+    ports.forEach(port => {
+      port.postMessage({ 
+        action: 'authStateChanged',
+        isAuthenticated: false 
+      });
+    });
+    
+    sendResponse({ success: true });
   }
 });
 
@@ -119,8 +187,6 @@ chrome.runtime.onConnect.addListener((port: Port) => {
         const { data: { session }, error } = await supabaseClient.auth.getSession();
         console.log('Supabase session in background.ts:', session ? 'Found' : 'Not found');
         const isAuthenticated = session !== null && !error;
-        // const isAuthenticated = true;
-        // console.log('hardcoding isAuthenticated to true in background.ts b/c supabase might be down: ');
 
         port.postMessage({ action: 'checkAuthState', isAuthenticated });
       }
@@ -182,7 +248,7 @@ async function authenticate(): Promise<string> {
   });
 }
 
-// Revoke authentication
+// Revoke authentication - Enhanced to clear all session data
 async function revokeAuthentication(): Promise<void> {
   return new Promise((resolve, reject) => {
     chrome.identity.getAuthToken({ interactive: false }, async (token) => {
@@ -192,9 +258,19 @@ async function revokeAuthentication(): Promise<void> {
           await fetch(`https://accounts.google.com/o/oauth2/revoke?token=${token}`);
           
           // Remove token from cache
-          chrome.identity.removeCachedAuthToken({ token: token }, () => {
-            // Also sign out from Supabase
-            supabaseClient.auth.signOut();
+          chrome.identity.removeCachedAuthToken({ token: token }, async () => {
+            // Sign out from Supabase
+            await supabaseClient.auth.signOut();
+            
+            // Clear all stored session data
+            chrome.storage.local.remove([
+              'session', 
+              'frootful_session', 
+              'frootful_user',
+              'bc_tokens' // Also clear Business Central tokens
+            ], () => {
+              console.log("🧹 Cleared all session data during revoke");
+            });
             
             // Notify all connected ports about authentication state
             ports.forEach(port => {
@@ -209,7 +285,25 @@ async function revokeAuthentication(): Promise<void> {
           reject(error);
         }
       } else {
-        resolve(); // No token to revoke
+        // Still clear local data even if no token to revoke
+        await supabaseClient.auth.signOut();
+        chrome.storage.local.remove([
+          'session', 
+          'frootful_session', 
+          'frootful_user',
+          'bc_tokens'
+        ], () => {
+          console.log("🧹 Cleared all session data (no token to revoke)");
+        });
+        
+        // Notify all connected ports about authentication state
+        ports.forEach(port => {
+          port.postMessage({ 
+            action: 'authStateChanged',
+            isAuthenticated: false 
+          });
+        });
+        resolve();
       }
     });
   });

@@ -128,7 +128,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
 
-  // Handle logout
+  // Handle logout - Enhanced to clear all session data
   logoutBtn.addEventListener('click', async () => {
     if (isAuthenticating) {
       console.log('Authentication in progress, cannot logout');
@@ -147,6 +147,35 @@ document.addEventListener('DOMContentLoaded', () => {
       
       // Also clear any extension-specific auth
       await signOut();
+      
+      // Clear all chrome storage
+      if (typeof chrome !== 'undefined' && chrome.storage) {
+        await chrome.storage.local.remove([
+          'session', 
+          'frootful_session', 
+          'frootful_user',
+          'bc_tokens'
+        ]);
+        console.log('Cleared all session data from chrome.storage');
+      }
+      
+      // Sign out from Supabase
+      try {
+        await supabaseClient.auth.signOut();
+        console.log('Signed out from Supabase');
+      } catch (error) {
+        console.warn('Error signing out from Supabase:', error);
+      }
+      
+      // Send sign out message to background script
+      try {
+        chrome.runtime.sendMessage({
+          action: 'signOut'
+        });
+        console.log('Notified background script about sign out');
+      } catch (error) {
+        console.warn('Could not notify background script:', error);
+      }
       
       console.log('Sign out successful, updating UI...');
       updateUI(false);
@@ -257,17 +286,20 @@ document.addEventListener('DOMContentLoaded', () => {
 
       if (!session) {
         console.log('No supabase session detected, checking local storage');
-        session = await chrome.storage.local.get('session')
-        if (session) {
-          await supabaseClient.auth.setSession(session);
+        const storedSession = await chrome.storage.local.get('session');
+        if (storedSession.session) {
+          await supabaseClient.auth.setSession(storedSession.session);
           console.log("Found session in local storage, ✅ Supabase session hydrated");
+          // Get the session again after setting it
+          const { data: { session: newSession } } = await supabaseClient.auth.getSession();
+          session = newSession;
         } else {
           console.warn("⚠️ No session found in chrome.storage.local or supabase. Unauthenticated");
-          return { isAuthenticated: false }
+          return { isAuthenticated: false };
         }
       }
       console.log('Found a session from supabase getSession() method');
-      return { isAuthenticated: true, user: session.user };
+      return { isAuthenticated: true, user: session?.user };
     } catch (error) {
       console.error('Error checking SPA auth state:', error);
       return { isAuthenticated: false };
@@ -277,7 +309,7 @@ document.addEventListener('DOMContentLoaded', () => {
   // Clear SPA session
   async function clearSPASession(): Promise<void> {
     try {
-      await chrome.storage.local.remove(['frootful_session', 'frootful_user']);
+      await chrome.storage.local.remove(['frootful_session', 'frootful_user', 'session']);
       console.log('Cleared SPA session');
     } catch (error) {
       console.error('Error clearing SPA session:', error);
@@ -384,19 +416,19 @@ document.addEventListener('DOMContentLoaded', () => {
           if (userEmail instanceof HTMLElement) {
             userEmail.textContent = message.user.email;
           }
+        } else {
+          // Clear user info on sign out
+          if (userEmail instanceof HTMLElement) {
+            userEmail.textContent = 'user@example.com';
+          }
+          // Reset BC connection state
+          bcLoginBtn.classList.remove('hidden');
+          bcConnected.classList.add('hidden');
         }
       }
       
       if (message.action === 'authComplete') {
         console.log('Received auth complete message');
-        
-        // Store session data from SPA
-        // if (message.session) {
-        //   chrome.storage.local.set({
-        //     frootful_session: JSON.stringify(message.session),
-        //     frootful_user: JSON.stringify(message.session.user)
-        //   });
-        // }
         console.log('updating UI with isAuthenticated to true now');
         updateUI(true);
         console.log('Finished the updateUI method');

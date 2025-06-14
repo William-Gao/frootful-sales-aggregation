@@ -41,6 +41,7 @@ const Dashboard: React.FC = () => {
   ]);
   const [isLoading, setIsLoading] = useState(true);
   const [connectingProvider, setConnectingProvider] = useState<string | null>(null);
+  const [isSigningOut, setIsSigningOut] = useState(false);
 
   useEffect(() => {
     checkAuthState();
@@ -182,26 +183,77 @@ const Dashboard: React.FC = () => {
   };
 
   const clearSession = async () => {
-    // Clear localStorage
-    localStorage.removeItem('frootful_session');
-    localStorage.removeItem('frootful_user');
-    
-    // Clear chrome.storage
-    if (typeof chrome !== 'undefined' && chrome.storage) {
-      chrome.storage.local.remove(['frootful_session', 'frootful_user']);
-    }
-
-    // Sign out from Supabase
     try {
-      await supabaseClient.auth.signOut();
+      console.log('Clearing session from all storage locations...');
+      
+      // Clear localStorage
+      localStorage.removeItem('frootful_session');
+      localStorage.removeItem('frootful_user');
+      
+      // Clear chrome.storage
+      if (typeof chrome !== 'undefined' && chrome.storage) {
+        await chrome.storage.local.remove(['frootful_session', 'frootful_user', 'session']);
+        console.log('Cleared session from chrome.storage');
+      }
+
+      // Sign out from Supabase
+      try {
+        await supabaseClient.auth.signOut();
+        console.log('Signed out from Supabase');
+      } catch (error) {
+        console.warn('Error signing out from Supabase:', error);
+      }
+
+      // Notify extension about sign out
+      if (typeof chrome !== 'undefined' && chrome.runtime) {
+        try {
+          chrome.runtime.sendMessage({
+            action: 'signOut'
+          });
+          console.log('Notified extension about sign out');
+        } catch (error) {
+          console.warn('Could not notify extension about sign out:', error);
+        }
+      }
+
+      // Also try postMessage for content script communication
+      try {
+        window.postMessage({
+          source: "frootful-auth",
+          type: "SUPABASE_SIGN_OUT"
+        }, "*");
+        console.log('Posted sign out message to window');
+      } catch (error) {
+        console.warn('Could not post sign out message:', error);
+      }
+
+      console.log('Session cleared from all locations');
     } catch (error) {
-      console.warn('Error signing out from Supabase:', error);
+      console.error('Error clearing session:', error);
     }
   };
 
   const handleSignOut = async () => {
-    await clearSession();
-    window.location.href = '/login';
+    if (isSigningOut) return;
+    
+    try {
+      setIsSigningOut(true);
+      console.log('Starting sign out process...');
+      
+      await clearSession();
+      
+      // Small delay to ensure all cleanup is complete
+      setTimeout(() => {
+        window.location.href = '/login';
+      }, 500);
+      
+    } catch (error) {
+      console.error('Error during sign out:', error);
+      // Still redirect even if there were errors
+      window.location.href = '/login';
+    } finally {
+      setIsSigningOut(false);
+    }
   };
 
   if (isLoading) {
@@ -253,9 +305,17 @@ const Dashboard: React.FC = () => {
                 <div className="absolute right-0 mt-2 w-48 bg-white rounded-md shadow-lg py-1 z-10 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200">
                   <button
                     onClick={handleSignOut}
-                    className="block w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
+                    disabled={isSigningOut}
+                    className="block w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed"
                   >
-                    Sign Out
+                    {isSigningOut ? (
+                      <div className="flex items-center space-x-2">
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        <span>Signing out...</span>
+                      </div>
+                    ) : (
+                      'Sign Out'
+                    )}
                   </button>
                 </div>
               </div>
