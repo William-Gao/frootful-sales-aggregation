@@ -1,5 +1,4 @@
 import { authenticateBusinessCentral, signOut, fetchCompanies, getSelectedCompanyId, setSelectedCompanyId, type Company } from '../src/businessCentralAuth.js';
-import { hybridAuth } from '../src/hybridAuth.js';
 
 interface Port {
   postMessage: (message: any) => void;
@@ -141,7 +140,12 @@ document.addEventListener('DOMContentLoaded', () => {
       logoutBtn.textContent = 'Signing out...';
       
       console.log('Starting sign out process...');
-      await hybridAuth.signOut();
+      
+      // Clear session from localStorage (SPA auth)
+      await clearSPASession();
+      
+      // Also clear any extension-specific auth
+      await signOut();
       
       console.log('Sign out successful, updating UI...');
       updateUI(false);
@@ -244,19 +248,57 @@ document.addEventListener('DOMContentLoaded', () => {
       bcConnected.classList.add('hidden');
     }
   }
+
+  // Check SPA authentication state
+  async function checkSPAAuthState(): Promise<{ isAuthenticated: boolean; user?: any }> {
+    try {
+      // Check if we have session data stored by the SPA
+      const result = await chrome.storage.local.get(['frootful_session', 'frootful_user']);
+      
+      if (result.frootful_session && result.frootful_user) {
+        const session = JSON.parse(result.frootful_session);
+        const user = JSON.parse(result.frootful_user);
+        
+        // Check if session is expired
+        if (session.expires_at && Date.now() / 1000 > session.expires_at) {
+          console.log('SPA session expired');
+          await clearSPASession();
+          return { isAuthenticated: false };
+        }
+        
+        console.log('Found valid SPA session for user:', user.email);
+        return { isAuthenticated: true, user };
+      }
+      
+      console.log('No SPA session found');
+      return { isAuthenticated: false };
+    } catch (error) {
+      console.error('Error checking SPA auth state:', error);
+      return { isAuthenticated: false };
+    }
+  }
+
+  // Clear SPA session
+  async function clearSPASession(): Promise<void> {
+    try {
+      await chrome.storage.local.remove(['frootful_session', 'frootful_user']);
+      console.log('Cleared SPA session');
+    } catch (error) {
+      console.error('Error clearing SPA session:', error);
+    }
+  }
   
   // Check initial authentication state
   async function checkAuthState(): Promise<void> {
     try {
       console.log('Checking initial authentication state...');
-      const isAuthenticated = await hybridAuth.isAuthenticated();
+      const { isAuthenticated, user } = await checkSPAAuthState();
       console.log('Authentication state:', isAuthenticated);
       
       updateUI(isAuthenticated);
       
-      if (isAuthenticated) {
-        const user = await hybridAuth.getCurrentUser();
-        if (user && userEmail instanceof HTMLElement) {
+      if (isAuthenticated && user) {
+        if (userEmail instanceof HTMLElement) {
           userEmail.textContent = user.email;
         }
         
@@ -336,6 +378,8 @@ document.addEventListener('DOMContentLoaded', () => {
   // Listen for auth state changes from other parts of the extension
   if (typeof chrome !== 'undefined' && chrome.runtime) {
     chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+      console.log('Popup received message:', message);
+      
       if (message.action === 'authStateChanged') {
         console.log('Received auth state change:', message.isAuthenticated);
         updateUI(message.isAuthenticated);
@@ -348,6 +392,15 @@ document.addEventListener('DOMContentLoaded', () => {
       
       if (message.action === 'authComplete') {
         console.log('Received auth complete message');
+        
+        // Store session data from SPA
+        if (message.session) {
+          chrome.storage.local.set({
+            frootful_session: JSON.stringify(message.session),
+            frootful_user: JSON.stringify(message.session.user)
+          });
+        }
+        
         updateUI(true);
         if (message.session?.user && userEmail instanceof HTMLElement) {
           userEmail.textContent = message.session.user.email;

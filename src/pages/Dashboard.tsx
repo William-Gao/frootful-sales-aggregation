@@ -1,6 +1,5 @@
 import React, { useEffect, useState } from 'react';
 import { CheckCircle, ExternalLink, Settings, Zap, Building2, Database, ArrowRight, Loader2 } from 'lucide-react';
-import AuthAPI from '../api/auth';
 
 interface User {
   id: string;
@@ -67,11 +66,23 @@ const Dashboard: React.FC = () => {
         // Clear hash from URL
         window.history.replaceState(null, '', window.location.pathname + window.location.search);
       } else {
-        // Check for existing session using our auth API
-        const { isAuthenticated, user: userData } = await AuthAPI.checkAuth();
+        // Check for existing session in localStorage
+        const sessionData = localStorage.getItem('frootful_session');
+        const userData = localStorage.getItem('frootful_user');
         
-        if (isAuthenticated && userData) {
-          setUser(userData);
+        if (sessionData && userData) {
+          const session = JSON.parse(sessionData);
+          const user = JSON.parse(userData);
+          
+          // Check if session is expired
+          if (session.expires_at && Date.now() / 1000 > session.expires_at) {
+            console.log('Session expired');
+            clearSession();
+            window.location.href = '/login';
+            return;
+          }
+          
+          setUser(user);
         } else {
           // No valid session, redirect to login
           window.location.href = '/login';
@@ -88,20 +99,26 @@ const Dashboard: React.FC = () => {
 
   const checkERPConnections = async () => {
     try {
-      // Check ERP connection status using our auth API
-      const { connections } = await AuthAPI.getERPStatus();
-      
-      setErpConnections(prev => prev.map(erp => {
-        const connection = connections.find((c: any) => c.provider === erp.provider);
-        if (connection) {
-          return {
-            ...erp,
-            status: connection.connected ? 'connected' : 'disconnected',
-            companyName: connection.companyName
-          };
+      // Check ERP connection status
+      // For now, just check if we have BC tokens stored
+      if (typeof chrome !== 'undefined' && chrome.storage) {
+        const result = await chrome.storage.local.get(['bc_tokens']);
+        if (result.bc_tokens) {
+          const tokenData = JSON.parse(result.bc_tokens);
+          if (tokenData.expires_at && Date.now() < tokenData.expires_at) {
+            setErpConnections(prev => prev.map(erp => {
+              if (erp.provider === 'business_central') {
+                return {
+                  ...erp,
+                  status: 'connected',
+                  companyName: tokenData.company_name
+                };
+              }
+              return erp;
+            }));
+          }
         }
-        return erp;
-      }));
+      }
     } catch (error) {
       console.error('Error checking ERP connections:', error);
     }
@@ -123,8 +140,29 @@ const Dashboard: React.FC = () => {
         provider_refresh_token: providerRefreshToken || refreshToken || ''
       };
 
-      // Store session using our auth API
-      await AuthAPI.storeSessionAPI(sessionData);
+      // Store in localStorage
+      localStorage.setItem('frootful_session', JSON.stringify(sessionData));
+      localStorage.setItem('frootful_user', JSON.stringify(userInfo));
+
+      // Also store in chrome.storage for extension access
+      if (typeof chrome !== 'undefined' && chrome.storage) {
+        chrome.storage.local.set({
+          frootful_session: JSON.stringify(sessionData),
+          frootful_user: JSON.stringify(userInfo)
+        });
+      }
+
+      // Notify extension
+      if (typeof chrome !== 'undefined' && chrome.runtime) {
+        try {
+          chrome.runtime.sendMessage({
+            action: 'authComplete',
+            session: sessionData
+          });
+        } catch (error) {
+          console.warn('Could not notify extension:', error);
+        }
+      }
     } catch (error) {
       console.error('Error storing session:', error);
     }
@@ -135,9 +173,8 @@ const Dashboard: React.FC = () => {
       setConnectingProvider(provider);
       
       if (provider === 'business_central') {
-        // Start Business Central OAuth flow using our auth API
-        const { authUrl } = await AuthAPI.getBusinessCentralAuthUrl();
-        window.location.href = authUrl;
+        // For now, just show a message that BC integration is handled by the extension
+        alert('Please use the Chrome extension popup to connect to Business Central. Click the extension icon in your browser toolbar.');
       } else {
         // Handle other ERP providers
         alert(`${provider} integration coming soon!`);
@@ -154,8 +191,17 @@ const Dashboard: React.FC = () => {
     window.open('https://mail.google.com', '_blank');
   };
 
+  const clearSession = () => {
+    localStorage.removeItem('frootful_session');
+    localStorage.removeItem('frootful_user');
+    
+    if (typeof chrome !== 'undefined' && chrome.storage) {
+      chrome.storage.local.remove(['frootful_session', 'frootful_user']);
+    }
+  };
+
   const handleSignOut = () => {
-    AuthAPI.clearSession();
+    clearSession();
     window.location.href = '/login';
   };
 
@@ -294,6 +340,15 @@ const Dashboard: React.FC = () => {
                   
                   <p className="text-gray-600 mb-4">{erp.description}</p>
                   
+                  {erp.provider === 'business_central' ? (
+                    <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-4">
+                      <p className="text-sm text-blue-800">
+                        <strong>Note:</strong> Use the Chrome extension popup to connect to Business Central. 
+                        Click the extension icon in your browser toolbar.
+                      </p>
+                    </div>
+                  ) : null}
+                  
                   <button
                     onClick={() => connectERP(erp.provider)}
                     disabled={isConnecting || erp.status === 'connected'}
@@ -334,7 +389,7 @@ const Dashboard: React.FC = () => {
               <div className="w-6 h-6 bg-indigo-600 text-white rounded-full flex items-center justify-center text-sm font-medium">
                 1
               </div>
-              <span className="text-gray-700">Connect your ERP system above</span>
+              <span className="text-gray-700">Connect your ERP system using the Chrome extension popup</span>
             </div>
             <div className="flex items-center space-x-3">
               <div className="w-6 h-6 bg-indigo-600 text-white rounded-full flex items-center justify-center text-sm font-medium">

@@ -1,6 +1,5 @@
 import React, { useEffect, useState } from 'react';
 import { CheckCircle, Loader2, AlertCircle } from 'lucide-react';
-import AuthAPI from '../api/auth';
 
 const AuthCallback: React.FC = () => {
   const [status, setStatus] = useState<'loading' | 'success' | 'error'>('loading');
@@ -29,6 +28,8 @@ const AuthCallback: React.FC = () => {
         throw new Error('No access token found in callback');
       }
 
+      console.log('Processing auth callback with tokens...');
+
       // Get user info from Google
       const userResponse = await fetch(`https://www.googleapis.com/oauth2/v1/userinfo?access_token=${providerToken || accessToken}`);
       
@@ -37,6 +38,7 @@ const AuthCallback: React.FC = () => {
       }
       
       const userInfo = await userResponse.json();
+      console.log('Got user info:', userInfo.email);
 
       // Prepare session data
       const sessionData = {
@@ -48,17 +50,39 @@ const AuthCallback: React.FC = () => {
         provider_refresh_token: providerRefreshToken || refreshToken || ''
       };
 
-      // Store session using our auth API
-      await AuthAPI.storeSessionAPI(sessionData);
+      // Store session in localStorage for SPA
+      localStorage.setItem('frootful_session', JSON.stringify(sessionData));
+      localStorage.setItem('frootful_user', JSON.stringify(userInfo));
+      console.log('Stored session in localStorage');
 
       // Notify extension if extension ID is provided
-      if (extensionId && typeof chrome !== 'undefined' && chrome.runtime) {
+      if (extensionId) {
+        console.log('Notifying extension:', extensionId);
+        
         try {
-          chrome.runtime.sendMessage(extensionId, {
-            action: 'authComplete',
-            session: sessionData
-          });
-          console.log('Successfully notified extension');
+          // Try chrome.runtime.sendMessage first
+          if (typeof chrome !== 'undefined' && chrome.runtime) {
+            chrome.runtime.sendMessage(extensionId, {
+              action: 'authComplete',
+              session: sessionData
+            }, (response) => {
+              if (chrome.runtime.lastError) {
+                console.warn('Chrome runtime error:', chrome.runtime.lastError);
+              } else {
+                console.log('Successfully notified extension via chrome.runtime');
+              }
+            });
+          }
+
+          // Also store in chrome.storage for the extension to access
+          if (typeof chrome !== 'undefined' && chrome.storage) {
+            chrome.storage.local.set({
+              frootful_session: JSON.stringify(sessionData),
+              frootful_user: JSON.stringify(userInfo)
+            }, () => {
+              console.log('Stored session in chrome.storage for extension');
+            });
+          }
         } catch (error) {
           console.warn('Could not notify extension:', error);
         }
@@ -66,6 +90,9 @@ const AuthCallback: React.FC = () => {
 
       setStatus('success');
       setMessage('Authentication successful! Redirecting to dashboard...');
+
+      // Clear hash from URL
+      window.history.replaceState(null, '', window.location.pathname + window.location.search);
 
       // Redirect to dashboard after a short delay
       setTimeout(() => {
