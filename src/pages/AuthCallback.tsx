@@ -26,57 +26,29 @@ const AuthCallback: React.FC = () => {
       console.log('Supabase session:', session ? 'Found' : 'Not found');
       console.log('Supabase error:', error);
 
-      // if (error) {
-      //   throw new Error(`Supabase auth error: ${error.message}`);
-      // }
+      if (error) {
+        throw new Error(`Supabase auth error: ${error.message}`);
+      }
 
-      // if (!session) {
-      //   throw new Error('No session found after OAuth callback');
-      // }
+      if (!session) {
+        throw new Error('No session found after OAuth callback');
+      }
 
-      // console.log('Processing auth callback for user:', session.user.email);
+      console.log('Processing auth callback for user:', session.user.email);
 
-      // Extract provider tokens from URL hash as fallback
-      const hash = window.location.hash.substring(1);
-      const hashParams = new URLSearchParams(hash);
-      const access_token = hashParams.get('access_token');
-      const refresh_token = hashParams.get('access_token');
-      const expires_at = hashParams.get('expires_at');
-      const providerToken = hashParams.get('provider_token');
-      const providerRefreshToken = hashParams.get('provider_refresh_token');
-
-      console.log('This is the hash: ', hash);
-
-      // Prepare session data for storage - preserve all fields
+      // Prepare session data for the extension
       const sessionData = {
-        access_token: access_token,
-        refresh_token: refresh_token,
-        expires_at: expires_at,
-        provider_token: providerToken,
-        provider_refresh_token: providerRefreshToken
+        access_token: session.access_token,
+        refresh_token: session.refresh_token,
+        expires_at: session.expires_at,
+        user: session.user,
+        provider_token: session.provider_token || session.access_token,
+        provider_refresh_token: session.provider_refresh_token || session.refresh_token || ''
       };
 
-      console.log(sessionData);
-      
-      console.log('attempting to set session via supabase');
-      await supabaseClient.auth.setSession(sessionData);
-      console.log('set session in supabase: ');
+      console.log('Sending session data to extension...');
 
-      console.log('test sending post message from window');
-      // After getting session from Supabase or parsing from URL hash
-      window.postMessage(
-        {
-          source: "frootful-auth",
-          type: "SUPABASE_AUTH_SUCCESS",
-          session: {
-            access_token,
-            refresh_token
-          }
-        },
-        "*"
-      );
-
-      // Notify extension if extension ID is provided
+      // Send session data to Chrome extension
       if (extensionId && typeof chrome !== 'undefined' && chrome.runtime) {
         console.log('Notifying extension:', extensionId);
         
@@ -88,7 +60,7 @@ const AuthCallback: React.FC = () => {
             if (chrome.runtime.lastError) {
               console.warn('Chrome runtime error:', chrome.runtime.lastError);
             } else {
-              console.log('Successfully notified extension via chrome.runtime');
+              console.log('Successfully sent session to extension');
             }
           });
         } catch (error) {
@@ -105,6 +77,13 @@ const AuthCallback: React.FC = () => {
           console.warn('Could not send message to current extension context:', error);
         }
       }
+
+      // Post message for content script communication
+      window.postMessage({
+        source: "frootful-auth",
+        type: "SUPABASE_AUTH_SUCCESS",
+        session: sessionData
+      }, "*");
 
       setStatus('success');
       setMessage('Authentication successful! Redirecting to dashboard...');

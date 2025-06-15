@@ -142,30 +142,20 @@ document.addEventListener('DOMContentLoaded', () => {
       
       console.log('Starting sign out process...');
       
-      // Clear session from localStorage (SPA auth)
-      await clearSPASession();
+      // Sign out from Supabase - this is our single source of truth
+      await supabaseClient.auth.signOut();
       
-      // Also clear any extension-specific auth
-      await signOut();
-      
-      // Clear all chrome storage
+      // Clear chrome storage
       if (typeof chrome !== 'undefined' && chrome.storage) {
         await chrome.storage.local.remove([
           'session', 
-          'frootful_session', 
-          'frootful_user',
           'bc_tokens'
         ]);
         console.log('Cleared all session data from chrome.storage');
       }
       
-      // Sign out from Supabase
-      try {
-        await supabaseClient.auth.signOut();
-        console.log('Signed out from Supabase');
-      } catch (error) {
-        console.warn('Error signing out from Supabase:', error);
-      }
+      // Also clear any extension-specific auth
+      await signOut();
       
       // Send sign out message to background script
       try {
@@ -279,17 +269,18 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   }
 
-  // Check SPA authentication state
+  // Check SPA authentication state using Supabase as single source of truth
   async function checkSPAAuthState(): Promise<{ isAuthenticated: boolean; user?: any }> {
     try {
+      // Check Supabase session - this is our single source of truth
       let { data: { session }, error } = await supabaseClient.auth.getSession();
 
       if (!session) {
-        console.log('No supabase session detected, checking local storage');
+        console.log('No supabase session detected, checking chrome storage');
         const storedSession = await chrome.storage.local.get('session');
         if (storedSession.session) {
           await supabaseClient.auth.setSession(storedSession.session);
-          console.log("Found session in local storage, ✅ Supabase session hydrated");
+          console.log("Found session in chrome storage, ✅ Supabase session hydrated");
           // Get the session again after setting it
           const { data: { session: newSession } } = await supabaseClient.auth.getSession();
           session = newSession;
@@ -305,16 +296,6 @@ document.addEventListener('DOMContentLoaded', () => {
     } catch (error) {
       console.error('Error checking SPA auth state:', error);
       return { isAuthenticated: false };
-    }
-  }
-
-  // Clear SPA session
-  async function clearSPASession(): Promise<void> {
-    try {
-      await chrome.storage.local.remove(['frootful_session', 'frootful_user', 'session']);
-      console.log('Cleared SPA session');
-    } catch (error) {
-      console.error('Error clearing SPA session:', error);
     }
   }
   

@@ -82,6 +82,7 @@ chrome.runtime.onMessage.addListener(async (message, sender, sendResponse) => {
     if (message?.type === "SUPABASE_AUTH_SUCCESS") {
       console.log("✅ Received session from callback:", message.session);
 
+      // Store session in chrome.storage for extension access
       chrome.storage.local.set({ session: message.session }, () => {
         console.log("🔐 Session saved to chrome.storage");
       });
@@ -96,14 +97,12 @@ chrome.runtime.onMessage.addListener(async (message, sender, sendResponse) => {
     } else if (message?.type === "SUPABASE_SIGN_OUT") {
       console.log("🚪 Received sign out from SPA");
       
-      // Clear all stored session data
+      // Clear chrome.storage session data
       chrome.storage.local.remove([
         'session', 
-        'frootful_session', 
-        'frootful_user',
         'bc_tokens' // Also clear Business Central tokens on sign out
       ], () => {
-        console.log("🧹 Cleared all session data from chrome.storage");
+        console.log("🧹 Cleared session data from chrome.storage");
       });
       
       // Sign out from Supabase
@@ -127,14 +126,12 @@ chrome.runtime.onMessage.addListener(async (message, sender, sendResponse) => {
   if (message?.action === 'signOut') {
     console.log("🚪 Received direct sign out action from extension");
     
-    // Clear all stored session data
+    // Clear chrome.storage session data
     chrome.storage.local.remove([
       'session', 
-      'frootful_session', 
-      'frootful_user',
       'bc_tokens' // Also clear Business Central tokens on sign out
     ], () => {
-      console.log("🧹 Cleared all session data from chrome.storage");
+      console.log("🧹 Cleared session data from chrome.storage");
     });
     
     // Sign out from Supabase
@@ -305,14 +302,12 @@ async function revokeAuthentication(): Promise<void> {
             // Sign out from Supabase
             await supabaseClient.auth.signOut();
             
-            // Clear all stored session data
+            // Clear chrome.storage session data
             chrome.storage.local.remove([
               'session', 
-              'frootful_session', 
-              'frootful_user',
               'bc_tokens' // Also clear Business Central tokens
             ], () => {
-              console.log("🧹 Cleared all session data during revoke");
+              console.log("🧹 Cleared session data during revoke");
             });
             
             // Notify all connected ports about authentication state
@@ -336,11 +331,9 @@ async function revokeAuthentication(): Promise<void> {
         await supabaseClient.auth.signOut();
         chrome.storage.local.remove([
           'session', 
-          'frootful_session', 
-          'frootful_user',
           'bc_tokens'
         ], () => {
-          console.log("🧹 Cleared all session data (no token to revoke)");
+          console.log("🧹 Cleared session data (no token to revoke)");
         });
         
         // Notify all connected ports about authentication state

@@ -38,17 +38,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.type === 'FROOTFUL_LOGOUT' && message.source === 'extension') {
     console.log('🚪 Extension logout detected, processing immediate logout...');
     
-    // IMMEDIATELY clear any local session data
-    localStorage.removeItem('frootful_session');
-    localStorage.removeItem('frootful_user');
-    
-    // Post message to notify any listening components in the SPA
-    window.postMessage({
-      source: "frootful-extension",
-      type: "EXTENSION_LOGOUT",
-      timestamp: Date.now() // Add timestamp to ensure fresh message
-    }, "*");
-    
     // Force immediate redirect to login if not already there
     if (window.location.pathname !== '/login') {
       console.log('🔄 Force redirecting to login page due to extension logout');
@@ -59,13 +48,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     sendResponse({ success: true });
   }
   
-  // Keep existing sign out handling
+  // Keep existing sign out handling for backward compatibility
   if (message.action === 'signOut') {
     console.log('🚪 Sign out action received via runtime message');
-    
-    // Clear any local session data
-    localStorage.removeItem('frootful_session');
-    localStorage.removeItem('frootful_user');
     
     // Post message to notify any listening components
     window.postMessage({

@@ -13,34 +13,12 @@ const Login: React.FC = () => {
 
   const checkAuthState = async () => {
     try {
-      // Check if we have a session from URL hash (OAuth callback)
-      const hash = window.location.hash.substring(1);
-      const params = new URLSearchParams(hash);
-      const accessToken = params.get('access_token');
-      
-      if (accessToken) {
-        // We have tokens from OAuth callback, redirect to dashboard
-        window.location.href = '/dashboard';
-        return;
-      }
-
-      // Check if user is already signed in using Supabase
+      // Check if user is already signed in using Supabase - single source of truth
       const { data: { session }, error } = await supabaseClient.auth.getSession();
       if (session && !error) {
         console.log('User already authenticated, redirecting to dashboard');
         window.location.href = '/dashboard';
         return;
-      }
-
-      // Check localStorage as fallback
-      const sessionData = localStorage.getItem('frootful_session');
-      if (sessionData) {
-        const session = JSON.parse(sessionData);
-        if (session.expires_at && Date.now() / 1000 < session.expires_at) {
-          console.log('Found valid localStorage session, redirecting to dashboard');
-          window.location.href = '/dashboard';
-          return;
-        }
       }
     } catch (error) {
       console.error('Error checking auth state:', error);

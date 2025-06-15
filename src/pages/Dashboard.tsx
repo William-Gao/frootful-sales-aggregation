@@ -69,13 +69,13 @@ const Dashboard: React.FC = () => {
     try {
       console.log('🚪 Processing extension-initiated sign out...');
       
-      // Immediately clear all session data
-      await clearAllSessionData();
+      // Sign out from Supabase (this clears the session)
+      await supabaseClient.auth.signOut();
       
       // Small delay to ensure cleanup is complete
       setTimeout(() => {
         console.log('🔄 Redirecting to login after extension logout');
-        window.location.replace('/login'); // Use replace to prevent back button issues
+        window.location.replace('/login');
       }, 100);
       
     } catch (error) {
@@ -94,40 +94,20 @@ const Dashboard: React.FC = () => {
         return;
       }
 
-      // First check if we have a Supabase session
+      // Check Supabase session - this is our single source of truth
       const { data: { session }, error } = await supabaseClient.auth.getSession();
       
       if (session && !error) {
         console.log('Found Supabase session for user:', session.user.email);
         setUser(session.user);
         
-        // Store session data for consistency
-        await storeSessionData(session);
+        // Notify extension about the session if needed
+        notifyExtensionOfAuthState(session);
       } else {
-        // Check for existing session in localStorage
-        const sessionData = localStorage.getItem('frootful_session');
-        const userData = localStorage.getItem('frootful_user');
-        
-        if (sessionData && userData) {
-          const session = JSON.parse(sessionData);
-          const user = JSON.parse(userData);
-          
-          // Check if session is expired
-          if (session.expires_at && Date.now() / 1000 > session.expires_at) {
-            console.log('Session expired');
-            await clearAllSessionData();
-            window.location.href = '/login';
-            return;
-          }
-          
-          console.log('Found localStorage session for user:', user.email);
-          setUser(user);
-        } else {
-          // No valid session, redirect to login
-          console.log('No valid session found, redirecting to login');
-          window.location.href = '/login';
-          return;
-        }
+        // No valid session, redirect to login
+        console.log('No valid session found, redirecting to login');
+        window.location.href = '/login';
+        return;
       }
     } catch (error) {
       console.error('Error checking auth state:', error);
@@ -164,26 +144,19 @@ const Dashboard: React.FC = () => {
     }
   };
 
-  const storeSessionData = async (session: any) => {
+  const notifyExtensionOfAuthState = async (session: any) => {
     try {
-      const sessionData = {
-        access_token: session.access_token,
-        refresh_token: session.refresh_token,
-        expires_at: session.expires_at,
-        user: session.user,
-        provider_token: session.provider_token || session.access_token,
-        provider_refresh_token: session.provider_refresh_token || session.refresh_token || ''
-      };
-
-      // Store in localStorage
-      localStorage.setItem('frootful_session', JSON.stringify(sessionData));
-      localStorage.setItem('frootful_user', JSON.stringify(session.user));
-
-      // Also store in chrome.storage for extension access
+      // Store minimal session data for extension access
       if (typeof chrome !== 'undefined' && chrome.storage) {
-        chrome.storage.local.set({
-          frootful_session: JSON.stringify(sessionData),
-          frootful_user: JSON.stringify(session.user)
+        await chrome.storage.local.set({
+          session: {
+            access_token: session.access_token,
+            refresh_token: session.refresh_token,
+            expires_at: session.expires_at,
+            user: session.user,
+            provider_token: session.provider_token || session.access_token,
+            provider_refresh_token: session.provider_refresh_token || session.refresh_token || ''
+          }
         });
       }
 
@@ -192,14 +165,21 @@ const Dashboard: React.FC = () => {
         try {
           chrome.runtime.sendMessage({
             action: 'authComplete',
-            session: sessionData
+            session: {
+              access_token: session.access_token,
+              refresh_token: session.refresh_token,
+              expires_at: session.expires_at,
+              user: session.user,
+              provider_token: session.provider_token || session.access_token,
+              provider_refresh_token: session.provider_refresh_token || session.refresh_token || ''
+            }
           });
         } catch (error) {
           console.warn('Could not notify extension:', error);
         }
       }
     } catch (error) {
-      console.error('Error storing session:', error);
+      console.error('Error notifying extension:', error);
     }
   };
 
@@ -226,26 +206,20 @@ const Dashboard: React.FC = () => {
     window.open('https://mail.google.com', '_blank');
   };
 
-  const clearAllSessionData = async () => {
+  const handleSignOut = async () => {
+    if (isSigningOut) return;
+    
     try {
-      console.log('Clearing all session data from all storage locations...');
+      setIsSigningOut(true);
+      console.log('Starting sign out process...');
       
-      // Clear localStorage
-      localStorage.removeItem('frootful_session');
-      localStorage.removeItem('frootful_user');
+      // Sign out from Supabase - this is our single source of truth
+      await supabaseClient.auth.signOut();
       
-      // Clear chrome.storage
+      // Clear chrome storage for extension
       if (typeof chrome !== 'undefined' && chrome.storage) {
-        await chrome.storage.local.remove(['frootful_session', 'frootful_user', 'session']);
+        await chrome.storage.local.remove(['session', 'frootful_session', 'frootful_user']);
         console.log('Cleared session from chrome.storage');
-      }
-
-      // Sign out from Supabase
-      try {
-        await supabaseClient.auth.signOut();
-        console.log('Signed out from Supabase');
-      } catch (error) {
-        console.warn('Error signing out from Supabase:', error);
       }
 
       // Notify extension about sign out
@@ -260,7 +234,7 @@ const Dashboard: React.FC = () => {
         }
       }
 
-      // Also try postMessage for content script communication
+      // Post message for content script communication
       try {
         window.postMessage({
           source: "frootful-auth",
@@ -271,21 +245,6 @@ const Dashboard: React.FC = () => {
         console.warn('Could not post sign out message:', error);
       }
 
-      console.log('Session cleared from all locations');
-    } catch (error) {
-      console.error('Error clearing session:', error);
-    }
-  };
-
-  const handleSignOut = async () => {
-    if (isSigningOut) return;
-    
-    try {
-      setIsSigningOut(true);
-      console.log('Starting sign out process...');
-      
-      await clearAllSessionData();
-      
       // Small delay to ensure all cleanup is complete
       setTimeout(() => {
         window.location.href = '/login';
