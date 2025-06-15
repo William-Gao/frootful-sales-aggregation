@@ -467,13 +467,7 @@ class HybridAuthManager {
 
   private async clearSession(): Promise<void> {
     try {
-      if (typeof chrome !== 'undefined' && chrome.storage) {
-        await chrome.storage.local.remove(['frootful_session', 'frootful_session_expires']);
-      } else if (typeof localStorage !== 'undefined') {
-        // Fallback to localStorage
-        localStorage.removeItem('frootful_session');
-        localStorage.removeItem('frootful_session_expires');
-      }
+      this.supabase.auth.signOut();
       console.log('Session cleared');
     } catch (error) {
       console.error('Failed to clear session:', error);
