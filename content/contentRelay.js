@@ -31,10 +31,33 @@ window.addEventListener('message', (event) => {
   }
 });
 
-// Also listen for direct runtime messages (fallback)
+// NEW: Listen for logout messages from extension
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   console.log('Content relay received runtime message:', message);
   
+  if (message.type === 'FROOTFUL_LOGOUT' && message.source === 'extension') {
+    console.log('🚪 Extension logout detected, notifying SPA');
+    
+    // Clear any local session data
+    localStorage.removeItem('frootful_session');
+    localStorage.removeItem('frootful_user');
+    
+    // Post message to notify any listening components in the SPA
+    window.postMessage({
+      source: "frootful-extension",
+      type: "EXTENSION_LOGOUT"
+    }, "*");
+    
+    // Also try to redirect to login page if we're on a protected route
+    if (window.location.pathname !== '/login') {
+      console.log('🔄 Redirecting to login page due to extension logout');
+      window.location.href = '/login';
+    }
+    
+    sendResponse({ success: true });
+  }
+  
+  // Keep existing sign out handling
   if (message.action === 'signOut') {
     console.log('🚪 Sign out action received via runtime message');
     

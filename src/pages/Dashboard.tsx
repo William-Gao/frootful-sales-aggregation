@@ -46,7 +46,40 @@ const Dashboard: React.FC = () => {
   useEffect(() => {
     checkAuthState();
     checkERPConnections();
+    
+    // NEW: Listen for extension logout messages
+    const handleExtensionLogout = (event: MessageEvent) => {
+      if (event.data.source === "frootful-extension" && event.data.type === "EXTENSION_LOGOUT") {
+        console.log('🚪 Received logout message from extension, signing out...');
+        handleExtensionSignOut();
+      }
+    };
+
+    window.addEventListener('message', handleExtensionLogout);
+    
+    return () => {
+      window.removeEventListener('message', handleExtensionLogout);
+    };
   }, []);
+
+  // NEW: Handle sign out initiated by extension
+  const handleExtensionSignOut = async () => {
+    try {
+      console.log('🚪 Processing extension-initiated sign out...');
+      
+      await clearSession();
+      
+      // Small delay to ensure cleanup is complete
+      setTimeout(() => {
+        window.location.href = '/login';
+      }, 500);
+      
+    } catch (error) {
+      console.error('Error during extension sign out:', error);
+      // Still redirect even if there were errors
+      window.location.href = '/login';
+    }
+  };
 
   const checkAuthState = async () => {
     try {

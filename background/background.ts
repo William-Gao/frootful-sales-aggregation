@@ -123,9 +123,9 @@ chrome.runtime.onMessage.addListener(async (message, sender, sendResponse) => {
     }
   }
   
-  // Handle direct sign out action
+  // Handle direct sign out action from extension
   if (message?.action === 'signOut') {
-    console.log("🚪 Received direct sign out action");
+    console.log("🚪 Received direct sign out action from extension");
     
     // Clear all stored session data
     chrome.storage.local.remove([
@@ -153,10 +153,51 @@ chrome.runtime.onMessage.addListener(async (message, sender, sendResponse) => {
         isAuthenticated: false 
       });
     });
+
+    // NEW: Notify all open SPA tabs about the logout
+    await notifyAllSPATabs();
     
     sendResponse({ success: true });
   }
 });
+
+// NEW: Function to notify all SPA tabs about logout
+async function notifyAllSPATabs(): Promise<void> {
+  try {
+    console.log("🔄 Notifying all SPA tabs about logout...");
+    
+    // Query all tabs
+    const tabs = await chrome.tabs.query({});
+    
+    for (const tab of tabs) {
+      // Check if the tab URL matches your SPA domains
+      if (tab.url && tab.id && (
+        tab.url.startsWith("https://frootful.ai") ||
+        tab.url.startsWith("http://localhost") ||
+        tab.url.startsWith("https://localhost")
+      )) {
+        try {
+          console.log(`📤 Sending logout message to tab: ${tab.url}`);
+          
+          // Send message to the tab's content script
+          await chrome.tabs.sendMessage(tab.id, {
+            type: 'FROOTFUL_LOGOUT',
+            source: 'extension'
+          });
+          
+          console.log(`✅ Successfully notified tab: ${tab.url}`);
+        } catch (tabError) {
+          // Tab might not have content script or be accessible
+          console.warn(`⚠️ Could not notify tab ${tab.url}:`, tabError);
+        }
+      }
+    }
+    
+    console.log("🎉 Finished notifying all SPA tabs");
+  } catch (error) {
+    console.error("❌ Error notifying SPA tabs:", error);
+  }
+}
 
 // Handle connection from content scripts and popup
 chrome.runtime.onConnect.addListener((port: Port) => {
@@ -250,7 +291,7 @@ async function authenticate(): Promise<string> {
   });
 }
 
-// Revoke authentication - Enhanced to clear all session data
+// Revoke authentication - Enhanced to clear all session data AND notify SPA tabs
 async function revokeAuthentication(): Promise<void> {
   return new Promise((resolve, reject) => {
     chrome.identity.getAuthToken({ interactive: false }, async (token) => {
@@ -281,6 +322,10 @@ async function revokeAuthentication(): Promise<void> {
                 isAuthenticated: false 
               });
             });
+
+            // NEW: Notify all SPA tabs about the logout
+            await notifyAllSPATabs();
+            
             resolve();
           });
         } catch (error) {
@@ -305,6 +350,10 @@ async function revokeAuthentication(): Promise<void> {
             isAuthenticated: false 
           });
         });
+
+        // NEW: Notify all SPA tabs about the logout
+        await notifyAllSPATabs();
+        
         resolve();
       }
     });

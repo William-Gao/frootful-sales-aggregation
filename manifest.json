@@ -28,7 +28,7 @@
       "type": "module"
     },
     {
-      "matches": ["http://localhost/*", "https://localhost/*"],
+      "matches": ["http://localhost/*", "https://localhost/*", "https://frootful.ai/*"],
       "js": ["content/contentRelay.js"],
       "run_at": "document_start"
     }
@@ -36,7 +36,8 @@
   "permissions": [
     "identity",
     "storage",
-    "activeTab"
+    "activeTab",
+    "tabs"
   ],
   "host_permissions": [
     "https://mail.google.com/*",
@@ -65,7 +66,7 @@
     }
   ],
   "externally_connectable": {
-    "matches": ["http://localhost:*/*", "https://zkglvdfppodwlgzhfgqs.supabase.co/*"]
+    "matches": ["http://localhost:*/*", "https://zkglvdfppodwlgzhfgqs.supabase.co/*", "https://frootful.ai/*"]
   },
   "content_security_policy": {
     "extension_pages": "script-src 'self'; object-src 'self'; connect-src 'self' https://zkglvdfppodwlgzhfgqs.supabase.co https://oauth2.googleapis.com https://accounts.google.com https://www.googleapis.com https://login.microsoftonline.com https://api.businesscentral.dynamics.com;"
