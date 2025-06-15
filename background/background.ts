@@ -224,11 +224,34 @@ chrome.runtime.onConnect.addListener((port: Port) => {
       
       if (message.action === 'checkAuthState') {
         console.log('Checking auth state via Supabase session');
-        const { data: { session }, error } = await supabaseClient.auth.getSession();
-        console.log('Supabase session in background.ts:', session ? 'Found' : 'Not found');
-        const isAuthenticated = session !== null && !error;
-
-        port.postMessage({ action: 'checkAuthState', isAuthenticated });
+        
+        // First check if we have a session in chrome.storage
+        const result = await chrome.storage.local.get(['session']);
+        if (result.session) {
+          console.log('Found session in chrome.storage');
+          
+          // Verify the session is still valid by checking with Supabase
+          try {
+            await supabaseClient.auth.setSession(result.session);
+            const { data: { session }, error } = await supabaseClient.auth.getSession();
+            
+            if (session && !error) {
+              console.log('Session is valid');
+              port.postMessage({ action: 'checkAuthState', isAuthenticated: true });
+              return;
+            } else {
+              console.log('Session is invalid, clearing storage');
+              await chrome.storage.local.remove(['session']);
+            }
+          } catch (sessionError) {
+            console.warn('Error validating session:', sessionError);
+            await chrome.storage.local.remove(['session']);
+          }
+        }
+        
+        // No valid session found
+        console.log('No valid session found');
+        port.postMessage({ action: 'checkAuthState', isAuthenticated: false });
       }
 
       if (message.action === 'authComplete') {
@@ -248,6 +271,13 @@ chrome.runtime.onConnect.addListener((port: Port) => {
 // Get auth token from Supabase session
 async function getAuthToken(): Promise<string | null> {
   try {
+    // First try to get from chrome.storage
+    const result = await chrome.storage.local.get(['session']);
+    if (result.session) {
+      // Set the session in Supabase
+      await supabaseClient.auth.setSession(result.session);
+    }
+    
     const { data: { session }, error } = await supabaseClient.auth.getSession();
     
     if (error || !session) {

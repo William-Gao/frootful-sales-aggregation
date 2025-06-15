@@ -81,6 +81,7 @@ function initializeConnection(): void {
     
     port.onMessage.addListener((message: any) => {
       if (message.action === 'authStateChanged') {
+        console.log('Auth state changed:', message.isAuthenticated);
         isAuthenticated = message.isAuthenticated;
         init();
       }
@@ -97,7 +98,7 @@ function initializeConnection(): void {
       }
     });
   }
-  console.log('THis is port right before postMessage to checkAuthState: ', port);
+  console.log('This is port right before postMessage to checkAuthState: ', port);
   // Check if user is authenticated
   port.postMessage({ action: 'checkAuthState' });
 }
@@ -107,6 +108,8 @@ initializeConnection();
 
 // Initialize extension
 function init(): void {
+  console.log('Initializing content script, authenticated:', isAuthenticated);
+  
   if (observer) observer.disconnect();
 
   observer = new MutationObserver((mutations) => {
@@ -134,27 +137,52 @@ function init(): void {
 
 // Check if an email is currently being viewed
 function checkForEmailView(): void {
+  console.log('Checking for email view, authenticated:', isAuthenticated);
+  
   if (extractButton) {
     extractButton.remove();
     extractButton = null;
   }
 
   const emailContainer = document.querySelector('[role="main"]');
-  if (!emailContainer) return;
+  if (!emailContainer) {
+    console.log('No email container found');
+    return;
+  }
 
   const messageIdElement = emailContainer.querySelector('[data-legacy-message-id]');
-  if (!messageIdElement) return;
+  if (!messageIdElement) {
+    console.log('No message ID element found');
+    return;
+  }
 
   currentEmailId = messageIdElement.getAttribute('data-legacy-message-id');
-  if (!currentEmailId) return;
+  if (!currentEmailId) {
+    console.log('No current email ID found');
+    return;
+  }
+
+  console.log('Found email ID:', currentEmailId);
 
   const senderSpan = emailContainer.querySelector('.gD');
-  if (!senderSpan) return;
+  if (!senderSpan) {
+    console.log('No sender span found');
+    return;
+  }
+
+  console.log('Found sender span, checking auth status...');
 
   if (currentEmailId && isAuthenticated) {
+    console.log('User is authenticated, injecting extract button');
     const parent = senderSpan.parentElement;
     if (parent) {
       injectExtractButton(parent);
+    }
+  } else if (currentEmailId && !isAuthenticated) {
+    console.log('User not authenticated, injecting sign-in button');
+    const parent = senderSpan.parentElement;
+    if (parent) {
+      injectSignInButton(parent);
     }
   }
 }
@@ -182,6 +210,43 @@ function injectExtractButton(container: Element): void {
 
   extractButton.addEventListener('click', handleExtractClick);
   container.appendChild(extractButton);
+  console.log('Extract button injected successfully');
+}
+
+// Inject sign-in button for unauthenticated users
+function injectSignInButton(container: Element): void {
+  if (container.querySelector('.frootful-extract-btn')) return;
+
+  extractButton = document.createElement('div');
+  extractButton.className = 'frootful-extract-btn';
+  extractButton.innerHTML = `
+    <div class="frootful-btn-container">
+      <button class="frootful-btn frootful-signin-btn" title="Sign in to Frootful">
+        <span class="frootful-icon">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+            stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"></path>
+            <polyline points="10 17 15 12 10 7"></polyline>
+            <line x1="15" y1="12" x2="3" y2="12"></line>
+          </svg>
+        </span>
+        <span class="frootful-text">Sign In</span>
+      </button>
+    </div>
+  `;
+
+  extractButton.addEventListener('click', handleSignInClick);
+  container.appendChild(extractButton);
+  console.log('Sign-in button injected successfully');
+}
+
+// Handle sign-in button click
+function handleSignInClick(e: MouseEvent): void {
+  e.preventDefault();
+  e.stopPropagation();
+  
+  // Open the login page
+  window.open('http://localhost:5173/login', '_blank');
 }
 
 // Handle extract button click
@@ -220,7 +285,7 @@ function handleExtractResponse(response: { success: boolean; data?: Comprehensiv
     extractButton.classList.remove('loading');
     const textElement = extractButton.querySelector('.frootful-text');
     if (textElement) {
-      textElement.textContent = 'Extract';
+      textElement.textContent = isAuthenticated ? 'Extract' : 'Sign In';
     }
   }
   
