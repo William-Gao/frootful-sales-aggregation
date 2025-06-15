@@ -17,17 +17,35 @@ const AuthCallback: React.FC = () => {
       // Get URL parameters
       const urlParams = new URLSearchParams(window.location.search);
       const extensionId = urlParams.get('extensionId');
+      const code = urlParams.get('code');
+      const state = urlParams.get('state');
+      const error = urlParams.get('error');
+      const errorDescription = urlParams.get('error_description');
       
       console.log('Extension ID from URL:', extensionId);
+      console.log('OAuth code present:', !!code);
+      console.log('OAuth state present:', !!state);
 
-      // Get session from Supabase (it should automatically detect the OAuth callback)
-      const { data: { session }, error } = await supabaseClient.auth.getSession();
+      // Check for OAuth errors
+      if (error) {
+        throw new Error(`OAuth error: ${error} - ${errorDescription || 'Unknown error'}`);
+      }
+
+      // Handle Business Central OAuth callback
+      if (code && state) {
+        console.log('Processing Business Central OAuth callback...');
+        await handleBusinessCentralCallback(code, state);
+        return;
+      }
+
+      // Handle Google OAuth callback (existing logic)
+      const { data: { session }, error: supabaseError } = await supabaseClient.auth.getSession();
       
       console.log('Supabase session:', session ? 'Found' : 'Not found');
-      console.log('Supabase error:', error);
+      console.log('Supabase error:', supabaseError);
 
-      if (error) {
-        throw new Error(`Supabase auth error: ${error.message}`);
+      if (supabaseError) {
+        throw new Error(`Supabase auth error: ${supabaseError.message}`);
       }
 
       if (!session) {
@@ -63,8 +81,8 @@ const AuthCallback: React.FC = () => {
               console.log('Successfully sent session to extension');
             }
           });
-        } catch (error) {
-          console.warn('Could not send message to extension:', error);
+        } catch (chromeError) {
+          console.warn('Chrome runtime error:', chromeError);
         }
 
         // Also try sending to current extension context
@@ -103,6 +121,136 @@ const AuthCallback: React.FC = () => {
     }
   };
 
+  const handleBusinessCentralCallback = async (code: string, state: string) => {
+    try {
+      console.log('Processing Business Central OAuth callback...');
+      
+      // Verify state parameter
+      const storedState = sessionStorage.getItem('bc_state');
+      if (state !== storedState) {
+        throw new Error('Invalid state parameter - possible CSRF attack');
+      }
+
+      // Get stored PKCE values
+      const codeVerifier = sessionStorage.getItem('bc_code_verifier');
+      if (!codeVerifier) {
+        throw new Error('Code verifier not found');
+      }
+
+      // Clean up session storage
+      sessionStorage.removeItem('bc_state');
+      sessionStorage.removeItem('bc_code_verifier');
+
+      // Exchange code for tokens
+      const CLIENT_ID = '4c92a998-6af5-4c2a-b16e-80ba1c6b9b3b';
+      const TENANT_ID = 'common';
+      const REDIRECT_URI = `${window.location.origin}/auth/callback`;
+
+      console.log('Exchanging code for tokens...');
+
+      const tokenResponse = await fetch(`https://login.microsoftonline.com/${TENANT_ID}/oauth2/v2.0/token`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded'
+        },
+        body: new URLSearchParams({
+          client_id: CLIENT_ID,
+          grant_type: 'authorization_code',
+          code: code,
+          redirect_uri: REDIRECT_URI,
+          code_verifier: codeVerifier
+        })
+      });
+
+      if (!tokenResponse.ok) {
+        const errorText = await tokenResponse.text();
+        console.error('Token exchange failed:', tokenResponse.status, errorText);
+        throw new Error(`Token exchange failed: ${tokenResponse.status}`);
+      }
+
+      const tokens = await tokenResponse.json();
+      
+      if (!tokens.access_token) {
+        console.error('Token exchange failed:', tokens);
+        throw new Error('Failed to get access token');
+      }
+
+      console.log('Business Central tokens received successfully');
+
+      // Parse tenant ID from the token
+      const tenantId = await parseTenantIdFromToken(tokens.access_token);
+      
+      // Get current user session
+      const { data: { session } } = await supabaseClient.auth.getSession();
+      if (!session) {
+        throw new Error('User not authenticated with Supabase');
+      }
+
+      // Store tokens in database using token-manager edge function
+      console.log('Storing Business Central tokens in database...');
+      
+      const storeResponse = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/token-manager`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${session.access_token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          provider: 'business_central',
+          accessToken: tokens.access_token,
+          refreshToken: tokens.refresh_token,
+          expiresAt: new Date(Date.now() + (tokens.expires_in * 1000)).toISOString(),
+          tenantId: tenantId
+        })
+      });
+
+      if (!storeResponse.ok) {
+        const errorText = await storeResponse.text();
+        console.error('Failed to store tokens:', errorText);
+        throw new Error('Failed to store Business Central tokens');
+      }
+
+      console.log('Business Central tokens stored successfully');
+
+      setStatus('success');
+      setMessage('Business Central connected successfully! Redirecting to dashboard...');
+
+      // Redirect to dashboard
+      setTimeout(() => {
+        window.location.href = '/dashboard';
+      }, 2000);
+
+    } catch (error) {
+      console.error('Business Central callback error:', error);
+      throw error;
+    }
+  };
+
+  // Parse tenant ID from JWT token
+  const parseTenantIdFromToken = async (token: string): Promise<string> => {
+    try {
+      const parts = token.split('.');
+      if (parts.length !== 3) {
+        throw new Error('Invalid JWT token format');
+      }
+
+      const payload = parts[1];
+      const paddedPayload = payload + '='.repeat((4 - payload.length % 4) % 4);
+      const decodedPayload = atob(paddedPayload.replace(/-/g, '+').replace(/_/g, '/'));
+      const tokenData = JSON.parse(decodedPayload);
+      
+      const tenantId = tokenData.tid;
+      if (!tenantId) {
+        throw new Error('Tenant ID not found in token');
+      }
+      
+      return tenantId;
+    } catch (error) {
+      console.error('Error parsing tenant ID from token:', error);
+      throw new Error('Failed to parse tenant ID from token');
+    }
+  };
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-indigo-50 via-white to-cyan-50 flex items-center justify-center">
       <div className="bg-white rounded-xl shadow-lg p-8 max-w-md w-full mx-4">
@@ -132,10 +280,10 @@ const AuthCallback: React.FC = () => {
           
           {status === 'error' && (
             <button
-              onClick={() => window.location.href = '/login'}
+              onClick={() => window.location.href = '/dashboard'}
               className="mt-4 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors"
             >
-              Try Again
+              Return to Dashboard
             </button>
           )}
         </div>

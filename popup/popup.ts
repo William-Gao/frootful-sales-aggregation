@@ -1,4 +1,3 @@
-import { authenticateBusinessCentral, signOut, fetchCompanies, getSelectedCompanyId, setSelectedCompanyId, type Company } from '../src/businessCentralAuth.js';
 import { supabaseClient } from "../src/supabaseClient.js";
 
 interface Port {
@@ -6,6 +5,13 @@ interface Port {
   onMessage: {
     addListener: (callback: (message: any) => void) => void;
   };
+}
+
+interface Company {
+  id: string;
+  name: string;
+  displayName: string;
+  businessProfileId: string;
 }
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -67,7 +73,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
 
-  // Handle Business Central authentication
+  // Handle Business Central authentication - redirect to dashboard
   bcLoginBtn.addEventListener('click', async () => {
     if (isAuthenticating) {
       console.log('Authentication already in progress');
@@ -77,31 +83,19 @@ document.addEventListener('DOMContentLoaded', () => {
     try {
       isAuthenticating = true;
       bcLoginBtn.disabled = true;
-      bcLoginBtn.textContent = 'Connecting...';
+      bcLoginBtn.textContent = 'Opening dashboard...';
       
-      console.log('Starting Business Central authentication...');
+      console.log('Redirecting to dashboard for Business Central connection...');
       
-      // Clear any existing BC tokens to force fresh authentication
-      if (typeof chrome !== 'undefined' && chrome.storage) {
-        await chrome.storage.local.remove(['bc_tokens']);
-        console.log('Cleared existing BC tokens to force fresh auth');
-      }
+      // Open the dashboard in a new tab
+      chrome.tabs.create({ url: 'http://localhost:5173/dashboard', active: true });
       
-      const token = await authenticateBusinessCentral();
+      // Close the popup
+      window.close();
       
-      console.log('Business Central authentication successful, loading companies...');
-      // Load companies after successful authentication
-      await loadCompanies(token);
-      bcLoginBtn.classList.add('hidden');
-      bcConnected.classList.remove('hidden');
-      showSuccess('Successfully connected to Business Central!');
     } catch (error) {
-      console.error('BC auth error:', error);
-      if (error instanceof Error && error.message.includes('sign in with Google')) {
-        showError('Please sign in with Google first before connecting to Business Central');
-      } else {
-        showError('Failed to connect to Business Central: ' + (error instanceof Error ? error.message : 'Unknown error'));
-      }
+      console.error('Dashboard redirect error:', error);
+      showError('Failed to open dashboard: ' + (error instanceof Error ? error.message : 'Unknown error'));
     } finally {
       isAuthenticating = false;
       bcLoginBtn.disabled = false;
@@ -119,8 +113,27 @@ document.addEventListener('DOMContentLoaded', () => {
     const selectedCompanyId = (e.target as HTMLSelectElement).value;
     if (selectedCompanyId) {
       try {
-        await setSelectedCompanyId(selectedCompanyId);
-        showSuccess('Company selected successfully!');
+        // Update company selection via API
+        const { data: { session } } = await supabaseClient.auth.getSession();
+        if (!session) return;
+
+        const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/token-manager?provider=business_central`, {
+          method: 'PUT',
+          headers: {
+            'Authorization': `Bearer ${session.access_token}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            companyId: selectedCompanyId,
+            companyName: companySelect.options[companySelect.selectedIndex].text
+          })
+        });
+
+        if (response.ok) {
+          showSuccess('Company selected successfully!');
+        } else {
+          throw new Error('Failed to update company selection');
+        }
       } catch (error) {
         console.error('Error setting company:', error);
         showError('Failed to select company');
@@ -128,7 +141,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
 
-  // Handle logout - Enhanced to clear all session data
+  // Handle logout
   logoutBtn.addEventListener('click', async () => {
     if (isAuthenticating) {
       console.log('Authentication in progress, cannot logout');
@@ -153,9 +166,6 @@ document.addEventListener('DOMContentLoaded', () => {
         ]);
         console.log('Cleared all session data from chrome.storage');
       }
-      
-      // Also clear any extension-specific auth
-      await signOut();
       
       // Send sign out message to background script
       try {
@@ -190,13 +200,50 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
 
-  // Load companies function - only called AFTER authentication
-  async function loadCompanies(token: string): Promise<void> {
+  // Load companies function - now loads from database
+  async function loadCompanies(): Promise<void> {
     try {
       companySelect.innerHTML = '<option value="">Loading companies...</option>';
       
-      const companies = await fetchCompanies(token);
-      const selectedCompanyId = await getSelectedCompanyId();
+      const { data: { session } } = await supabaseClient.auth.getSession();
+      if (!session) {
+        throw new Error('Not authenticated');
+      }
+
+      // Get Business Central token and company info from database
+      const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/token-manager?provider=business_central`, {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${session.access_token}`,
+          'Content-Type': 'application/json'
+        }
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to get Business Central token');
+      }
+
+      const result = await response.json();
+      if (!result.success || !result.tokens || result.tokens.length === 0) {
+        throw new Error('No Business Central token found');
+      }
+
+      const bcToken = result.tokens[0];
+      
+      // Fetch companies from Business Central API
+      const companiesResponse = await fetch('https://api.businesscentral.dynamics.com/v2.0/Production/api/v2.0/companies', {
+        headers: {
+          'Authorization': `Bearer ${bcToken.access_token}`,
+          'Content-Type': 'application/json'
+        }
+      });
+
+      if (!companiesResponse.ok) {
+        throw new Error('Failed to fetch companies');
+      }
+
+      const companiesData = await companiesResponse.json();
+      const companies = companiesData.value || [];
       
       companySelect.innerHTML = '<option value="">Select a company...</option>';
       
@@ -205,12 +252,9 @@ document.addEventListener('DOMContentLoaded', () => {
         option.value = company.id;
         option.textContent = company.displayName || company.name;
         
-        // Select the previously selected company or the first one as default
-        if (company.id === selectedCompanyId || (!selectedCompanyId && companies.indexOf(company) === 0)) {
+        // Select the currently selected company
+        if (company.id === bcToken.company_id) {
           option.selected = true;
-          if (!selectedCompanyId) {
-            setSelectedCompanyId(company.id);
-          }
         }
         
         companySelect.appendChild(option);
@@ -227,33 +271,37 @@ document.addEventListener('DOMContentLoaded', () => {
     try {
       console.log('Checking Business Central connection status...');
       
-      // Check if we have stored BC tokens
-      if (typeof chrome !== 'undefined' && chrome.storage) {
-        const result = await chrome.storage.local.get(['bc_tokens']);
-        if (result.bc_tokens) {
-          const tokenData = JSON.parse(result.bc_tokens);
+      const { data: { session } } = await supabaseClient.auth.getSession();
+      if (!session) {
+        console.log('No Supabase session, BC not connected');
+        bcLoginBtn.classList.remove('hidden');
+        bcConnected.classList.add('hidden');
+        return;
+      }
+
+      // Check if we have Business Central tokens in database
+      const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/token-manager?provider=business_central`, {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${session.access_token}`,
+          'Content-Type': 'application/json'
+        }
+      });
+
+      if (response.ok) {
+        const result = await response.json();
+        if (result.success && result.tokens && result.tokens.length > 0) {
+          const bcToken = result.tokens[0];
           
           // Check if token is still valid
-          if (tokenData.expires_at && Date.now() < tokenData.expires_at) {
-            console.log('Found valid Business Central token, testing connection...');
-            
-            try {
-              const companies = await fetchCompanies(tokenData.access_token);
-              if (companies.length > 0) {
-                console.log('Business Central already connected, loading companies...');
-                await loadCompanies(tokenData.access_token);
-                bcLoginBtn.classList.add('hidden');
-                bcConnected.classList.remove('hidden');
-                return;
-              }
-            } catch (error) {
-              console.log('Business Central token invalid or expired:', error);
-              // Clear invalid token
-              await chrome.storage.local.remove(['bc_tokens']);
-            }
+          if (!bcToken.token_expires_at || new Date(bcToken.token_expires_at) > new Date()) {
+            console.log('Business Central connected, loading companies...');
+            await loadCompanies();
+            bcLoginBtn.classList.add('hidden');
+            bcConnected.classList.remove('hidden');
+            return;
           } else {
-            console.log('Business Central token expired, clearing...');
-            await chrome.storage.local.remove(['bc_tokens']);
+            console.log('Business Central token expired');
           }
         }
       }

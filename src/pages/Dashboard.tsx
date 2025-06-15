@@ -19,6 +19,13 @@ interface ERPConnection {
   companyName?: string;
 }
 
+interface Company {
+  id: string;
+  name: string;
+  displayName: string;
+  businessProfileId: string;
+}
+
 const Dashboard: React.FC = () => {
   const [user, setUser] = useState<User | null>(null);
   const [erpConnections, setErpConnections] = useState<ERPConnection[]>([
@@ -43,6 +50,8 @@ const Dashboard: React.FC = () => {
   const [connectingProvider, setConnectingProvider] = useState<string | null>(null);
   const [isSigningOut, setIsSigningOut] = useState(false);
   const [extensionLogoutInProgress, setExtensionLogoutInProgress] = useState(false);
+  const [companies, setCompanies] = useState<Company[]>([]);
+  const [selectedCompanyId, setSelectedCompanyId] = useState<string>('');
 
   useEffect(() => {
     checkAuthState();
@@ -119,23 +128,40 @@ const Dashboard: React.FC = () => {
 
   const checkERPConnections = async () => {
     try {
-      // Check ERP connection status
-      // For now, just check if we have BC tokens stored
-      if (typeof chrome !== 'undefined' && chrome.storage) {
-        const result = await chrome.storage.local.get(['bc_tokens']);
-        if (result.bc_tokens) {
-          const tokenData = JSON.parse(result.bc_tokens);
-          if (tokenData.expires_at && Date.now() < tokenData.expires_at) {
+      // Check if we have Business Central tokens in our database
+      const { data: { session } } = await supabaseClient.auth.getSession();
+      if (!session) return;
+
+      // Call our token-manager edge function to check for BC tokens
+      const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/token-manager?provider=business_central`, {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${session.access_token}`,
+          'Content-Type': 'application/json'
+        }
+      });
+
+      if (response.ok) {
+        const result = await response.json();
+        if (result.success && result.tokens && result.tokens.length > 0) {
+          const bcToken = result.tokens[0];
+          
+          // Check if token is still valid
+          if (!bcToken.token_expires_at || new Date(bcToken.token_expires_at) > new Date()) {
             setErpConnections(prev => prev.map(erp => {
               if (erp.provider === 'business_central') {
                 return {
                   ...erp,
                   status: 'connected',
-                  companyName: tokenData.company_name
+                  companyName: bcToken.company_name
                 };
               }
               return erp;
             }));
+
+            // Load companies if connected
+            await loadCompanies(bcToken.access_token);
+            setSelectedCompanyId(bcToken.company_id || '');
           }
         }
       }
@@ -184,21 +210,122 @@ const Dashboard: React.FC = () => {
   };
 
   const connectERP = async (provider: string) => {
+    if (provider !== 'business_central') {
+      alert(`${provider} integration coming soon!`);
+      return;
+    }
+
     try {
       setConnectingProvider(provider);
       
-      if (provider === 'business_central') {
-        // For now, just show a message that BC integration is handled by the extension
-        alert('Please use the Chrome extension popup to connect to Business Central. Click the extension icon in your browser toolbar.');
-      } else {
-        // Handle other ERP providers
-        alert(`${provider} integration coming soon!`);
-      }
+      console.log('Starting Business Central OAuth flow...');
+      
+      // Business Central OAuth configuration
+      const CLIENT_ID = '4c92a998-6af5-4c2a-b16e-80ba1c6b9b3b';
+      const TENANT_ID = 'common';
+      const REDIRECT_URI = `${window.location.origin}/auth/callback`;
+      const SCOPE = 'https://api.businesscentral.dynamics.com/user_impersonation offline_access';
+      
+      // Generate random state and code verifier for PKCE
+      const state = generateRandomString(32);
+      const codeVerifier = generateRandomString(64);
+      const codeChallenge = await generateCodeChallenge(codeVerifier);
+      
+      // Store PKCE values for later verification
+      sessionStorage.setItem('bc_state', state);
+      sessionStorage.setItem('bc_code_verifier', codeVerifier);
+      
+      // Construct auth URL
+      const authUrl = `https://login.microsoftonline.com/${TENANT_ID}/oauth2/v2.0/authorize?` +
+        `client_id=${CLIENT_ID}` +
+        `&response_type=code` +
+        `&redirect_uri=${encodeURIComponent(REDIRECT_URI)}` +
+        `&scope=${encodeURIComponent(SCOPE)}` +
+        `&state=${state}` +
+        `&code_challenge=${codeChallenge}` +
+        `&code_challenge_method=S256` +
+        `&prompt=select_account` +
+        `&response_mode=query`;
+
+      console.log('Redirecting to Business Central OAuth:', authUrl);
+      
+      // Redirect to Microsoft OAuth
+      window.location.href = authUrl;
+      
     } catch (error) {
       console.error('Error connecting ERP:', error);
       alert('Failed to connect to ERP. Please try again.');
-    } finally {
       setConnectingProvider(null);
+    }
+  };
+
+  const loadCompanies = async (token: string) => {
+    try {
+      console.log('Loading Business Central companies...');
+      
+      const response = await fetch('https://api.businesscentral.dynamics.com/v2.0/Production/api/v2.0/companies', {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        }
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to fetch companies');
+      }
+
+      const data = await response.json();
+      const companiesList = data.value || [];
+      
+      console.log(`Loaded ${companiesList.length} companies`);
+      setCompanies(companiesList);
+      
+      return companiesList;
+    } catch (error) {
+      console.error('Error loading companies:', error);
+      return [];
+    }
+  };
+
+  const handleCompanySelection = async (companyId: string) => {
+    try {
+      const selectedCompany = companies.find(c => c.id === companyId);
+      if (!selectedCompany) return;
+
+      setSelectedCompanyId(companyId);
+
+      // Update company selection in database
+      const { data: { session } } = await supabaseClient.auth.getSession();
+      if (!session) return;
+
+      const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/token-manager?provider=business_central`, {
+        method: 'PUT',
+        headers: {
+          'Authorization': `Bearer ${session.access_token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          companyId: companyId,
+          companyName: selectedCompany.displayName || selectedCompany.name
+        })
+      });
+
+      if (response.ok) {
+        console.log('Company selection updated successfully');
+        
+        // Update ERP connection display
+        setErpConnections(prev => prev.map(erp => {
+          if (erp.provider === 'business_central') {
+            return {
+              ...erp,
+              companyName: selectedCompany.displayName || selectedCompany.name
+            };
+          }
+          return erp;
+        }));
+      }
+    } catch (error) {
+      console.error('Error updating company selection:', error);
     }
   };
 
@@ -257,6 +384,23 @@ const Dashboard: React.FC = () => {
     } finally {
       setIsSigningOut(false);
     }
+  };
+
+  // Helper functions for PKCE
+  const generateRandomString = (length: number): string => {
+    const array = new Uint8Array(length);
+    crypto.getRandomValues(array);
+    return Array.from(array, byte => byte.toString(16).padStart(2, '0')).join('');
+  };
+
+  const generateCodeChallenge = async (verifier: string): Promise<string> => {
+    const encoder = new TextEncoder();
+    const data = encoder.encode(verifier);
+    const hash = await crypto.subtle.digest('SHA-256', data);
+    return btoa(String.fromCharCode(...new Uint8Array(hash)))
+      .replace(/\+/g, '-')
+      .replace(/\//g, '_')
+      .replace(/=+$/, '');
   };
 
   if (isLoading) {
@@ -402,14 +546,27 @@ const Dashboard: React.FC = () => {
                   
                   <p className="text-gray-600 mb-4">{erp.description}</p>
                   
-                  {erp.provider === 'business_central' ? (
-                    <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-4">
-                      <p className="text-sm text-blue-800">
-                        <strong>Note:</strong> Use the Chrome extension popup to connect to Business Central. 
-                        Click the extension icon in your browser toolbar.
-                      </p>
+                  {/* Company Selection for Business Central */}
+                  {erp.provider === 'business_central' && erp.status === 'connected' && companies.length > 0 && (
+                    <div className="mb-4">
+                      <label htmlFor="company-select" className="block text-sm font-medium text-gray-700 mb-2">
+                        Select Company:
+                      </label>
+                      <select
+                        id="company-select"
+                        value={selectedCompanyId}
+                        onChange={(e) => handleCompanySelection(e.target.value)}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
+                      >
+                        <option value="">Select a company...</option>
+                        {companies.map((company) => (
+                          <option key={company.id} value={company.id}>
+                            {company.displayName || company.name}
+                          </option>
+                        ))}
+                      </select>
                     </div>
-                  ) : null}
+                  )}
                   
                   <button
                     onClick={() => connectERP(erp.provider)}
@@ -451,7 +608,7 @@ const Dashboard: React.FC = () => {
               <div className="w-6 h-6 bg-indigo-600 text-white rounded-full flex items-center justify-center text-sm font-medium">
                 1
               </div>
-              <span className="text-gray-700">Connect your ERP system using the Chrome extension popup</span>
+              <span className="text-gray-700">Connect your ERP system above</span>
             </div>
             <div className="flex items-center space-x-3">
               <div className="w-6 h-6 bg-indigo-600 text-white rounded-full flex items-center justify-center text-sm font-medium">
