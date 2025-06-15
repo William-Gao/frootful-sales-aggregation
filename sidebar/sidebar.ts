@@ -286,10 +286,49 @@ addItemBtn.addEventListener('click', () => {
   itemsContainer.appendChild(itemBox);
 });
 
-// Get auth token from Supabase session
+// Get auth token from Supabase session - FIXED VERSION
 async function getAuthToken(): Promise<string | null> {
-  const { data: { session }, error } = await supabaseClient.auth.getSession();
-  return session?.access_token ?? null;
+  try {
+    console.log('Getting auth token for sidebar...');
+    
+    // First try to get session from Supabase
+    const { data: { session }, error } = await supabaseClient.auth.getSession();
+    
+    if (session && !error) {
+      console.log('Found valid Supabase session');
+      return session.access_token;
+    }
+    
+    console.log('No Supabase session found, checking chrome storage...');
+    
+    // Fallback to chrome storage if available
+    if (typeof chrome !== 'undefined' && chrome.storage) {
+      try {
+        const result = await chrome.storage.local.get(['session']);
+        if (result.session) {
+          console.log('Found session in chrome storage, setting in Supabase...');
+          
+          // Set the session in Supabase
+          await supabaseClient.auth.setSession(result.session);
+          
+          // Get the session again
+          const { data: { session: newSession } } = await supabaseClient.auth.getSession();
+          if (newSession) {
+            console.log('Successfully restored session from chrome storage');
+            return newSession.access_token;
+          }
+        }
+      } catch (chromeError) {
+        console.warn('Error accessing chrome storage:', chromeError);
+      }
+    }
+    
+    console.warn('No valid auth token found');
+    return null;
+  } catch (error) {
+    console.error('Error getting auth token:', error);
+    return null;
+  }
 }
 
 // Handle comprehensive analysis data - now includes delivery date
@@ -567,7 +606,7 @@ function openOrderPopup(url: string, orderNumber: string): void {
   }
 }
 
-// Export to ERP functionality - now includes delivery date
+// Export to ERP functionality - FIXED VERSION with proper authentication
 exportErpBtn.addEventListener('click', async () => {
   try {
     if (!currentCustomer) {
@@ -583,9 +622,10 @@ exportErpBtn.addEventListener('click', async () => {
       throw new Error('Please add at least one item');
     }
     
+    console.log('Getting auth token for ERP export...');
     const authToken = await getAuthToken();
     if (!authToken) {
-      throw new Error('Not authenticated');
+      throw new Error('Authentication failed. Please sign in again and try again.');
     }
 
     console.log('Exporting order to ERP via edge function...');
@@ -608,6 +648,8 @@ exportErpBtn.addEventListener('click', async () => {
       orderData.requestedDeliveryDate = requestedDeliveryDate;
     }
 
+    console.log('Calling export-order-to-erp edge function with auth token...');
+
     // Call the export-order-to-erp edge function
     const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/export-order-to-erp`, {
       method: 'POST',
@@ -621,6 +663,12 @@ exportErpBtn.addEventListener('click', async () => {
     if (!response.ok) {
       const errorText = await response.text();
       console.error('Export to ERP error response:', errorText);
+      
+      // Check if it's an authentication error
+      if (response.status === 401) {
+        throw new Error('Authentication expired. Please sign in again and try again.');
+      }
+      
       throw new Error(`Export failed: ${response.status} ${response.statusText}`);
     }
 
