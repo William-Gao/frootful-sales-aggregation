@@ -42,15 +42,17 @@ const Dashboard: React.FC = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [connectingProvider, setConnectingProvider] = useState<string | null>(null);
   const [isSigningOut, setIsSigningOut] = useState(false);
+  const [extensionLogoutInProgress, setExtensionLogoutInProgress] = useState(false);
 
   useEffect(() => {
     checkAuthState();
     checkERPConnections();
     
-    // NEW: Listen for extension logout messages
+    // Listen for extension logout messages
     const handleExtensionLogout = (event: MessageEvent) => {
       if (event.data.source === "frootful-extension" && event.data.type === "EXTENSION_LOGOUT") {
-        console.log('🚪 Received logout message from extension, signing out...');
+        console.log('🚪 Received logout message from extension, processing immediate logout...');
+        setExtensionLogoutInProgress(true);
         handleExtensionSignOut();
       }
     };
@@ -62,27 +64,36 @@ const Dashboard: React.FC = () => {
     };
   }, []);
 
-  // NEW: Handle sign out initiated by extension
+  // Handle sign out initiated by extension
   const handleExtensionSignOut = async () => {
     try {
       console.log('🚪 Processing extension-initiated sign out...');
       
-      await clearSession();
+      // Immediately clear all session data
+      await clearAllSessionData();
       
       // Small delay to ensure cleanup is complete
       setTimeout(() => {
-        window.location.href = '/login';
-      }, 500);
+        console.log('🔄 Redirecting to login after extension logout');
+        window.location.replace('/login'); // Use replace to prevent back button issues
+      }, 100);
       
     } catch (error) {
       console.error('Error during extension sign out:', error);
       // Still redirect even if there were errors
-      window.location.href = '/login';
+      window.location.replace('/login');
     }
   };
 
   const checkAuthState = async () => {
     try {
+      // If extension logout is in progress, skip auth check
+      if (extensionLogoutInProgress) {
+        console.log('Extension logout in progress, skipping auth check');
+        setIsLoading(false);
+        return;
+      }
+
       // First check if we have a Supabase session
       const { data: { session }, error } = await supabaseClient.auth.getSession();
       
@@ -104,7 +115,7 @@ const Dashboard: React.FC = () => {
           // Check if session is expired
           if (session.expires_at && Date.now() / 1000 > session.expires_at) {
             console.log('Session expired');
-            clearSession();
+            await clearAllSessionData();
             window.location.href = '/login';
             return;
           }
@@ -215,9 +226,9 @@ const Dashboard: React.FC = () => {
     window.open('https://mail.google.com', '_blank');
   };
 
-  const clearSession = async () => {
+  const clearAllSessionData = async () => {
     try {
-      console.log('Clearing session from all storage locations...');
+      console.log('Clearing all session data from all storage locations...');
       
       // Clear localStorage
       localStorage.removeItem('frootful_session');
@@ -273,7 +284,7 @@ const Dashboard: React.FC = () => {
       setIsSigningOut(true);
       console.log('Starting sign out process...');
       
-      await clearSession();
+      await clearAllSessionData();
       
       // Small delay to ensure all cleanup is complete
       setTimeout(() => {

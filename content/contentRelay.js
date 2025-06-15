@@ -31,27 +31,29 @@ window.addEventListener('message', (event) => {
   }
 });
 
-// NEW: Listen for logout messages from extension
+// Listen for logout messages from extension
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   console.log('Content relay received runtime message:', message);
   
   if (message.type === 'FROOTFUL_LOGOUT' && message.source === 'extension') {
-    console.log('🚪 Extension logout detected, notifying SPA');
+    console.log('🚪 Extension logout detected, processing immediate logout...');
     
-    // Clear any local session data
+    // IMMEDIATELY clear any local session data
     localStorage.removeItem('frootful_session');
     localStorage.removeItem('frootful_user');
     
     // Post message to notify any listening components in the SPA
     window.postMessage({
       source: "frootful-extension",
-      type: "EXTENSION_LOGOUT"
+      type: "EXTENSION_LOGOUT",
+      timestamp: Date.now() // Add timestamp to ensure fresh message
     }, "*");
     
-    // Also try to redirect to login page if we're on a protected route
+    // Force immediate redirect to login if not already there
     if (window.location.pathname !== '/login') {
-      console.log('🔄 Redirecting to login page due to extension logout');
-      window.location.href = '/login';
+      console.log('🔄 Force redirecting to login page due to extension logout');
+      // Use replace to prevent back button issues
+      window.location.replace('/login');
     }
     
     sendResponse({ success: true });

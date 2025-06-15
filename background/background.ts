@@ -154,14 +154,14 @@ chrome.runtime.onMessage.addListener(async (message, sender, sendResponse) => {
       });
     });
 
-    // NEW: Notify all open SPA tabs about the logout
+    // Notify all SPA tabs about the logout
     await notifyAllSPATabs();
     
     sendResponse({ success: true });
   }
 });
 
-// NEW: Function to notify all SPA tabs about logout
+// Function to notify all SPA tabs about logout
 async function notifyAllSPATabs(): Promise<void> {
   try {
     console.log("🔄 Notifying all SPA tabs about logout...");
@@ -323,7 +323,7 @@ async function revokeAuthentication(): Promise<void> {
               });
             });
 
-            // NEW: Notify all SPA tabs about the logout
+            // Notify all SPA tabs about the logout
             await notifyAllSPATabs();
             
             resolve();
@@ -351,7 +351,7 @@ async function revokeAuthentication(): Promise<void> {
           });
         });
 
-        // NEW: Notify all SPA tabs about the logout
+        // Notify all SPA tabs about the logout
         await notifyAllSPATabs();
         
         resolve();
