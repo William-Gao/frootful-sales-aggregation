@@ -52,7 +52,37 @@ const AuthCallback: React.FC = () => {
         throw new Error('No session found after OAuth callback');
       }
 
-      console.log('Processing auth callback for user:', session.user.email);
+      console.log('Processing Google auth callback for user:', session.user.email);
+
+      // Store Google provider tokens in database
+      console.log('Storing Google provider tokens in database...');
+      
+      try {
+        const storeResponse = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/token-manager`, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${session.access_token}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            provider: 'google',
+            accessToken: session.provider_token || session.access_token,
+            refreshToken: session.provider_refresh_token || session.refresh_token,
+            expiresAt: session.expires_at ? new Date(session.expires_at * 1000).toISOString() : undefined
+          })
+        });
+
+        if (storeResponse.ok) {
+          console.log('Successfully stored Google provider tokens in database');
+        } else {
+          const errorText = await storeResponse.text();
+          console.warn('Failed to store Google tokens in database:', errorText);
+          // Continue anyway - this is not critical for the auth flow
+        }
+      } catch (tokenStoreError) {
+        console.warn('Error storing Google tokens:', tokenStoreError);
+        // Continue anyway - this is not critical for the auth flow
+      }
 
       // Prepare session data for the extension
       const sessionData = {

@@ -110,6 +110,9 @@ const Dashboard: React.FC = () => {
         console.log('Found Supabase session for user:', session.user.email);
         setUser(session.user);
         
+        // Store Google provider tokens if we have them and they're not already stored
+        await storeGoogleTokensIfNeeded(session);
+        
         // Notify extension about the session if needed
         notifyExtensionOfAuthState(session);
       } else {
@@ -123,6 +126,55 @@ const Dashboard: React.FC = () => {
       window.location.href = '/login';
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const storeGoogleTokensIfNeeded = async (session: any) => {
+    try {
+      // Check if we already have Google tokens stored
+      const checkResponse = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/token-manager?provider=google`, {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${session.access_token}`,
+          'Content-Type': 'application/json'
+        }
+      });
+
+      if (checkResponse.ok) {
+        const result = await checkResponse.json();
+        if (result.success && result.tokens && result.tokens.length > 0) {
+          console.log('Google tokens already stored in database');
+          return;
+        }
+      }
+
+      // Store Google provider tokens if we have them
+      if (session.provider_token || session.access_token) {
+        console.log('Storing Google provider tokens in database...');
+        
+        const storeResponse = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/token-manager`, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${session.access_token}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            provider: 'google',
+            accessToken: session.provider_token || session.access_token,
+            refreshToken: session.provider_refresh_token || session.refresh_token,
+            expiresAt: session.expires_at ? new Date(session.expires_at * 1000).toISOString() : undefined
+          })
+        });
+
+        if (storeResponse.ok) {
+          console.log('Successfully stored Google provider tokens in database');
+        } else {
+          const errorText = await storeResponse.text();
+          console.warn('Failed to store Google tokens in database:', errorText);
+        }
+      }
+    } catch (error) {
+      console.warn('Error storing Google tokens:', error);
     }
   };
 
