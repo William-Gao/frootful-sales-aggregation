@@ -1,6 +1,8 @@
 // Content script relay for authentication callback
 // This script runs on localhost pages to relay auth messages to the extension
 
+// contentRelay.js
+
 console.log('Frootful content relay script loaded');
 
 // Listen for auth success messages from the SPA

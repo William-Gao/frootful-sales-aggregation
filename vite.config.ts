@@ -24,10 +24,6 @@ export default defineConfig({
         popup: resolve(__dirname, 'popup/popup.ts'),
         sidebar: resolve(__dirname, 'sidebar/sidebar.ts'),
         welcome: resolve(__dirname, 'onboarding/welcome.ts'),
-        // Add auth files to build
-        authLogin: resolve(__dirname, 'public/auth/login.js'),
-        authCallback: resolve(__dirname, 'public/auth/callback.js'),
-        authSupabase: resolve(__dirname, 'public/auth/supabaseClient.js'),
       },
       output: {
         dir: 'dist',

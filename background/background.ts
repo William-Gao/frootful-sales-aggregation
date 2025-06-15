@@ -75,7 +75,7 @@ chrome.runtime.onInstalled.addListener((details) => {
 });
 
 // Handle authentication and sign-out messages
-chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+chrome.runtime.onMessage.addListener(async (message, sender, sendResponse) => {
   console.log('Background script received message:', message);
   
   if (message?.source === "frootful-auth") {
@@ -138,11 +138,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     });
     
     // Sign out from Supabase
-    supabaseClient.auth.signOut().then(() => {
-      console.log("🚪 Signed out from Supabase");
-    }).catch((error) => {
+    const { error } = await supabaseClient.auth.signOut()
+    
+    if (error) {
       console.warn("Error signing out from Supabase:", error);
-    });
+    } else {
+      console.log("🚪 Signed out from Supabase");
+    }
     
     // Notify all connected ports about authentication state
     ports.forEach(port => {

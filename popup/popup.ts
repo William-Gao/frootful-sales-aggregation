@@ -297,8 +297,10 @@ document.addEventListener('DOMContentLoaded', () => {
           console.warn("⚠️ No session found in chrome.storage.local or supabase. Unauthenticated");
           return { isAuthenticated: false };
         }
+      } else {
+        console.log('Found a session from supabase getSession() method: ', session);
       }
-      console.log('Found a session from supabase getSession() method');
+      
       return { isAuthenticated: true, user: session?.user };
     } catch (error) {
       console.error('Error checking SPA auth state:', error);
