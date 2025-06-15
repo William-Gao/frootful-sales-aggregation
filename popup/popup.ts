@@ -157,7 +157,7 @@ document.addEventListener('DOMContentLoaded', () => {
       
       // Sign out from Supabase - this is our single source of truth
       await supabaseClient.auth.signOut();
-      
+      localStorage.clear();
       // Clear chrome storage
       if (typeof chrome !== 'undefined' && chrome.storage) {
         await chrome.storage.local.remove([
