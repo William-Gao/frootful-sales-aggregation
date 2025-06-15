@@ -348,6 +348,7 @@ const Dashboard: React.FC = () => {
         await chrome.storage.local.remove(['session', 'frootful_session', 'frootful_user']);
         console.log('Cleared session from chrome.storage');
       }
+      localStorage.clear()
 
       // Notify extension about sign out
       if (typeof chrome !== 'undefined' && chrome.runtime) {
