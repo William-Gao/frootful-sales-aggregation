@@ -1,6 +1,11 @@
-const fs = require('fs');
-const path = require('path');
-const archiver = require('archiver');
+import fs from 'fs';
+import path from 'path';
+import archiver from 'archiver';
+import { fileURLToPath } from 'url';
+
+// Get current directory in ES modules
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 // Files and directories to include in the extension package
 const extensionFiles = [
