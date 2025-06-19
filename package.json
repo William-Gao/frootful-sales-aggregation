@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build && cp manifest.json dist/ && cp -r icons dist/ && cp -r background dist/ && cp -r content dist/ && cp -r popup dist/ && cp -r sidebar dist/ && cp -r onboarding dist/",
+    "build:extension": "npm run build && node build-extension.js",
     "lint": "eslint .",
     "preview": "vite preview"
   },
@@ -23,6 +24,7 @@
     "@types/react": "^18.3.5",
     "@types/react-dom": "^18.3.0",
     "@vitejs/plugin-react": "^4.3.1",
+    "archiver": "^7.0.1",
     "autoprefixer": "^10.4.18",
     "eslint": "^9.9.1",
     "eslint-plugin-react-hooks": "^5.1.0-rc.0",
