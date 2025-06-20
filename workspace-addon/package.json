@@ -1,0 +1,38 @@
+{
+  "name": "frootful-workspace-addon",
+  "version": "1.0.0",
+  "description": "Frootful Google Workspace Add-on for Gmail mobile integration",
+  "main": "dist/Code.js",
+  "type": "module",
+  "scripts": {
+    "build": "npm run clean && npm run compile && npm run copy-manifest",
+    "clean": "rimraf dist",
+    "compile": "tsc",
+    "copy-manifest": "cp appsscript.json dist/",
+    "watch": "tsc --watch",
+    "dev": "npm run build && npm run watch",
+    "deploy": "npm run build && clasp push",
+    "deploy:watch": "npm run build && clasp push --watch",
+    "logs": "clasp logs",
+    "open": "clasp open",
+    "setup": "clasp login && clasp create --type standalone --title 'Frootful Gmail Add-on'",
+    "pull": "clasp pull",
+    "push": "clasp push",
+    "version": "clasp version",
+    "deploy:prod": "npm run build && clasp deploy"
+  },
+  "devDependencies": {
+    "@google/clasp": "^2.4.2",
+    "@types/google-apps-script": "^1.0.83",
+    "rimraf": "^5.0.5",
+    "typescript": "^5.3.3"
+  },
+  "keywords": [
+    "google-apps-script",
+    "gmail",
+    "workspace-addon",
+    "typescript"
+  ],
+  "author": "Frootful",
+  "license": "MIT"
+}

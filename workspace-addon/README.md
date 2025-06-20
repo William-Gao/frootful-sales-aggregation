@@ -2,7 +2,89 @@
 
 A Google Workspace Add-on that integrates with Gmail mobile to extract order information from emails and create orders in Business Central ERP.
 
-## Features
+## Development Setup
+
+This project uses **clasp** (Command Line Apps Script Projects) with TypeScript for modern development workflow.
+
+### Prerequisites
+
+1. **Node.js** (v16 or higher)
+2. **Google Apps Script API** enabled in your Google Cloud Console
+3. **clasp** CLI tool
+
+### Initial Setup
+
+1. **Install dependencies:**
+   ```bash
+   cd workspace-addon
+   npm install
+   ```
+
+2. **Login to clasp:**
+   ```bash
+   npm run setup
+   ```
+   This will:
+   - Login to your Google account
+   - Create a new Apps Script project
+   - Generate `.clasp.json` with your script ID
+
+3. **Update configuration:**
+   - Copy your script ID from `.clasp.json`
+   - Update `SUPABASE_URL` and `SUPABASE_ANON_KEY` in `src/Code.ts`
+
+### Development Workflow
+
+#### 🔨 **Build & Deploy**
+```bash
+# Build TypeScript to JavaScript
+npm run build
+
+# Deploy to Apps Script
+npm run deploy
+
+# Build and deploy in one command
+npm run deploy
+```
+
+#### 🔄 **Watch Mode Development**
+```bash
+# Watch TypeScript files and auto-compile
+npm run watch
+
+# Build and deploy with watch mode
+npm run deploy:watch
+```
+
+#### 📝 **Other Commands**
+```bash
+# View Apps Script logs
+npm run logs
+
+# Open project in Apps Script editor
+npm run open
+
+# Pull latest from Apps Script
+npm run pull
+
+# Create production deployment
+npm run deploy:prod
+```
+
+### Project Structure
+
+```
+workspace-addon/
+├── src/
+│   └── Code.ts              # Main TypeScript source
+├── dist/                    # Compiled JavaScript (auto-generated)
+├── appsscript.json         # Apps Script manifest
+├── .clasp.json             # Clasp configuration (auto-generated)
+├── tsconfig.json           # TypeScript configuration
+└── package.json            # Node.js dependencies
+```
+
+### Features
 
 - 📱 **Mobile-First Design**: Optimized for Gmail mobile app
 - 🔍 **AI-Powered Analysis**: Extracts order details from email content
@@ -11,117 +93,68 @@ A Google Workspace Add-on that integrates with Gmail mobile to extract order inf
 - 🚀 **One-Click Orders**: Creates ERP orders directly from Gmail
 - 📅 **Delivery Date Detection**: Extracts requested delivery dates
 
-## Setup Instructions
+### TypeScript Benefits
 
-### 1. Create Google Apps Script Project
+- **Type Safety**: Catch errors at compile time
+- **IntelliSense**: Better IDE support with autocomplete
+- **Modern JavaScript**: Use latest ES features
+- **Refactoring**: Safe code refactoring with type checking
 
-1. Go to [Google Apps Script](https://script.google.com)
-2. Click "New Project"
-3. Replace the default code with the contents of `src/Code.js`
-4. Copy the contents of `appsscript.json` to your project's manifest
+### Testing
 
-### 2. Configure Project Settings
+1. **Build and deploy:**
+   ```bash
+   npm run deploy
+   ```
 
-1. In Apps Script, go to **Project Settings**
-2. Check "Show 'appsscript.json' manifest file in editor"
-3. Replace the manifest with our `appsscript.json`
+2. **Test in Apps Script:**
+   - Run `npm run open` to open the project
+   - Use the Apps Script debugger
 
-### 3. Enable Advanced Services
+3. **Test in Gmail:**
+   - Deploy as add-on in Apps Script
+   - Install in your Gmail account
+   - Test with real emails
 
-1. In Apps Script, go to **Services** (+ icon)
-2. Add **Gmail API** (v1)
+### Deployment
 
-### 4. Deploy as Add-on
+#### Development Testing
+```bash
+npm run deploy
+```
 
-1. In Apps Script, click **Deploy** > **New Deployment**
-2. Choose type: **Add-on**
-3. Fill in the deployment details:
-   - **Description**: Frootful Gmail Integration
-   - **Version**: New version
-4. Click **Deploy**
+#### Production Release
+```bash
+npm run deploy:prod
+```
 
-### 5. Install in Gmail
+### Troubleshooting
 
-1. Go to [Google Workspace Marketplace](https://workspace.google.com/marketplace)
-2. Search for your add-on (if published) or use the deployment URL
-3. Install the add-on
+**Build Errors:**
+- Check TypeScript compilation: `npm run compile`
+- Verify types: `@types/google-apps-script` is installed
 
-### 6. Test in Gmail Mobile
+**Deployment Issues:**
+- Ensure you're logged in: `clasp login`
+- Check script ID in `.clasp.json`
+- Verify permissions in Apps Script
 
-1. Open Gmail mobile app
-2. Open an email with order information
-3. Look for the Frootful add-on panel
-4. Click "Extract Order Details"
+**Runtime Errors:**
+- Check logs: `npm run logs`
+- Test functions individually in Apps Script editor
 
-## Configuration
+### Configuration
 
-### Environment Variables
+Update these values in `src/Code.ts`:
 
-Update these values in `src/Code.js`:
-
-```javascript
+```typescript
 const SUPABASE_URL = 'your-supabase-url';
 const SUPABASE_ANON_KEY = 'your-supabase-anon-key';
 ```
 
-### Business Central Integration
-
-The add-on uses the same Supabase edge functions as the Chrome extension for:
-- Email analysis
-- Customer and item data
-- Order creation
-
-## File Structure
-
-```
-workspace-addon/
-├── appsscript.json          # Apps Script manifest
-├── src/
-│   └── Code.js             # Main add-on code
-├── README.md               # This file
-└── deploy.md               # Deployment guide
-```
-
-## Mobile Interface
-
-The add-on provides a clean, mobile-optimized interface with:
-
-- **Main Card**: Shows extract button when email is open
-- **Results Card**: Displays analyzed order information
-- **Success Card**: Confirms order creation
-- **Error Handling**: User-friendly error messages
-
-## Permissions
-
-The add-on requires these OAuth scopes:
-- `gmail.readonly` - Read email content
-- `gmail.addons.current.message.readonly` - Access current message
-- `script.external_request` - Call external APIs
-
-## Testing
-
-### Local Testing
-
-1. Use the Apps Script editor's debugger
-2. Test individual functions with sample data
-3. Check logs in **Executions** tab
-
-### Gmail Testing
-
-1. Install the add-on in your Gmail
-2. Open emails with order information
-3. Test the extraction and order creation flow
-
-## Deployment
-
-See `deploy.md` for detailed deployment instructions including:
-- Publishing to Google Workspace Marketplace
-- Organization-wide deployment
-- Testing and approval process
-
 ## Support
 
 For issues or questions:
-1. Check the Apps Script execution logs
-2. Verify Supabase edge function connectivity
-3. Ensure Business Central integration is configured
+1. Check the TypeScript compilation output
+2. Verify Apps Script execution logs: `npm run logs`
+3. Test individual functions in Apps Script editor

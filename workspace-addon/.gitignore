@@ -1,22 +1,7 @@
-# Google Apps Script files
-.clasp.json
+node_modules/
+dist/
 .clasprc.json
-
-# Logs
 *.log
-
-# Environment files
-.env
-.env.local
-
-# IDE files
-.vscode/
-.idea/
-
-# OS files
 .DS_Store
-Thumbs.db
-
-# Backup files
-*.backup
-*.bak
+.env
+.clasp.json
