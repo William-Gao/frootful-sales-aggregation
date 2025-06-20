@@ -45,8 +45,9 @@
     "https://www.googleapis.com/auth/script.external_request"
   ],
   "urlFetchWhitelist": [
-    "https://zkglvdfppodwlgzhfgqs.supabase.co",
-    "https://api.businesscentral.dynamics.com",
-    "https://login.microsoftonline.com"
+    "https://zkglvdfppodwlgzhfgqs.supabase.co/",
+    "https://zkglvdfppodwlgzhfgqs.supabase.co/functions/",
+    "https://api.businesscentral.dynamics.com/",
+    "https://login.microsoftonline.com/"
   ]
 }
