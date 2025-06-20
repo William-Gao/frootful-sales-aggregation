@@ -19,8 +19,7 @@
     "pull": "clasp pull",
     "push": "clasp push --force",
     "version": "clasp version",
-    "deploy:prod": "npm run build && clasp deploy",
-    "reset": "clasp pull --force && npm run build && clasp push --force"
+    "deploy:prod": "npm run build && clasp deploy"
   },
   "devDependencies": {
     "@google/clasp": "^2.4.2",
