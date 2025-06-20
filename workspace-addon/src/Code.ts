@@ -320,7 +320,7 @@ function callComprehensiveAnalysis(emailData: EmailData, userEmail: string): { s
     const response = UrlFetchApp.fetch(
       `${SUPABASE_URL}/functions/v1/analyze-email`,
       {
-        method: 'POST',
+        method: 'post',
         headers: {
           'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
           'Content-Type': 'application/json'
@@ -512,7 +512,7 @@ function createERPOrder(e: GoogleAppsScript.Addons.EventObject): GoogleAppsScrip
     const response = UrlFetchApp.fetch(
       `${SUPABASE_URL}/functions/v1/export-order-to-erp`,
       {
-        method: 'POST',
+        method: 'post',
         headers: {
           'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
           'Content-Type': 'application/json'
