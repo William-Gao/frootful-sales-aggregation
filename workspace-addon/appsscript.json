@@ -14,12 +14,22 @@
   "addOns": {
     "common": {
       "name": "Frootful Gmail Extractor",
-      "logoUrl": "https://images.pexels.com/photos/1640777/pexels-photo-1640777.jpeg?auto=compress&cs=tinysrgb&w=64&h=64",
+      "logoUrl": "https://images.pexels.com/photos/1640777/pexels-photo-1640777.jpeg?auto=compress&cs=tinysrgb&w=128&h=128",
       "layoutProperties": {
         "primaryColor": "#6366F1",
         "secondaryColor": "#8B5CF6"
       },
-      "useLocaleFromApp": true
+      "useLocaleFromApp": true,
+      "homepageTrigger": {
+        "runFunction": "onHomepage",
+        "enabled": true
+      },
+      "universalActions": [
+        {
+          "label": "Open Frootful Dashboard",
+          "runFunction": "openDashboard"
+        }
+      ]
     },
     "gmail": {
       "contextualTriggers": [
@@ -52,6 +62,8 @@
     "https://zkglvdfppodwlgzhfgqs.supabase.co/",
     "https://zkglvdfppodwlgzhfgqs.supabase.co/functions/",
     "https://api.businesscentral.dynamics.com/",
-    "https://login.microsoftonline.com/"
+    "https://login.microsoftonline.com/",
+    "https://gmail.googleapis.com/",
+    "https://oauth2.googleapis.com/"
   ]
 }

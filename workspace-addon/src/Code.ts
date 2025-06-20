@@ -76,6 +76,26 @@ interface OrderResult {
 }
 
 /**
+ * Homepage trigger - shows when no specific context
+ */
+function onHomepage(): GoogleAppsScript.Card_Service.Card[] {
+  const userEmail = Session.getActiveUser().getEmail();
+  return [createMainCard(null, undefined, userEmail)];
+}
+
+/**
+ * Universal action to open dashboard
+ */
+function openDashboard(): GoogleAppsScript.Card_Service.ActionResponse {
+  return CardService.newActionResponseBuilder()
+    .setOpenLink(CardService.newOpenLink()
+      .setUrl('http://localhost:5173/dashboard')
+      .setOpenAs(CardService.OpenAs.FULL_SIZE)
+    )
+    .build();
+}
+
+/**
  * Main entry point when a Gmail message is opened
  */
 function onGmailMessage(e: GoogleAppsScript.Addons.EventObject): GoogleAppsScript.Card_Service.Card[] {
