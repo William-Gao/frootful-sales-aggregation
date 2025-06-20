@@ -19,9 +19,6 @@
         "primaryColor": "#6366F1",
         "secondaryColor": "#8B5CF6"
       },
-      "addOnWidgetSet": {
-        "used": true
-      },
       "useLocaleFromApp": true
     },
     "gmail": {
