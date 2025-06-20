@@ -101,7 +101,7 @@ function onGmailMessage(e: GoogleAppsScript.Addons.EventObject): GoogleAppsScrip
     
   } catch (error) {
     console.error('Error in onGmailMessage:', error);
-    return [createErrorCard('Failed to load Frootful: ' + error.toString())];
+    return [createErrorCard('Failed to load Frootful: ' + String(error))];
   }
 }
 
@@ -187,9 +187,9 @@ function createMainCard(messageId: string | null, accessToken: string | undefine
  * Extract email content and analyze for order information
  */
 function extractEmailContent(e: GoogleAppsScript.Addons.EventObject): GoogleAppsScript.Card_Service.ActionResponse {
-  const messageId = e.parameters?.messageId as string;
-  const accessToken = e.parameters?.accessToken as string;
-  const userEmail = e.parameters?.userEmail as string;
+  const messageId = (e as any).parameters?.messageId as string;
+  const accessToken = (e as any).parameters?.accessToken as string;
+  const userEmail = (e as any).parameters?.userEmail as string;
 
   try {
     console.log('Extracting email content for message:', messageId);
@@ -220,7 +220,7 @@ function extractEmailContent(e: GoogleAppsScript.Addons.EventObject): GoogleApps
   } catch (error) {
     console.error('Error extracting email:', error);
     return CardService.newActionResponseBuilder()
-      .setNavigation(CardService.newNavigation().updateCard(createErrorCard('Extraction failed: ' + error.toString())))
+      .setNavigation(CardService.newNavigation().updateCard(createErrorCard('Extraction failed: ' + String(error))))
       .build();
   }
 }
@@ -347,7 +347,7 @@ function callComprehensiveAnalysis(emailData: EmailData, userEmail: string): { s
     console.error('Error calling analysis service:', error);
     return {
       success: false,
-      error: error.toString()
+      error: String(error)
     };
   }
 }
@@ -494,8 +494,8 @@ function createResultsCard(analysisData: AnalysisData, userEmail: string): Googl
  * Create ERP order from analyzed data
  */
 function createERPOrder(e: GoogleAppsScript.Addons.EventObject): GoogleAppsScript.Card_Service.ActionResponse {
-  const analysisData: AnalysisData = JSON.parse(e.parameters?.analysisData as string);
-  const userEmail = e.parameters?.userEmail as string;
+  const analysisData: AnalysisData = JSON.parse((e as any).parameters?.analysisData as string);
+  const userEmail = (e as any).parameters?.userEmail as string;
 
   try {
     // Prepare order data
@@ -547,7 +547,7 @@ function createERPOrder(e: GoogleAppsScript.Addons.EventObject): GoogleAppsScrip
   } catch (error) {
     console.error('Error creating ERP order:', error);
     return CardService.newActionResponseBuilder()
-      .setNavigation(CardService.newNavigation().updateCard(createErrorCard('Order creation failed: ' + error.toString())))
+      .setNavigation(CardService.newNavigation().updateCard(createErrorCard('Order creation failed: ' + String(error))))
       .build();
   }
 }
@@ -556,7 +556,7 @@ function createERPOrder(e: GoogleAppsScript.Addons.EventObject): GoogleAppsScrip
  * Connect to Business Central
  */
 function connectBusinessCentral(e: GoogleAppsScript.Addons.EventObject): GoogleAppsScript.Card_Service.ActionResponse {
-  const userEmail = e.parameters?.userEmail as string;
+  const userEmail = (e as any).parameters?.userEmail as string;
   
   const card = CardService.newCardBuilder()
     .setName('frootful-bc-connect')
@@ -609,7 +609,7 @@ function connectBusinessCentral(e: GoogleAppsScript.Addons.EventObject): GoogleA
  * Go back to main interface
  */
 function backToMain(e: GoogleAppsScript.Addons.EventObject): GoogleAppsScript.Card_Service.ActionResponse {
-  const userEmail = e.parameters?.userEmail as string;
+  const userEmail = (e as any).parameters?.userEmail as string;
   return CardService.newActionResponseBuilder()
     .setNavigation(CardService.newNavigation().updateCard(createMainCard(null, undefined, userEmail)))
     .build();
