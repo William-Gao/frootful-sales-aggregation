@@ -10,6 +10,9 @@ const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBh
 // Hardcoded access token - replace with your actual token
 const HARDCODED_ACCESS_TOKEN = 'your-supabase-access-token-here';
 
+// Global storage for analysis data (since we can't use localStorage)
+let CURRENT_ANALYSIS_DATA: AnalysisData | null = null;
+
 // Types
 interface EmailData {
   id: string;
@@ -126,12 +129,8 @@ function onGmailMessage(e: GoogleAppsScript.Addons.EventObject): GoogleAppsScrip
 
     console.log('Processing message ID:', messageId);
 
-    // Show loading card first
+    // Show loading card with extract button
     const loadingCard = createLoadingCard();
-    
-    // Start analysis in background and return loading card
-    // Note: Apps Script doesn't support async/await in the same way as modern JS
-    // We'll need to use a different approach for the actual implementation
     
     return [loadingCard];
   } catch (error) {
@@ -161,6 +160,9 @@ function extractEmailContent(e: GoogleAppsScript.Addons.EventObject): GoogleApps
       return createErrorResponse(analysisResult.error || 'Analysis failed');
     }
 
+    // Store analysis data globally for later use
+    CURRENT_ANALYSIS_DATA = analysisResult.data!;
+
     // Create result card with analysis data
     const resultCard = createAnalysisResultCard(analysisResult.data!);
     
@@ -181,29 +183,52 @@ function createERPOrder(e: GoogleAppsScript.Addons.EventObject): GoogleAppsScrip
   console.log('Frootful: Create ERP order action triggered');
   
   try {
+    // Check if we have analysis data
+    if (!CURRENT_ANALYSIS_DATA) {
+      return createErrorResponse('No analysis data found. Please extract email content first.');
+    }
+
     // Get form data from the action
     const formInputs = e.commonEventObject?.formInputs;
-    if (!formInputs) {
-      return createErrorResponse('No form data found');
+    console.log('Form inputs:', formInputs);
+
+    // Get selected customer (either from form or use matched customer)
+    let customerNumber: string;
+    
+    if (formInputs && formInputs['customer'] && formInputs['customer'].stringInputs?.value?.[0]) {
+      customerNumber = formInputs['customer'].stringInputs.value[0];
+      console.log('Using customer from form:', customerNumber);
+    } else if (CURRENT_ANALYSIS_DATA.matchingCustomer) {
+      customerNumber = CURRENT_ANALYSIS_DATA.matchingCustomer.number;
+      console.log('Using matched customer:', customerNumber);
+    } else {
+      return createErrorResponse('Please select a customer or ensure a customer was matched');
     }
 
-    // Extract customer and items data
-    const customerNumber = formInputs['customer']?.stringInputs?.value?.[0];
-    if (!customerNumber) {
-      return createErrorResponse('Please select a customer');
+    // Build order data from analysis results
+    const orderItems = CURRENT_ANALYSIS_DATA.analyzedItems
+      .filter(item => item.matchedItem) // Only include items that were matched
+      .map(item => ({
+        itemName: item.matchedItem!.number, // Use item number for BC
+        quantity: item.quantity,
+        price: item.matchedItem!.unitPrice // Include price from matched item
+      }));
+
+    if (orderItems.length === 0) {
+      return createErrorResponse('No matched items found to create order');
     }
 
-    // Build order data from form inputs
     const orderData: OrderData = {
       customerNumber: customerNumber,
-      items: [] // We'll need to extract items from form data
+      items: orderItems
     };
 
-    // Extract delivery date if provided
-    const deliveryDate = formInputs['deliveryDate']?.stringInputs?.value?.[0];
-    if (deliveryDate) {
-      orderData.requestedDeliveryDate = deliveryDate;
+    // Add delivery date if available
+    if (CURRENT_ANALYSIS_DATA.requestedDeliveryDate) {
+      orderData.requestedDeliveryDate = CURRENT_ANALYSIS_DATA.requestedDeliveryDate;
     }
+
+    console.log('Creating order with data:', orderData);
 
     // Call export-order-to-erp endpoint
     const orderResult = callExportOrderToERP(orderData);
@@ -221,6 +246,71 @@ function createERPOrder(e: GoogleAppsScript.Addons.EventObject): GoogleAppsScrip
 
   } catch (error) {
     console.error('Error in createERPOrder:', error);
+    return createErrorResponse('Failed to create ERP order: ' + String(error));
+  }
+}
+
+/**
+ * Action handler for creating ERP order with specific customer
+ */
+function createERPOrderWithCustomer(e: GoogleAppsScript.Addons.EventObject): GoogleAppsScript.Card_Service.ActionResponse {
+  console.log('Frootful: Create ERP order with customer action triggered');
+  
+  try {
+    // Check if we have analysis data
+    if (!CURRENT_ANALYSIS_DATA) {
+      return createErrorResponse('No analysis data found. Please extract email content first.');
+    }
+
+    // Get customer number from action parameters
+    const customerNumber = e.parameters?.customerNumber as string;
+    if (!customerNumber) {
+      return createErrorResponse('No customer selected');
+    }
+
+    console.log('Creating order for customer:', customerNumber);
+
+    // Build order data from analysis results
+    const orderItems = CURRENT_ANALYSIS_DATA.analyzedItems
+      .filter(item => item.matchedItem) // Only include items that were matched
+      .map(item => ({
+        itemName: item.matchedItem!.number, // Use item number for BC
+        quantity: item.quantity,
+        price: item.matchedItem!.unitPrice // Include price from matched item
+      }));
+
+    if (orderItems.length === 0) {
+      return createErrorResponse('No matched items found to create order');
+    }
+
+    const orderData: OrderData = {
+      customerNumber: customerNumber,
+      items: orderItems
+    };
+
+    // Add delivery date if available
+    if (CURRENT_ANALYSIS_DATA.requestedDeliveryDate) {
+      orderData.requestedDeliveryDate = CURRENT_ANALYSIS_DATA.requestedDeliveryDate;
+    }
+
+    console.log('Creating order with data:', orderData);
+
+    // Call export-order-to-erp endpoint
+    const orderResult = callExportOrderToERP(orderData);
+    
+    if (!orderResult.success) {
+      return createErrorResponse(orderResult.error || 'Order creation failed');
+    }
+
+    // Create success card
+    const successCard = createOrderSuccessCard(orderResult);
+    
+    return CardService.newActionResponseBuilder()
+      .setNavigation(CardService.newNavigation().pushCard(successCard))
+      .build();
+
+  } catch (error) {
+    console.error('Error in createERPOrderWithCustomer:', error);
     return createErrorResponse('Failed to create ERP order: ' + String(error));
   }
 }
@@ -320,15 +410,16 @@ function createLoadingCard(): GoogleAppsScript.Card_Service.Card {
   return CardService.newCardBuilder()
     .setHeader(CardService.newCardHeader()
       .setTitle('Frootful')
-      .setSubtitle('Analyzing Email...'))
+      .setSubtitle('Ready to Analyze'))
     .addSection(CardService.newCardSection()
       .addWidget(CardService.newTextParagraph()
-        .setText('🔍 Analyzing email content...\n📊 Matching customers and items...\n⏳ Please wait...'))
+        .setText('📧 Ready to extract order information from this email.\n\n🔍 Click below to analyze the email content and match customers and items.'))
       .addWidget(CardService.newButtonSet()
         .addButton(CardService.newTextButton()
           .setText('Extract Order Details')
           .setOnClickAction(CardService.newAction()
-            .setFunctionName('extractEmailContent')))))
+            .setFunctionName('extractEmailContent'))
+          .setTextButtonStyle(CardService.TextButtonStyle.FILLED))))
     .build();
 }
 
@@ -377,21 +468,7 @@ function createAnalysisResultCard(data: AnalysisData): GoogleAppsScript.Card_Ser
         .setContent(data.matchingCustomer.email));
   } else {
     customerSection.addWidget(CardService.newTextParagraph()
-      .setText('⚠️ No matching customer found. You may need to create a new customer or check the email address.'));
-  }
-
-  // Customer selection dropdown
-  if (data.customers.length > 0) {
-    const customerOptions = data.customers.map(customer => 
-      CardService.newSelectionInput()
-        .setType(CardService.SelectionInputType.DROPDOWN)
-        .setFieldName('customer')
-        .addItem(customer.displayName, customer.number, data.matchingCustomer?.number === customer.number)
-    );
-
-    if (customerOptions.length > 0) {
-      customerSection.addWidget(customerOptions[0]);
-    }
+      .setText('⚠️ No matching customer found. Please select a customer below.'));
   }
 
   cardBuilder.addSection(customerSection);
@@ -414,18 +491,45 @@ function createAnalysisResultCard(data: AnalysisData): GoogleAppsScript.Card_Ser
     cardBuilder.addSection(itemsSection);
   }
 
-  // Action buttons
-  const actionSection = CardService.newCardSection();
+  // Action buttons section
+  const actionSection = CardService.newCardSection()
+    .setHeader('🎯 Actions');
 
+  // If we have a matching customer and matched items, show direct create button
   if (data.matchingCustomer && data.analyzedItems.some(item => item.matchedItem)) {
     actionSection.addWidget(CardService.newButtonSet()
       .addButton(CardService.newTextButton()
-        .setText('Create ERP Order')
+        .setText(`Create Order for ${data.matchingCustomer.displayName}`)
         .setOnClickAction(CardService.newAction()
-          .setFunctionName('createERPOrder'))
+          .setFunctionName('createERPOrderWithCustomer')
+          .setParameters({ customerNumber: data.matchingCustomer.number }))
         .setTextButtonStyle(CardService.TextButtonStyle.FILLED)));
   }
 
+  // Show customer selection buttons if we have multiple customers
+  if (data.customers.length > 0) {
+    const customerButtonSection = CardService.newCardSection()
+      .setHeader('👥 Select Customer');
+
+    // Show up to 5 customers as buttons
+    const customersToShow = data.customers.slice(0, 5);
+    customersToShow.forEach(customer => {
+      const isMatched = data.matchingCustomer?.number === customer.number;
+      const buttonText = isMatched ? `✅ ${customer.displayName}` : customer.displayName;
+      
+      customerButtonSection.addWidget(CardService.newButtonSet()
+        .addButton(CardService.newTextButton()
+          .setText(buttonText)
+          .setOnClickAction(CardService.newAction()
+            .setFunctionName('createERPOrderWithCustomer')
+            .setParameters({ customerNumber: customer.number }))
+          .setTextButtonStyle(isMatched ? CardService.TextButtonStyle.FILLED : CardService.TextButtonStyle.TEXT)));
+    });
+
+    cardBuilder.addSection(customerButtonSection);
+  }
+
+  // Dashboard link
   actionSection.addWidget(CardService.newButtonSet()
     .addButton(CardService.newTextButton()
       .setText('Open Dashboard')
@@ -447,6 +551,8 @@ function createOrderSuccessCard(orderResult: OrderResult): GoogleAppsScript.Card
       .setSubtitle('Order Created Successfully! ✅'));
 
   const successSection = CardService.newCardSection()
+    .addWidget(CardService.newTextParagraph()
+      .setText('🎉 Your order has been successfully created in Business Central!'))
     .addWidget(CardService.newKeyValue()
       .setTopLabel('Order Number')
       .setContent(orderResult.orderNumber || 'Unknown'))
@@ -462,7 +568,7 @@ function createOrderSuccessCard(orderResult: OrderResult): GoogleAppsScript.Card
 
   if (orderResult.message) {
     successSection.addWidget(CardService.newTextParagraph()
-      .setText(orderResult.message));
+      .setText(`📝 ${orderResult.message}`));
   }
 
   cardBuilder.addSection(successSection);
@@ -473,9 +579,10 @@ function createOrderSuccessCard(orderResult: OrderResult): GoogleAppsScript.Card
   if (orderResult.deepLink) {
     actionSection.addWidget(CardService.newButtonSet()
       .addButton(CardService.newTextButton()
-        .setText('View Order in BC')
+        .setText('View Order in Business Central')
         .setOpenLink(CardService.newOpenLink()
-          .setUrl(orderResult.deepLink))));
+          .setUrl(orderResult.deepLink))
+        .setTextButtonStyle(CardService.TextButtonStyle.FILLED)));
   }
 
   actionSection.addWidget(CardService.newButtonSet()
