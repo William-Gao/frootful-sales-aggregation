@@ -64,6 +64,7 @@
     "https://api.businesscentral.dynamics.com/",
     "https://login.microsoftonline.com/",
     "https://gmail.googleapis.com/",
-    "https://oauth2.googleapis.com/"
+    "https://oauth2.googleapis.com/",
+    "https://api.tinyurl.com/"
   ]
 }

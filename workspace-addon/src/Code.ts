@@ -8,9 +8,8 @@ const SUPABASE_URL = 'https://zkglvdfppodwlgzhfgqs.supabase.co';
 const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InprZ2x2ZGZwcG9kd2xnemhmZ3FzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDYxOTQ5MjgsImV4cCI6MjA2MTc3MDkyOH0.qzyywdy4k6A0DucETls_YT32YvAxuwDV6eBFjs89BRg';
 
 // Hardcoded access token - replace with your actual token
-const HARDCODED_ACCESS_TOKEN = 'your-supabase-access-token-here';
+const HARDCODED_ACCESS_TOKEN = 'eyJhbGciOiJIUzI1NiIsImtpZCI6IkRnTGVDbC8yaEppQ0l0MFQiLCJ0eXAiOiJKV1QifQ.eyJpc3MiOiJodHRwczovL3prZ2x2ZGZwcG9kd2xnemhmZ3FzLnN1cGFiYXNlLmNvL2F1dGgvdjEiLCJzdWIiOiIxYTgyZDIxYS1lNTY3LTQ0YWItYmFhZi1iYzQwMGE4MmVmNzYiLCJhdWQiOiJhdXRoZW50aWNhdGVkIiwiZXhwIjoxNzUxODM1MTA3LCJpYXQiOjE3NTE4MzE1MDcsImVtYWlsIjoia29uc3RhbnRpbi5ub3BsZUBnbWFpbC5jb20iLCJwaG9uZSI6IiIsImFwcF9tZXRhZGF0YSI6eyJwcm92aWRlciI6Imdvb2dsZSIsInByb3ZpZGVycyI6WyJnb29nbGUiXX0sInVzZXJfbWV0YWRhdGEiOnsiYXZhdGFyX3VybCI6Imh0dHBzOi8vbGgzLmdvb2dsZXVzZXJjb250ZW50LmNvbS9hL0FDZzhvY0pGdWZPNVpHX1JIaVRrZVE5UGpNSVQ1T2N4ZHc1RHRsRVVhYmY0UWNaRWNabUVwQTZsPXM5Ni1jIiwiZW1haWwiOiJrb25zdGFudGluLm5vcGxlQGdtYWlsLmNvbSIsImVtYWlsX3ZlcmlmaWVkIjp0cnVlLCJmdWxsX25hbWUiOiJLb25zdGFudGluIE5vcGxlIiwiaXNzIjoiaHR0cHM6Ly9hY2NvdW50cy5nb29nbGUuY29tIiwibmFtZSI6IktvbnN0YW50aW4gTm9wbGUiLCJwaG9uZV92ZXJpZmllZCI6ZmFsc2UsInBpY3R1cmUiOiJodHRwczovL2xoMy5nb29nbGV1c2VyY29udGVudC5jb20vYS9BQ2c4b2NKRnVmTzVaR19SSGlUa2VROVBqTUlUNU9jeGR3NUR0bEVVYWJmNFFjWkVjWm1FcEE2bD1zOTYtYyIsInByb3ZpZGVyX2lkIjoiMTAwNDAyNzk1MTYwNDUxOTQxMzAzIiwic3ViIjoiMTAwNDAyNzk1MTYwNDUxOTQxMzAzIn0sInJvbGUiOiJhdXRoZW50aWNhdGVkIiwiYWFsIjoiYWFsMSIsImFtciI6W3sibWV0aG9kIjoib2F1dGgiLCJ0aW1lc3RhbXAiOjE3NTE4MjMwNDd9XSwic2Vzc2lvbl9pZCI6IjA0MGZkY2Q0LTVmZGMtNGRlMy05MWUxLTMwZmFjNTg5MTY3MSIsImlzX2Fub255bW91cyI6ZmFsc2V9.d_jM9owJLLJLovA2BIbGuU1uVnpRIuXaVXSc4HhzBFs';
 
-// Types
 interface EmailData {
   id: string;
   threadId: string;
@@ -417,10 +416,53 @@ function callExportOrderToERP(orderData: OrderData): OrderResult {
   }
 }
 
+// For redirect with the url for business dynamics
+function createTinyUrl(originalUrl: string): string {
+  const apiToken = 'M8UaNSpBERlsratt8jiaEbo9VQ276NDy2Am07giR3VYm8PsHhiwqjuqy1ch9'; // Replace with your own if needed
+  
+
+  const url = 'https://api.tinyurl.com/create?api_token=' + encodeURIComponent(apiToken);
+
+  const payload = {
+    url: originalUrl,
+    domain: 'tinyurl.com',
+    description: 'Frootful-generated link'
+  };
+
+  const options: GoogleAppsScript.URL_Fetch.URLFetchRequestOptions = {
+    method: 'post',
+    contentType: 'application/json',
+    payload: JSON.stringify(payload),
+    muteHttpExceptions: true
+  };
+
+  try {
+    const response = UrlFetchApp.fetch(url, options);
+    const data = JSON.parse(response.getContentText());
+
+    if (response.getResponseCode() === 200 && data.data?.tiny_url) {
+      return data.data.tiny_url;
+    } else {
+      console.error('TinyURL API error:', data);
+      return originalUrl;
+    }
+  } catch (err) {
+    console.error('Error calling TinyURL API:', err);
+    return originalUrl;
+  }
+}
+
 /**
  * Create loading card
  */
 function createLoadingCard(): GoogleAppsScript.Card_Service.Card {
+
+  // const TEST_LINK = 'https://businesscentral.dynamics.com/979cd3a6-6b9e-4b33-a012-feb1968a393a/Production/?company=CRONUS%20USA,%20Inc.&page=42&filter=%27Sales%20Header%27.%27No.%27%20IS%20%27S-ORD101054%27';
+  // const TEST_LINK = "https://businesscentral.dynamics.com/979cd3a6-6b9e-4b33-a012-feb1968a393a/Production/?company=CRONUS%20USA,%20Inc.";
+  // const TEST_LINK = "https://tinyurl.com/yc4jsact";
+  // console.log('This is TEST_LINK: ', TEST_LINK);
+  // const TINYURL_LINK = createTinyUrl(TEST_LINK);
+  // console.log('This is the TINY URL LINK: ', TINYURL_LINK);
   return CardService.newCardBuilder()
     .setHeader(CardService.newCardHeader()
       .setTitle('Frootful')
@@ -433,7 +475,17 @@ function createLoadingCard(): GoogleAppsScript.Card_Service.Card {
           .setText('Extract Order Details')
           .setOnClickAction(CardService.newAction()
             .setFunctionName('extractEmailContent'))
-          .setTextButtonStyle(CardService.TextButtonStyle.FILLED))))
+          .setTextButtonStyle(CardService.TextButtonStyle.FILLED)))
+      // Testing only remove later
+      // .addWidget(CardService.newButtonSet()
+      //   .addButton(CardService.newTextButton()
+      //     .setText('View Order in Business Central')
+      //     .setOpenLink(CardService.newOpenLink()
+      //       .setUrl(TINYURL_LINK))
+      //     .setTextButtonStyle(CardService.TextButtonStyle.FILLED)))
+        
+        
+        )
     .build();
 }
 
@@ -598,12 +650,18 @@ function createOrderSuccessCard(orderResult: OrderResult): GoogleAppsScript.Card
   // Action buttons
   const actionSection = CardService.newCardSection();
 
+  console.log('This is the deepLink: ', orderResult.deepLink);
+
   if (orderResult.deepLink) {
+    const tinyUrlLink = createTinyUrl(orderResult.deepLink);
+    console.log('This is the tiny url link of the real order created in MS ERP: ', tinyUrlLink);
+    // const safeLink = encodeURI(orderResult.deepLink);
+    // console.log('This is safeLink: ', safeLink);
     actionSection.addWidget(CardService.newButtonSet()
       .addButton(CardService.newTextButton()
         .setText('View Order in Business Central')
         .setOpenLink(CardService.newOpenLink()
-          .setUrl(orderResult.deepLink))
+          .setUrl(tinyUrlLink))
         .setTextButtonStyle(CardService.TextButtonStyle.FILLED)));
   }
 
