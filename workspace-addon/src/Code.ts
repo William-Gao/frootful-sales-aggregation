@@ -91,8 +91,8 @@ async function getAccessToken(): Promise<string | null> {
     
     console.log('Got Google Identity token, calling token-manager...');
     
-    // Call token-manager with Google Identity header
-    const response = UrlFetchApp.fetch(`${SUPABASE_URL}/functions/v1/token-manager`, {
+    // Call workspace-auth endpoint with Google Identity header
+    const response = UrlFetchApp.fetch(`${SUPABASE_URL}/functions/v1/workspace-auth`, {
       method: 'get',
       headers: {
         'X-Google-Identity': identityToken,
@@ -103,18 +103,18 @@ async function getAccessToken(): Promise<string | null> {
     const responseCode = response.getResponseCode();
     const responseText = response.getContentText();
 
-    console.log('Token-manager response code:', responseCode);
-    console.log('Token-manager response:', responseText);
+    console.log('Workspace-auth response code:', responseCode);
+    console.log('Workspace-auth response:', responseText);
 
     if (responseCode !== 200) {
-      console.error(`Token-manager error: HTTP ${responseCode}: ${responseText}`);
+      console.error(`Workspace-auth error: HTTP ${responseCode}: ${responseText}`);
       return null;
     }
 
     const result = JSON.parse(responseText);
     
     if (!result.success || !result.access_token) {
-      console.error('Token-manager returned error:', result.error || 'No access token');
+      console.error('Workspace-auth returned error:', result.error || 'No access token');
       return null;
     }
 
@@ -179,7 +179,7 @@ function createAuthRequiredCard(): GoogleAppsScript.Card_Service.Card {
       .setImageUrl('https://images.pexels.com/photos/1640777/pexels-photo-1640777.jpeg?auto=compress&cs=tinysrgb&w=128&h=128'))
     .addSection(CardService.newCardSection()
       .addWidget(CardService.newTextParagraph()
-        .setText('🔐 Please sign in to Frootful to use this add-on.\n\n📱 Sign in through the web app first, then return here to extract order information from emails.'))
+        .setText('🔐 Please sign in to Frootful to use this add-on.\n\n📱 Sign in through the web app first, then return here to extract order information from emails.\n\n🔄 After signing in, refresh Gmail to activate the add-on.'))
       .addWidget(CardService.newButtonSet()
         .addButton(CardService.newTextButton()
           .setText('Sign In to Frootful')
