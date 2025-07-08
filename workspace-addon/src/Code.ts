@@ -7,8 +7,6 @@
 const SUPABASE_URL = 'https://zkglvdfppodwlgzhfgqs.supabase.co';
 const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InprZ2x2ZGZwcG9kd2xnemhmZ3FzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDYxOTQ5MjgsImV4cCI6MjA2MTc3MDkyOH0.qzyywdy4k6A0DucETls_YT32YvAxuwDV6eBFjs89BRg';
 
-// Hardcoded access token - replace with your actual token
-const HARDCODED_ACCESS_TOKEN = 'eyJhbGciOiJIUzI1NiIsImtpZCI6IkRnTGVDbC8yaEppQ0l0MFQiLCJ0eXAiOiJKV1QifQ.eyJpc3MiOiJodHRwczovL3prZ2x2ZGZwcG9kd2xnemhmZ3FzLnN1cGFiYXNlLmNvL2F1dGgvdjEiLCJzdWIiOiIxYTgyZDIxYS1lNTY3LTQ0YWItYmFhZi1iYzQwMGE4MmVmNzYiLCJhdWQiOiJhdXRoZW50aWNhdGVkIiwiZXhwIjoxNzUxODM1MTA3LCJpYXQiOjE3NTE4MzE1MDcsImVtYWlsIjoia29uc3RhbnRpbi5ub3BsZUBnbWFpbC5jb20iLCJwaG9uZSI6IiIsImFwcF9tZXRhZGF0YSI6eyJwcm92aWRlciI6Imdvb2dsZSIsInByb3ZpZGVycyI6WyJnb29nbGUiXX0sInVzZXJfbWV0YWRhdGEiOnsiYXZhdGFyX3VybCI6Imh0dHBzOi8vbGgzLmdvb2dsZXVzZXJjb250ZW50LmNvbS9hL0FDZzhvY0pGdWZPNVpHX1JIaVRrZVE5UGpNSVQ1T2N4ZHc1RHRsRVVhYmY0UWNaRWNabUVwQTZsPXM5Ni1jIiwiZW1haWwiOiJrb25zdGFudGluLm5vcGxlQGdtYWlsLmNvbSIsImVtYWlsX3ZlcmlmaWVkIjp0cnVlLCJmdWxsX25hbWUiOiJLb25zdGFudGluIE5vcGxlIiwiaXNzIjoiaHR0cHM6Ly9hY2NvdW50cy5nb29nbGUuY29tIiwibmFtZSI6IktvbnN0YW50aW4gTm9wbGUiLCJwaG9uZV92ZXJpZmllZCI6ZmFsc2UsInBpY3R1cmUiOiJodHRwczovL2xoMy5nb29nbGV1c2VyY29udGVudC5jb20vYS9BQ2c4b2NKRnVmTzVaR19SSGlUa2VROVBqTUlUNU9jeGR3NUR0bEVVYWJmNFFjWkVjWm1FcEE2bD1zOTYtYyIsInByb3ZpZGVyX2lkIjoiMTAwNDAyNzk1MTYwNDUxOTQxMzAzIiwic3ViIjoiMTAwNDAyNzk1MTYwNDUxOTQxMzAzIn0sInJvbGUiOiJhdXRoZW50aWNhdGVkIiwiYWFsIjoiYWFsMSIsImFtciI6W3sibWV0aG9kIjoib2F1dGgiLCJ0aW1lc3RhbXAiOjE3NTE4MjMwNDd9XSwic2Vzc2lvbl9pZCI6IjA0MGZkY2Q0LTVmZGMtNGRlMy05MWUxLTMwZmFjNTg5MTY3MSIsImlzX2Fub255bW91cyI6ZmFsc2V9.d_jM9owJLLJLovA2BIbGuU1uVnpRIuXaVXSc4HhzBFs';
 
 interface EmailData {
   id: string;
@@ -78,10 +76,76 @@ interface OrderResult {
 }
 
 /**
+ * Get access token using Google Identity verification
+ */
+async function getAccessToken(): Promise<string | null> {
+  try {
+    console.log('Getting access token via Google Identity verification...');
+    
+    // Get Google Identity token
+    const identityToken = ScriptApp.getIdentityToken();
+    if (!identityToken) {
+      console.error('Failed to get Google Identity token');
+      return null;
+    }
+    
+    console.log('Got Google Identity token, calling token-manager...');
+    
+    // Call token-manager with Google Identity header
+    const response = UrlFetchApp.fetch(`${SUPABASE_URL}/functions/v1/token-manager`, {
+      method: 'get',
+      headers: {
+        'X-Google-Identity': identityToken,
+        'Content-Type': 'application/json'
+      }
+    });
+
+    const responseCode = response.getResponseCode();
+    const responseText = response.getContentText();
+
+    console.log('Token-manager response code:', responseCode);
+    console.log('Token-manager response:', responseText);
+
+    if (responseCode !== 200) {
+      console.error(`Token-manager error: HTTP ${responseCode}: ${responseText}`);
+      return null;
+    }
+
+    const result = JSON.parse(responseText);
+    
+    if (!result.success || !result.access_token) {
+      console.error('Token-manager returned error:', result.error || 'No access token');
+      return null;
+    }
+
+    console.log('Successfully got access token for user:', result.email);
+    return result.access_token;
+
+  } catch (error) {
+    console.error('Error getting access token:', error);
+    return null;
+  }
+}
+
+/**
+ * Check if user is authenticated
+ */
+async function isAuthenticated(): Promise<boolean> {
+  const token = await getAccessToken();
+  return token !== null;
+}
+
+/**
  * Homepage trigger - shows when Gmail is opened
  */
-function onHomepage(e: GoogleAppsScript.Addons.EventObject): GoogleAppsScript.Card_Service.Card[] {
+async function onHomepage(e: GoogleAppsScript.Addons.EventObject): Promise<GoogleAppsScript.Card_Service.Card[]> {
   console.log('Frootful: Homepage loaded');
+  
+  const authenticated = await isAuthenticated();
+  
+  if (!authenticated) {
+    return [createAuthRequiredCard()];
+  }
   
   const card = CardService.newCardBuilder()
     .setHeader(CardService.newCardHeader()
@@ -89,16 +153,40 @@ function onHomepage(e: GoogleAppsScript.Addons.EventObject): GoogleAppsScript.Ca
       .setSubtitle('Email to ERP Integration')
       .setImageUrl('https://images.pexels.com/photos/1640777/pexels-photo-1640777.jpeg?auto=compress&cs=tinysrgb&w=128&h=128'))
     .addSection(CardService.newCardSection()
+      .addWidget(CardService.newKeyValue()
+        .setTopLabel('Status')
+        .setContent('✅ Authenticated and ready'))
       .addWidget(CardService.newTextParagraph()
-        .setText('Welcome to Frootful! Open an email to extract order information and create ERP orders.'))
+        .setText('Welcome to Frootful! You are signed in and ready to extract order information from emails.'))
       .addWidget(CardService.newButtonSet()
         .addButton(CardService.newTextButton()
           .setText('Open Dashboard')
           .setOpenLink(CardService.newOpenLink()
-            .setUrl('https://frootful.ai/dashboard')))))
+            .setUrl('http://localhost:5173/dashboard')))))
     .build();
 
   return [card];
+}
+
+/**
+ * Create authentication required card
+ */
+function createAuthRequiredCard(): GoogleAppsScript.Card_Service.Card {
+  return CardService.newCardBuilder()
+    .setHeader(CardService.newCardHeader()
+      .setTitle('Frootful')
+      .setSubtitle('Authentication Required')
+      .setImageUrl('https://images.pexels.com/photos/1640777/pexels-photo-1640777.jpeg?auto=compress&cs=tinysrgb&w=128&h=128'))
+    .addSection(CardService.newCardSection()
+      .addWidget(CardService.newTextParagraph()
+        .setText('🔐 Please sign in to Frootful to use this add-on.\n\n📱 Sign in through the web app first, then return here to extract order information from emails.'))
+      .addWidget(CardService.newButtonSet()
+        .addButton(CardService.newTextButton()
+          .setText('Sign In to Frootful')
+          .setOpenLink(CardService.newOpenLink()
+            .setUrl('http://localhost:5173/login'))
+          .setTextButtonStyle(CardService.TextButtonStyle.FILLED))))
+    .build();
 }
 
 /**
@@ -107,17 +195,23 @@ function onHomepage(e: GoogleAppsScript.Addons.EventObject): GoogleAppsScript.Ca
 function openDashboard(): GoogleAppsScript.Card_Service.ActionResponse {
   return CardService.newActionResponseBuilder()
     .setOpenLink(CardService.newOpenLink()
-      .setUrl('https://frootful.ai/dashboard'))
+      .setUrl('http://localhost:5173/dashboard'))
     .build();
 }
 
 /**
  * Main entry point when a Gmail message is opened
  */
-function onGmailMessage(e: GoogleAppsScript.Addons.EventObject): GoogleAppsScript.Card_Service.Card[] {
+async function onGmailMessage(e: GoogleAppsScript.Addons.EventObject): Promise<GoogleAppsScript.Card_Service.Card[]> {
   console.log('Frootful: Gmail message opened');
   
   try {
+    // Check authentication first
+    const authenticated = await isAuthenticated();
+    if (!authenticated) {
+      return [createAuthRequiredCard()];
+    }
+    
     const messageId = e.gmail?.messageId;
     if (!messageId) {
       return [createErrorCard('No message ID found')];
@@ -138,10 +232,16 @@ function onGmailMessage(e: GoogleAppsScript.Addons.EventObject): GoogleAppsScrip
 /**
  * Action handler for extracting email content
  */
-function extractEmailContent(e: GoogleAppsScript.Addons.EventObject): GoogleAppsScript.Card_Service.ActionResponse {
+async function extractEmailContent(e: GoogleAppsScript.Addons.EventObject): Promise<GoogleAppsScript.Card_Service.ActionResponse> {
   console.log('Frootful: Extract email content action triggered');
   
   try {
+    // Check authentication first
+    const authenticated = await isAuthenticated();
+    if (!authenticated) {
+      return createErrorResponse('Authentication required. Please sign in to Frootful first.');
+    }
+    
     const messageId = e.gmail?.messageId;
     if (!messageId) {
       return createErrorResponse('No message ID found');
@@ -150,7 +250,7 @@ function extractEmailContent(e: GoogleAppsScript.Addons.EventObject): GoogleApps
     console.log('Extracting content for message ID:', messageId);
 
     // Call analyze-email endpoint
-    const analysisResult = callAnalyzeEmail(messageId);
+    const analysisResult = await callAnalyzeEmail(messageId);
     
     if (!analysisResult.success) {
       return createErrorResponse(analysisResult.error || 'Analysis failed');
@@ -175,10 +275,16 @@ function extractEmailContent(e: GoogleAppsScript.Addons.EventObject): GoogleApps
 /**
  * Action handler for creating ERP order from form data
  */
-function createERPOrder(e: GoogleAppsScript.Addons.EventObject): GoogleAppsScript.Card_Service.ActionResponse {
+async function createERPOrder(e: GoogleAppsScript.Addons.EventObject): Promise<GoogleAppsScript.Card_Service.ActionResponse> {
   console.log('Frootful: Create ERP order action triggered');
   
   try {
+    // Check authentication first
+    const authenticated = await isAuthenticated();
+    if (!authenticated) {
+      return createErrorResponse('Authentication required. Please sign in to Frootful first.');
+    }
+    
     // Get stored analysis data
     const analysisData = getStoredAnalysisData();
     if (!analysisData) {
@@ -242,7 +348,7 @@ function createERPOrder(e: GoogleAppsScript.Addons.EventObject): GoogleAppsScrip
     console.log('Creating order with data:', orderData);
 
     // Call export-order-to-erp endpoint
-    const orderResult = callExportOrderToERP(orderData);
+    const orderResult = await callExportOrderToERP(orderData);
     
     if (!orderResult.success) {
       return createErrorResponse(orderResult.error || 'Order creation failed');
@@ -331,14 +437,19 @@ function clearStoredAnalysisData(): void {
 /**
  * Call the analyze-email Supabase edge function
  */
-function callAnalyzeEmail(emailId: string): { success: boolean; data?: AnalysisData; error?: string } {
+async function callAnalyzeEmail(emailId: string): Promise<{ success: boolean; data?: AnalysisData; error?: string }> {
   try {
     console.log('Calling analyze-email endpoint for email:', emailId);
+
+    const accessToken = await getAccessToken();
+    if (!accessToken) {
+      throw new Error('Failed to get access token');
+    }
 
     const response = UrlFetchApp.fetch(`${SUPABASE_URL}/functions/v1/analyze-email`, {
       method: 'post',
       headers: {
-        'Authorization': `Bearer ${HARDCODED_ACCESS_TOKEN}`,
+        'Authorization': `Bearer ${accessToken}`,
         'Content-Type': 'application/json'
       },
       payload: JSON.stringify({ emailId: emailId })
@@ -379,14 +490,19 @@ function callAnalyzeEmail(emailId: string): { success: boolean; data?: AnalysisD
 /**
  * Call the export-order-to-erp Supabase edge function
  */
-function callExportOrderToERP(orderData: OrderData): OrderResult {
+async function callExportOrderToERP(orderData: OrderData): Promise<OrderResult> {
   try {
     console.log('Calling export-order-to-erp endpoint');
+
+    const accessToken = await getAccessToken();
+    if (!accessToken) {
+      throw new Error('Failed to get access token');
+    }
 
     const response = UrlFetchApp.fetch(`${SUPABASE_URL}/functions/v1/export-order-to-erp`, {
       method: 'post',
       headers: {
-        'Authorization': `Bearer ${HARDCODED_ACCESS_TOKEN}`,
+        'Authorization': `Bearer ${accessToken}`,
         'Content-Type': 'application/json'
       },
       payload: JSON.stringify({ orderData: orderData })
@@ -608,7 +724,7 @@ function createAnalysisFormCard(data: AnalysisData): GoogleAppsScript.Card_Servi
       .addButton(CardService.newTextButton()
         .setText('Open Dashboard')
         .setOpenLink(CardService.newOpenLink()
-          .setUrl('https://frootful.ai/dashboard'))));
+          .setUrl('http://localhost:5173/dashboard'))));
 
   cardBuilder.addSection(actionSection);
 
@@ -708,8 +824,14 @@ function createErrorResponse(message: string): GoogleAppsScript.Card_Service.Act
 /**
  * Compose trigger - when composing emails
  */
-function onGmailCompose(e: GoogleAppsScript.Addons.EventObject): GoogleAppsScript.Card_Service.Card[] {
+async function onGmailCompose(e: GoogleAppsScript.Addons.EventObject): Promise<GoogleAppsScript.Card_Service.Card[]> {
   console.log('Frootful: Gmail compose opened');
+  
+  const authenticated = await isAuthenticated();
+  
+  if (!authenticated) {
+    return [createAuthRequiredCard()];
+  }
   
   const card = CardService.newCardBuilder()
     .setHeader(CardService.newCardHeader()
@@ -722,7 +844,7 @@ function onGmailCompose(e: GoogleAppsScript.Addons.EventObject): GoogleAppsScrip
         .addButton(CardService.newTextButton()
           .setText('Open Dashboard')
           .setOpenLink(CardService.newOpenLink()
-            .setUrl('https://frootful.ai/dashboard')))))
+            .setUrl('http://localhost:5173/dashboard')))))
     .build();
 
   return [card];

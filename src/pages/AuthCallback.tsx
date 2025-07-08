@@ -84,6 +84,35 @@ const AuthCallback: React.FC = () => {
         // Continue anyway - this is not critical for the auth flow
       }
 
+      // Store Supabase session for Workspace Add-on access
+      try {
+        console.log('Storing Supabase session for Workspace Add-on access...');
+        
+        const supabaseStoreResponse = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/token-manager`, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${session.access_token}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            provider: 'supabase_session',
+            accessToken: session.access_token,
+            refreshToken: session.refresh_token,
+            expiresAt: session.expires_at ? new Date(session.expires_at * 1000).toISOString() : undefined,
+            email: session.user.email
+          })
+        });
+
+        if (supabaseStoreResponse.ok) {
+          console.log('Successfully stored Supabase session for Workspace Add-on');
+        } else {
+          const errorText = await supabaseStoreResponse.text();
+          console.warn('Failed to store Supabase session for Workspace Add-on:', errorText);
+        }
+      } catch (supabaseStoreError) {
+        console.warn('Error storing Supabase session for Workspace Add-on:', supabaseStoreError);
+      }
+
       // Prepare session data for the extension
       const sessionData = {
         access_token: session.access_token,

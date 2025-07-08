@@ -58,6 +58,49 @@ const Login: React.FC = () => {
     }
   };
 
+  // Store Supabase session for Workspace Add-on access
+  const storeSupabaseSession = async (session: any) => {
+    try {
+      console.log('Storing Supabase session for Workspace Add-on access...');
+      
+      const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/token-manager`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${session.access_token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          provider: 'supabase_session',
+          accessToken: session.access_token,
+          refreshToken: session.refresh_token,
+          expiresAt: session.expires_at ? new Date(session.expires_at * 1000).toISOString() : undefined,
+          email: session.user.email
+        })
+      });
+
+      if (response.ok) {
+        console.log('Successfully stored Supabase session for Workspace Add-on');
+      } else {
+        const errorText = await response.text();
+        console.warn('Failed to store Supabase session for Workspace Add-on:', errorText);
+      }
+    } catch (error) {
+      console.warn('Error storing Supabase session for Workspace Add-on:', error);
+    }
+  };
+
+  // Listen for auth state changes to store session
+  React.useEffect(() => {
+    const { data: { subscription } } = supabaseClient.auth.onAuthStateChange(async (event, session) => {
+      if (event === 'SIGNED_IN' && session) {
+        console.log('User signed in, storing session for Workspace Add-on...');
+        await storeSupabaseSession(session);
+      }
+    });
+
+    return () => subscription.unsubscribe();
+  }, []);
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-indigo-50 via-white to-cyan-50">
       <div className="flex flex-col justify-center py-12 sm:px-6 lg:px-8">
