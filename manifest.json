@@ -54,7 +54,7 @@
     }
   ],
   "externally_connectable": {
-    "matches": ["http://localhost:*/*", "https://zkglvdfppodwlgzhfgqs.supabase.co/*", "https://frootful.ai/*"]
+    "matches": ["http://localhost:*/*", "https://zkglvdfppodwlgzhfgqs.supabase.co/*", "https://use.frootful.ai/*"]
   },
   "content_security_policy": {
     "extension_pages": "script-src 'self'; object-src 'self'; connect-src 'self' https://zkglvdfppodwlgzhfgqs.supabase.co;"

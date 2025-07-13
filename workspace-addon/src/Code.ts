@@ -184,7 +184,7 @@ function createAuthRequiredCard(): GoogleAppsScript.Card_Service.Card {
         .addButton(CardService.newTextButton()
           .setText('Sign In to Frootful')
           .setOpenLink(CardService.newOpenLink()
-            .setUrl('https://use.frootful.ai/login'))
+            .setUrl('http://localhost:5173/login'))
           .setTextButtonStyle(CardService.TextButtonStyle.FILLED))))
     .build();
 }
@@ -785,7 +785,7 @@ function createOrderSuccessCard(orderResult: OrderResult): GoogleAppsScript.Card
     .addButton(CardService.newTextButton()
       .setText('Back to Gmail')
       .setOnClickAction(CardService.newAction()
-        .setFunctionName('onHomepage'))));
+        .setUrl('https://use.frootful.ai/dashboard'))));
 
   cardBuilder.addSection(actionSection);
 

@@ -157,6 +157,7 @@ Deno.serve(async (req) => {
             JSON.stringify({ 
               success: false, 
               error: 'Token expired and refresh failed. Please sign in again.',
+              loginUrl: 'https://use.frootful.ai/login',
               requiresSignIn: true
             }),
             {
