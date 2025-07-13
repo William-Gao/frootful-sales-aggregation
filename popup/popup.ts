@@ -88,7 +88,7 @@ document.addEventListener('DOMContentLoaded', () => {
       console.log('Redirecting to dashboard for Business Central connection...');
       
       // Open the dashboard in a new tab
-      chrome.tabs.create({ url: 'http://localhost:5173/dashboard', active: true });
+      chrome.tabs.create({ url: 'https://use.frootful.ai/dashboard', active: true });
       
       // Close the popup
       window.close();

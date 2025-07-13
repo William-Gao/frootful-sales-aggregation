@@ -196,7 +196,7 @@ class HybridAuthManager {
         const extensionId = typeof chrome !== 'undefined' && chrome.runtime ? chrome.runtime.id : '';
         
         // Use the new SPA login URL
-        const loginUrl = `http://localhost:5173/login?extensionId=${extensionId}`;
+        const loginUrl = `https://use.frootful.ai/login?extensionId=${extensionId}`;
         
         console.log('Opening auth window:', loginUrl);
         

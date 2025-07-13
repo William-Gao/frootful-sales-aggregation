@@ -203,7 +203,7 @@ const AuthCallback: React.FC = () => {
       // Exchange code for tokens
       const CLIENT_ID = '4c92a998-6af5-4c2a-b16e-80ba1c6b9b3b';
       const TENANT_ID = 'common';
-      const REDIRECT_URI = `${window.location.origin}/auth/callback`;
+      const REDIRECT_URI = `https://use.frootful.ai/auth/callback`;
 
       console.log('Exchanging code for tokens...');
 

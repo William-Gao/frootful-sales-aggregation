@@ -275,7 +275,7 @@ const Dashboard: React.FC = () => {
       // Business Central OAuth configuration
       const CLIENT_ID = '4c92a998-6af5-4c2a-b16e-80ba1c6b9b3b';
       const TENANT_ID = 'common';
-      const REDIRECT_URI = `${window.location.origin}/auth/callback`;
+      const REDIRECT_URI = `https://use.frootful.ai/auth/callback`;
       const SCOPE = 'https://api.businesscentral.dynamics.com/user_impersonation offline_access';
       
       // Generate random state and code verifier for PKCE

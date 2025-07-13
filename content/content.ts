@@ -246,7 +246,7 @@ function handleSignInClick(e: MouseEvent): void {
   e.stopPropagation();
   
   // Open the login page
-  window.open('http://localhost:5173/login', '_blank');
+  window.open('https://use.frootful.ai/login', '_blank');
 }
 
 // Handle extract button click
