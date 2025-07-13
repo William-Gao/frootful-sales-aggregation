@@ -38,7 +38,7 @@ const Login: React.FC = () => {
       const SUPA_URL = 'https://zkglvdfppodwlgzhfgqs.supabase.co';
       const callback = `${window.location.origin}/auth/callback${extensionId ? `?extensionId=${extensionId}` : ''}`;
       const encoded = encodeURIComponent(callback);
-
+      console.log('This is the callback url: ', callback);
       const authUrl =
         `${SUPA_URL}/auth/v1/authorize` +
         `?provider=google` +
