@@ -104,7 +104,31 @@ const Dashboard: React.FC = () => {
       }
 
       // Check Supabase session - this is our single source of truth
-      const { data: { session }, error } = await supabaseClient.auth.getSession();
+      let { data: { session }, error } = await supabaseClient.auth.getSession();
+      
+      // If no session found, check if we have tokens in the URL hash (direct navigation)
+      if (!session && window.location.hash) {
+        console.log('No session found, checking URL hash for tokens...');
+        const hashParams = new URLSearchParams(window.location.hash.substring(1));
+        const accessToken = hashParams.get('access_token');
+        const refreshToken = hashParams.get('refresh_token');
+        
+        if (accessToken) {
+          console.log('Found tokens in URL hash, setting session...');
+          const { data, error: setError } = await supabaseClient.auth.setSession({
+            access_token: accessToken,
+            refresh_token: refreshToken || ''
+          });
+          
+          if (!setError && data.session) {
+            session = data.session;
+            error = null;
+            
+            // Clear hash from URL
+            window.history.replaceState(null, '', window.location.pathname);
+          }
+        }
+      }
       
       if (session && !error) {
         console.log('Found Supabase session for user:', session.user.email);

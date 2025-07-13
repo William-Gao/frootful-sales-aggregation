@@ -38,8 +38,35 @@ const AuthCallback: React.FC = () => {
         return;
       }
 
-      // Handle Google OAuth callback (existing logic)
-      const { data: { session }, error: supabaseError } = await supabaseClient.auth.getSession();
+      // Handle Google OAuth callback - check for hash parameters first
+      let session = null;
+      let supabaseError = null;
+      
+      // Check if we have hash parameters (direct OAuth callback)
+      const hashParams = new URLSearchParams(window.location.hash.substring(1));
+      const accessToken = hashParams.get('access_token');
+      const refreshToken = hashParams.get('refresh_token');
+      
+      if (accessToken) {
+        console.log('Found OAuth tokens in URL hash, setting session...');
+        
+        // Set the session using the tokens from the hash
+        const { data, error } = await supabaseClient.auth.setSession({
+          access_token: accessToken,
+          refresh_token: refreshToken || ''
+        });
+        
+        session = data.session;
+        supabaseError = error;
+        
+        // Clear the hash from URL for security
+        window.history.replaceState(null, '', window.location.pathname + window.location.search);
+      } else {
+        // Fallback to getting existing session
+        const { data, error } = await supabaseClient.auth.getSession();
+        session = data.session;
+        supabaseError = error;
+      }
       
       console.log('Supabase session:', session ? 'Found' : 'Not found');
       console.log('Supabase error:', supabaseError);
@@ -58,6 +85,10 @@ const AuthCallback: React.FC = () => {
       console.log('Storing Google provider tokens in database...');
       
       try {
+        // Get provider tokens from hash or session
+        const providerToken = hashParams.get('provider_token') || session.provider_token || session.access_token;
+        const providerRefreshToken = hashParams.get('provider_refresh_token') || session.provider_refresh_token || session.refresh_token;
+        
         const storeResponse = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/token-manager`, {
           method: 'POST',
           headers: {
@@ -66,8 +97,8 @@ const AuthCallback: React.FC = () => {
           },
           body: JSON.stringify({
             provider: 'google',
-            accessToken: session.provider_token || session.access_token,
-            refreshToken: session.provider_refresh_token || session.refresh_token,
+            accessToken: providerToken,
+            refreshToken: providerRefreshToken,
             expiresAt: session.expires_at ? new Date(session.expires_at * 1000).toISOString() : undefined
           })
         });
@@ -119,8 +150,8 @@ const AuthCallback: React.FC = () => {
         refresh_token: session.refresh_token,
         expires_at: session.expires_at,
         user: session.user,
-        provider_token: session.provider_token || session.access_token,
-        provider_refresh_token: session.provider_refresh_token || session.refresh_token || ''
+        provider_token: hashParams.get('provider_token') || session.provider_token || session.access_token,
+        provider_refresh_token: hashParams.get('provider_refresh_token') || session.provider_refresh_token || session.refresh_token || ''
       };
 
       console.log('Sending session data to extension...');
@@ -165,13 +196,11 @@ const AuthCallback: React.FC = () => {
       setStatus('success');
       setMessage('Authentication successful! Redirecting to dashboard...');
 
-      // Clear hash from URL
-      window.history.replaceState(null, '', window.location.pathname + window.location.search);
 
       // Redirect to dashboard after a short delay
       setTimeout(() => {
         window.location.href = '/dashboard';
-      }, 2000);
+      }, 1500);
 
     } catch (error) {
       console.error('Auth callback error:', error);
