@@ -7,8 +7,11 @@
     "dev": "vite",
     "build": "tsc && vite build && cp manifest.json dist/ && cp -r icons dist/ && cp -r background dist/ && cp -r content dist/ && cp -r popup dist/ && cp -r sidebar dist/ && cp -r onboarding dist/",
     "build:extension": "npm run build && node build-extension.js",
+    "build:netlify": "npm run build",
     "lint": "eslint .",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "deploy": "netlify deploy --prod --dir=dist",
+    "deploy:preview": "netlify deploy --dir=dist"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.50.0",

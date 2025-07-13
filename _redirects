@@ -1,0 +1,10 @@
+# SPA routing
+/*    /index.html   200
+
+# Auth callback routes
+/auth/callback    /index.html   200
+/auth/login       /index.html   200
+
+# Dashboard and other routes
+/dashboard        /index.html   200
+/login           /index.html   200
