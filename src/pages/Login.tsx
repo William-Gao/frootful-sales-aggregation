@@ -32,11 +32,10 @@ const Login: React.FC = () => {
 
       // Get extension ID from URL params if available
       const urlParams = new URLSearchParams(window.location.search);
-      const extensionId = urlParams.get('extensionId');
 
       // Redirect to Supabase OAuth with proper callback
       const SUPA_URL = 'https://zkglvdfppodwlgzhfgqs.supabase.co';
-      const callback = `${window.location.origin}/auth/callback${extensionId ? `?extensionId=${extensionId}` : ''}`;
+      const callback = `${window.location.origin}/auth/callback`;
       const encoded = encodeURIComponent(callback);
       console.log('This is the callback url: ', callback);
       const authUrl =
