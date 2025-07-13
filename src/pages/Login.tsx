@@ -36,7 +36,7 @@ const Login: React.FC = () => {
 
       // Redirect to Supabase OAuth with proper callback
       const SUPA_URL = 'https://zkglvdfppodwlgzhfgqs.supabase.co';
-      const callback = `https://use.frootful.ai/auth/callback${extensionId ? `?extensionId=${extensionId}` : ''}`;
+      const callback = `${window.location.origin}/auth/callback${extensionId ? `?extensionId=${extensionId}` : ''}`;
       const encoded = encodeURIComponent(callback);
 
       const authUrl =
