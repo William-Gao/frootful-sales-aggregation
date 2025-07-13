@@ -184,7 +184,7 @@ function createAuthRequiredCard(): GoogleAppsScript.Card_Service.Card {
         .addButton(CardService.newTextButton()
           .setText('Sign In to Frootful')
           .setOpenLink(CardService.newOpenLink()
-            .setUrl('http://localhost:5173/login'))
+            .setUrl('https://use.frootful.ai/login'))
           .setTextButtonStyle(CardService.TextButtonStyle.FILLED))))
     .build();
 }
