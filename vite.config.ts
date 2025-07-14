@@ -19,11 +19,6 @@ export default defineConfig({
     rollupOptions: {
       input: {
         main: resolve(__dirname, 'index.html'),
-        background: resolve(__dirname, 'background/background.ts'),
-        content: resolve(__dirname, 'content/content.ts'),
-        popup: resolve(__dirname, 'popup/popup.ts'),
-        sidebar: resolve(__dirname, 'sidebar/sidebar.ts'),
-        welcome: resolve(__dirname, 'onboarding/welcome.ts'),
       },
       output: {
         dir: 'dist',

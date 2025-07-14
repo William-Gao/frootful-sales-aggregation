@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc && vite build && cp manifest.json dist/ && cp -r icons dist/ && cp -r background dist/ && cp -r content dist/ && cp -r popup dist/ && cp -r sidebar dist/ && cp -r onboarding dist/",
+    "build": "tsc && vite build && cp -r icons dist/",
     "build:extension": "npm run build && node build-extension.js",
     "build:netlify": "npm run build",
     "lint": "eslint .",
