@@ -296,42 +296,40 @@ const Dashboard: React.FC = () => {
       
       console.log('Starting Business Central OAuth flow...');
       
-      // // Business Central OAuth configuration
-      // const CLIENT_ID = '4c92a998-6af5-4c2a-b16e-80ba1c6b9b3b';
-      // const TENANT_ID = 'common';
-      // const REDIRECT_URI = `https://use.frootful.ai/auth/callback`;
-      // const SCOPE = 'https://api.businesscentral.dynamics.com/user_impersonation offline_access';
-      
-      // // Generate random state and code verifier for PKCE
-      // const state = generateRandomString(32);
-      // const codeVerifier = generateRandomString(64);
-      // const codeChallenge = await generateCodeChallenge(codeVerifier);
-      
-      // // Store PKCE values for later verification
-      // sessionStorage.setItem('bc_state', state);
-      // sessionStorage.setItem('bc_code_verifier', codeVerifier);
-      
-      // // Construct auth URL
-      // const authUrl = `https://login.microsoftonline.com/${TENANT_ID}/oauth2/v2.0/authorize?` +
-      //   `client_id=${CLIENT_ID}` +
-      //   `&response_type=code` +
-      //   `&redirect_uri=${encodeURIComponent(REDIRECT_URI)}` +
-      //   `&scope=${encodeURIComponent(SCOPE)}` +
-      //   `&state=${state}` +
-      //   `&code_challenge=${codeChallenge}` +
-      //   `&code_challenge_method=S256` +
-      //   `&prompt=select_account` +
-      //   `&response_mode=query`;
+      // Get current session for authentication
+      const { data: { session } } = await supabaseClient.auth.getSession();
+      if (!session) {
+        throw new Error('No active session. Please sign in again.');
+      }
 
-      // console.log('Redirecting to Business Central OAuth:', authUrl);
+      // Call auth-login endpoint to initiate OAuth flow
+      const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/auth-login`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${session.access_token}`,
+          'Content-Type': 'application/json'
+        }
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({ error: 'Unknown error' }));
+        throw new Error(errorData.error || `HTTP ${response.status}: ${response.statusText}`);
+      }
+
+      const result = await response.json();
       
-      // Redirect to Microsoft OAuth
-      console.log('Socialism');
-      window.location.href = 'https://zkglvdfppodwlgzhfgqs.supabase.co/functions/v1/auth-login';
+      if (!result.success || !result.authUrl) {
+        throw new Error(result.error || 'Failed to get OAuth URL');
+      }
+
+      console.log('Received OAuth URL from auth-login, redirecting...');
+      
+      // Redirect to Microsoft OAuth using the URL from auth-login
+      window.location.href = result.authUrl;
       
     } catch (error) {
       console.error('Error connecting ERP:', error);
-      alert('Failed to connect to ERP. Please try again.');
+      alert(`Failed to connect to Business Central: ${error instanceof Error ? error.message : 'Unknown error'}. Please try again.`);
       setConnectingProvider(null);
     }
   };

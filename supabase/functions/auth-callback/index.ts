@@ -71,11 +71,69 @@ serve(async (req) => {
       );
     }
 
-    if (!code) {
-      return new Response('Missing authorization code', { 
+    if (!code || !state) {
+      return new Response('Missing authorization code or state parameter', { 
         status: 400,
         headers: corsHeaders
       });
+    }
+
+    console.log('Retrieving user ID from OAuth state:', state);
+
+    // Retrieve user_id from oauth_states table using the state parameter
+    const { data: stateData, error: stateError } = await supabase
+      .from('oauth_states')
+      .select('user_id, created_at, expires_at')
+      .eq('state', state)
+      .eq('provider', 'business_central')
+      .single();
+
+    if (stateError || !stateData) {
+      console.error('Invalid or expired OAuth state:', stateError);
+      return new Response(
+        'Invalid or expired OAuth state. Please try the connection process again.',
+        { 
+          status: 400,
+          headers: corsHeaders
+        }
+      );
+    }
+
+    // Check if state has expired
+    const now = new Date();
+    const expiresAt = new Date(stateData.expires_at);
+    if (now > expiresAt) {
+      console.error('OAuth state has expired');
+      
+      // Clean up expired state
+      await supabase
+        .from('oauth_states')
+        .delete()
+        .eq('state', state);
+
+      return new Response(
+        'OAuth state has expired. Please try the connection process again.',
+        { 
+          status: 400,
+          headers: corsHeaders
+        }
+      );
+    }
+
+    const userId = stateData.user_id;
+    console.log('Found user ID from OAuth state:', userId);
+
+    // Clean up the state immediately after successful retrieval
+    const { error: deleteError } = await supabase
+      .from('oauth_states')
+      .delete()
+      .eq('state', state);
+
+    if (deleteError) {
+      console.warn('Failed to clean up OAuth state:', deleteError);
+      // Continue anyway - this is not critical
+    } else {
+      console.log('Successfully cleaned up OAuth state');
     }
 
     console.log('Exchanging authorization code for tokens...');
@@ -141,10 +199,9 @@ serve(async (req) => {
     console.log('Refresh token length:', tokenData.refresh_token.length);
     console.log('Expires in:', tokenData.expires_in, 'seconds');
 
-    // Parse tenant ID and user info from access token
-    const { tenantId, userEmail } = await parseAccessToken(tokenData.access_token);
+    // Parse tenant ID from access token
+    const tenantId = await parseTenantIdFromToken(tokenData.access_token);
     console.log('Extracted tenant ID:', tenantId);
-    console.log('Extracted user email:', userEmail);
 
     if (!tenantId) {
       console.error('Failed to extract tenant ID from access token');
@@ -157,36 +214,21 @@ serve(async (req) => {
       );
     }
 
-    // Find user by email in Supabase auth
-    const user = await findUserByEmail(userEmail);
-    if (!user) {
-      console.error('User not found in Supabase:', userEmail);
-      return new Response(
-        `User not found. Please sign in to Frootful first with email: ${userEmail}`,
-        { 
-          status: 404,
-          headers: corsHeaders
-        }
-      );
-    }
-
-    console.log('Found Supabase user:', user.id);
-
     // Calculate expiry time
     const expiresAt = new Date(Date.now() + (tokenData.expires_in * 1000));
     console.log('Token expires at:', expiresAt.toISOString());
 
     // Store tokens securely using encryption
-    console.log('Storing Business Central tokens securely...');
+    console.log('Storing Business Central tokens securely for user:', userId);
     
     const encryptedAccessToken = await encrypt(tokenData.access_token);
     const encryptedRefreshToken = await encrypt(tokenData.refresh_token);
 
-    // Store in user_tokens table
+    // Store in user_tokens table using the user_id from oauth_states
     const { data: storedToken, error: storeError } = await supabase
       .from('user_tokens')
       .upsert({
-        user_id: user.id,
+        user_id: userId, // Use the user_id from oauth_states, not from email lookup
         provider: 'business_central',
         encrypted_access_token: encryptedAccessToken,
         encrypted_refresh_token: encryptedRefreshToken,
@@ -210,7 +252,7 @@ serve(async (req) => {
       );
     }
 
-    console.log('Successfully stored Business Central tokens');
+    console.log('Successfully stored Business Central tokens for user:', userId);
 
     // Verify storage by attempting to decrypt
     try {
@@ -244,7 +286,7 @@ serve(async (req) => {
           company_name: company.displayName || company.name,
           updated_at: new Date().toISOString()
         })
-        .eq('user_id', user.id)
+        .eq('user_id', userId)
         .eq('provider', 'business_central');
 
       if (updateError) {
@@ -277,8 +319,8 @@ serve(async (req) => {
   }
 });
 
-// Parse access token to extract tenant ID and user info
-async function parseAccessToken(accessToken: string): Promise<{ tenantId: string | null; userEmail: string | null }> {
+// Parse tenant ID from JWT access token
+async function parseTenantIdFromToken(accessToken: string): Promise<string | null> {
   try {
     const parts = accessToken.split('.');
     if (parts.length !== 3) {
@@ -290,32 +332,9 @@ async function parseAccessToken(accessToken: string): Promise<{ tenantId: string
     const decodedPayload = atob(paddedPayload.replace(/-/g, '+').replace(/_/g, '/'));
     const tokenData: JWTPayload = JSON.parse(decodedPayload);
     
-    return {
-      tenantId: tokenData.tid || null,
-      userEmail: tokenData.upn || tokenData.email || null
-    };
+    return tokenData.tid || null;
   } catch (error) {
-    console.error('Error parsing access token:', error);
-    return { tenantId: null, userEmail: null };
-  }
-}
-
-// Find user by email in Supabase auth
-async function findUserByEmail(email: string | null): Promise<any> {
-  if (!email) {
-    return null;
-  }
-
-  try {
-    const { data: users, error } = await supabase.auth.admin.listUsers();
-    if (error) {
-      console.error('Failed to list users:', error);
-      return null;
-    }
-
-    return users.users.find(u => u.email === email) || null;
-  } catch (error) {
-    console.error('Error finding user by email:', error);
+    console.error('Error parsing tenant ID from access token:', error);
     return null;
   }
 }
