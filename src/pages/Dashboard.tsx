@@ -296,37 +296,38 @@ const Dashboard: React.FC = () => {
       
       console.log('Starting Business Central OAuth flow...');
       
-      // Business Central OAuth configuration
-      const CLIENT_ID = '4c92a998-6af5-4c2a-b16e-80ba1c6b9b3b';
-      const TENANT_ID = 'common';
-      const REDIRECT_URI = `https://use.frootful.ai/auth/callback`;
-      const SCOPE = 'https://api.businesscentral.dynamics.com/user_impersonation offline_access';
+      // // Business Central OAuth configuration
+      // const CLIENT_ID = '4c92a998-6af5-4c2a-b16e-80ba1c6b9b3b';
+      // const TENANT_ID = 'common';
+      // const REDIRECT_URI = `https://use.frootful.ai/auth/callback`;
+      // const SCOPE = 'https://api.businesscentral.dynamics.com/user_impersonation offline_access';
       
-      // Generate random state and code verifier for PKCE
-      const state = generateRandomString(32);
-      const codeVerifier = generateRandomString(64);
-      const codeChallenge = await generateCodeChallenge(codeVerifier);
+      // // Generate random state and code verifier for PKCE
+      // const state = generateRandomString(32);
+      // const codeVerifier = generateRandomString(64);
+      // const codeChallenge = await generateCodeChallenge(codeVerifier);
       
-      // Store PKCE values for later verification
-      sessionStorage.setItem('bc_state', state);
-      sessionStorage.setItem('bc_code_verifier', codeVerifier);
+      // // Store PKCE values for later verification
+      // sessionStorage.setItem('bc_state', state);
+      // sessionStorage.setItem('bc_code_verifier', codeVerifier);
       
-      // Construct auth URL
-      const authUrl = `https://login.microsoftonline.com/${TENANT_ID}/oauth2/v2.0/authorize?` +
-        `client_id=${CLIENT_ID}` +
-        `&response_type=code` +
-        `&redirect_uri=${encodeURIComponent(REDIRECT_URI)}` +
-        `&scope=${encodeURIComponent(SCOPE)}` +
-        `&state=${state}` +
-        `&code_challenge=${codeChallenge}` +
-        `&code_challenge_method=S256` +
-        `&prompt=select_account` +
-        `&response_mode=query`;
+      // // Construct auth URL
+      // const authUrl = `https://login.microsoftonline.com/${TENANT_ID}/oauth2/v2.0/authorize?` +
+      //   `client_id=${CLIENT_ID}` +
+      //   `&response_type=code` +
+      //   `&redirect_uri=${encodeURIComponent(REDIRECT_URI)}` +
+      //   `&scope=${encodeURIComponent(SCOPE)}` +
+      //   `&state=${state}` +
+      //   `&code_challenge=${codeChallenge}` +
+      //   `&code_challenge_method=S256` +
+      //   `&prompt=select_account` +
+      //   `&response_mode=query`;
 
-      console.log('Redirecting to Business Central OAuth:', authUrl);
+      // console.log('Redirecting to Business Central OAuth:', authUrl);
       
       // Redirect to Microsoft OAuth
-      window.location.href = authUrl;
+      console.log('Socialism');
+      window.location.href = 'https://zkglvdfppodwlgzhfgqs.supabase.co/functions/v1/auth-login';
       
     } catch (error) {
       console.error('Error connecting ERP:', error);
