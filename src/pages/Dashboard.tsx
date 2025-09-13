@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
-import { CheckCircle, ExternalLink, Settings, Zap, Building2, Database, ArrowRight, Loader2 } from 'lucide-react';
+import { CheckCircle, ExternalLink, Settings, Zap, Building2, Database, ArrowRight, Loader2, Package, Home, Smartphone } from 'lucide-react';
 import { supabaseClient } from '../supabaseClient';
+import OrdersSection from '../components/OrdersSection';
 
 interface User {
   id: string;
@@ -52,6 +53,9 @@ const Dashboard: React.FC = () => {
   const [extensionLogoutInProgress, setExtensionLogoutInProgress] = useState(false);
   const [companies, setCompanies] = useState<Company[]>([]);
   const [selectedCompanyId, setSelectedCompanyId] = useState<string>('');
+  const [activeTab, setActiveTab] = useState<'overview' | 'orders'>('overview');
+  const [installPrompt, setInstallPrompt] = useState<any>(null);
+  const [isInstallable, setIsInstallable] = useState(false);
 
   useEffect(() => {
     checkAuthState();
@@ -72,6 +76,31 @@ const Dashboard: React.FC = () => {
       window.removeEventListener('message', handleExtensionLogout);
     };
   }, []);
+
+  // PWA Install Prompt
+  useEffect(() => {
+    const handleBeforeInstallPrompt = (e: any) => {
+      e.preventDefault();
+      setInstallPrompt(e);
+      setIsInstallable(true);
+    };
+
+    window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+
+    return () => {
+      window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+    };
+  }, []);
+
+  const handleInstallPWA = async () => {
+    if (!installPrompt) return;
+
+    const result = await installPrompt.prompt();
+    console.log('PWA install result:', result);
+    
+    setInstallPrompt(null);
+    setIsInstallable(false);
+  };
 
   // Handle sign out initiated by extension
   const handleExtensionSignOut = async () => {
@@ -509,6 +538,17 @@ const Dashboard: React.FC = () => {
             </div>
             
             <div className="flex items-center space-x-4">
+              {/* PWA Install Button */}
+              {isInstallable && (
+                <button
+                  onClick={handleInstallPWA}
+                  className="flex items-center space-x-2 px-3 py-2 text-sm bg-green-100 text-green-700 rounded-lg hover:bg-green-200 transition-colors"
+                >
+                  <Smartphone className="w-4 h-4" />
+                  <span>Install App</span>
+                </button>
+              )}
+              
               {user && (
                 <div className="flex items-center space-x-3">
                   <div className="text-right">
@@ -552,163 +592,204 @@ const Dashboard: React.FC = () => {
 
       {/* Main Content */}
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {/* Welcome Section */}
+        {/* Navigation Tabs */}
         <div className="mb-8">
-          <h2 className="text-3xl font-bold text-gray-900 mb-2">
-            Welcome to Frootful! 👋
-          </h2>
-          <p className="text-lg text-gray-600">
-            Connect your ERP system to start transforming email orders into sales orders automatically.
-          </p>
-        </div>
-
-        {/* Gmail Connection Status */}
-        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 mb-8">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center space-x-4">
-              <div className="w-12 h-12 bg-green-100 rounded-xl flex items-center justify-center">
-                <CheckCircle className="w-6 h-6 text-green-600" />
-              </div>
-              <div>
-                <h3 className="text-lg font-semibold text-gray-900">Gmail Connected</h3>
-                <p className="text-gray-600">Ready to extract orders from your emails</p>
-              </div>
-            </div>
-            <button
-              onClick={openGmail}
-              className="flex items-center space-x-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors"
-            >
-              <span>Open Gmail</span>
-              <ExternalLink className="w-4 h-4" />
-            </button>
+          <div className="border-b border-gray-200">
+            <nav className="-mb-px flex space-x-8">
+              <button
+                onClick={() => setActiveTab('overview')}
+                className={`py-2 px-1 border-b-2 font-medium text-sm ${
+                  activeTab === 'overview'
+                    ? 'border-indigo-500 text-indigo-600'
+                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                }`}
+              >
+                <div className="flex items-center space-x-2">
+                  <Home className="w-4 h-4" />
+                  <span>Overview</span>
+                </div>
+              </button>
+              <button
+                onClick={() => setActiveTab('orders')}
+                className={`py-2 px-1 border-b-2 font-medium text-sm ${
+                  activeTab === 'orders'
+                    ? 'border-indigo-500 text-indigo-600'
+                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                }`}
+              >
+                <div className="flex items-center space-x-2">
+                  <Package className="w-4 h-4" />
+                  <span>Orders</span>
+                </div>
+              </button>
+            </nav>
           </div>
         </div>
 
-        {/* ERP Connections */}
-        <div className="mb-8">
-          <h3 className="text-2xl font-bold text-gray-900 mb-6">Connect Your ERP</h3>
-          <div className="grid gap-6 md:grid-cols-2">
-            {erpConnections.map((erp) => {
-              const Icon = erp.icon;
-              const isConnecting = connectingProvider === erp.provider;
-              
-              return (
-                <div
-                  key={erp.id}
-                  className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 hover:shadow-md transition-shadow"
+        {/* Tab Content */}
+        {activeTab === 'overview' && (
+          <div className="space-y-8">
+            {/* Welcome Section */}
+            <div>
+              <h2 className="text-3xl font-bold text-gray-900 mb-2">
+                Welcome to Frootful! 👋
+              </h2>
+              <p className="text-lg text-gray-600">
+                Connect your ERP system to start transforming email orders into sales orders automatically.
+              </p>
+            </div>
+
+            {/* Gmail Connection Status */}
+            <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center space-x-4">
+                  <div className="w-12 h-12 bg-green-100 rounded-xl flex items-center justify-center">
+                    <CheckCircle className="w-6 h-6 text-green-600" />
+                  </div>
+                  <div>
+                    <h3 className="text-lg font-semibold text-gray-900">Gmail Connected</h3>
+                    <p className="text-gray-600">Ready to extract orders from your emails</p>
+                  </div>
+                </div>
+                <button
+                  onClick={openGmail}
+                  className="flex items-center space-x-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors"
                 >
-                  <div className="flex items-start justify-between mb-4">
-                    <div className="flex items-center space-x-3">
-                      <div className={`w-12 h-12 rounded-xl flex items-center justify-center ${
-                        erp.status === 'connected' 
-                          ? 'bg-green-100' 
-                          : 'bg-gray-100'
-                      }`}>
-                        <Icon className={`w-6 h-6 ${
-                          erp.status === 'connected' 
-                            ? 'text-green-600' 
-                            : 'text-gray-600'
-                        }`} />
-                      </div>
-                      <div>
-                        <h4 className="text-lg font-semibold text-gray-900">{erp.name}</h4>
-                        {erp.status === 'connected' && erp.companyName && (
-                          <p className="text-sm text-green-600">Connected to {erp.companyName}</p>
+                  <span>Open Gmail</span>
+                  <ExternalLink className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+
+            {/* ERP Connections */}
+            <div>
+              <h3 className="text-2xl font-bold text-gray-900 mb-6">Connect Your ERP</h3>
+              <div className="grid gap-6 md:grid-cols-2">
+                {erpConnections.map((erp) => {
+                  const Icon = erp.icon;
+                  const isConnecting = connectingProvider === erp.provider;
+                  
+                  return (
+                    <div
+                      key={erp.id}
+                      className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 hover:shadow-md transition-shadow"
+                    >
+                      <div className="flex items-start justify-between mb-4">
+                        <div className="flex items-center space-x-3">
+                          <div className={`w-12 h-12 rounded-xl flex items-center justify-center ${
+                            erp.status === 'connected' 
+                              ? 'bg-green-100' 
+                              : 'bg-gray-100'
+                          }`}>
+                            <Icon className={`w-6 h-6 ${
+                              erp.status === 'connected' 
+                                ? 'text-green-600' 
+                                : 'text-gray-600'
+                            }`} />
+                          </div>
+                          <div>
+                            <h4 className="text-lg font-semibold text-gray-900">{erp.name}</h4>
+                            {erp.status === 'connected' && erp.companyName && (
+                              <p className="text-sm text-green-600">Connected to {erp.companyName}</p>
+                            )}
+                          </div>
+                        </div>
+                        
+                        {erp.status === 'connected' && (
+                          <CheckCircle className="w-6 h-6 text-green-600" />
                         )}
                       </div>
-                    </div>
-                    
-                    {erp.status === 'connected' && (
-                      <CheckCircle className="w-6 h-6 text-green-600" />
-                    )}
-                  </div>
-                  
-                  <p className="text-gray-600 mb-4">{erp.description}</p>
-                  
-                  {/* Company Selection for Business Central */}
-                  {erp.provider === 'business_central' && erp.status === 'connected' && companies.length > 0 && (
-                    <div className="mb-4">
-                      <label htmlFor="company-select" className="block text-sm font-medium text-gray-700 mb-2">
-                        Select Company:
-                      </label>
-                      <select
-                        id="company-select"
-                        value={selectedCompanyId}
-                        onChange={(e) => handleCompanySelection(e.target.value)}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
+                      
+                      <p className="text-gray-600 mb-4">{erp.description}</p>
+                      
+                      {/* Company Selection for Business Central */}
+                      {erp.provider === 'business_central' && erp.status === 'connected' && companies.length > 0 && (
+                        <div className="mb-4">
+                          <label htmlFor="company-select" className="block text-sm font-medium text-gray-700 mb-2">
+                            Select Company:
+                          </label>
+                          <select
+                            id="company-select"
+                            value={selectedCompanyId}
+                            onChange={(e) => handleCompanySelection(e.target.value)}
+                            className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
+                          >
+                            <option value="">Select a company...</option>
+                            {companies.map((company) => (
+                              <option key={company.id} value={company.id}>
+                                {company.displayName || company.name}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                      )}
+                      
+                      <button
+                        onClick={() => connectERP(erp.provider)}
+                        disabled={isConnecting || erp.status === 'connected'}
+                        className={`w-full flex items-center justify-center space-x-2 px-4 py-3 rounded-lg font-medium transition-colors ${
+                          erp.status === 'connected'
+                            ? 'bg-green-50 text-green-700 cursor-default'
+                            : 'bg-indigo-600 text-white hover:bg-indigo-700'
+                        } disabled:opacity-50 disabled:cursor-not-allowed`}
                       >
-                        <option value="">Select a company...</option>
-                        {companies.map((company) => (
-                          <option key={company.id} value={company.id}>
-                            {company.displayName || company.name}
-                          </option>
-                        ))}
-                      </select>
+                        {isConnecting ? (
+                          <>
+                            <Loader2 className="w-4 h-4 animate-spin" />
+                            <span>Connecting...</span>
+                          </>
+                        ) : erp.status === 'connected' ? (
+                          <>
+                            <CheckCircle className="w-4 h-4" />
+                            <span>Connected</span>
+                          </>
+                        ) : (
+                          <>
+                            <span>Connect</span>
+                            <ArrowRight className="w-4 h-4" />
+                          </>
+                        )}
+                      </button>
                     </div>
-                  )}
-                  
-                  <button
-                    onClick={() => connectERP(erp.provider)}
-                    disabled={isConnecting || erp.status === 'connected'}
-                    className={`w-full flex items-center justify-center space-x-2 px-4 py-3 rounded-lg font-medium transition-colors ${
-                      erp.status === 'connected'
-                        ? 'bg-green-50 text-green-700 cursor-default'
-                        : 'bg-indigo-600 text-white hover:bg-indigo-700'
-                    } disabled:opacity-50 disabled:cursor-not-allowed`}
-                  >
-                    {isConnecting ? (
-                      <>
-                        <Loader2 className="w-4 h-4 animate-spin" />
-                        <span>Connecting...</span>
-                      </>
-                    ) : erp.status === 'connected' ? (
-                      <>
-                        <CheckCircle className="w-4 h-4" />
-                        <span>Connected</span>
-                      </>
-                    ) : (
-                      <>
-                        <span>Connect</span>
-                        <ArrowRight className="w-4 h-4" />
-                      </>
-                    )}
-                  </button>
-                </div>
-              );
-            })}
-          </div>
-        </div>
+                  );
+                })}
+              </div>
+            </div>
 
-        {/* Next Steps */}
-        <div className="bg-gradient-to-r from-indigo-50 to-purple-50 rounded-xl p-6 border border-indigo-100">
-          <h3 className="text-xl font-semibold text-gray-900 mb-4">Next Steps</h3>
-          <div className="space-y-3">
-            <div className="flex items-center space-x-3">
-              <div className="w-6 h-6 bg-indigo-600 text-white rounded-full flex items-center justify-center text-sm font-medium">
-                1
+            {/* Next Steps */}
+            <div className="bg-gradient-to-r from-indigo-50 to-purple-50 rounded-xl p-6 border border-indigo-100">
+              <h3 className="text-xl font-semibold text-gray-900 mb-4">Next Steps</h3>
+              <div className="space-y-3">
+                <div className="flex items-center space-x-3">
+                  <div className="w-6 h-6 bg-indigo-600 text-white rounded-full flex items-center justify-center text-sm font-medium">
+                    1
+                  </div>
+                  <span className="text-gray-700">Connect your ERP system above</span>
+                </div>
+                <div className="flex items-center space-x-3">
+                  <div className="w-6 h-6 bg-indigo-600 text-white rounded-full flex items-center justify-center text-sm font-medium">
+                    2
+                  </div>
+                  <span className="text-gray-700">Open Gmail and find an email with order information</span>
+                </div>
+                <div className="flex items-center space-x-3">
+                  <div className="w-6 h-6 bg-indigo-600 text-white rounded-full flex items-center justify-center text-sm font-medium">
+                    3
+                  </div>
+                  <span className="text-gray-700">Click the "Extract" button in the email toolbar</span>
+                </div>
+                <div className="flex items-center space-x-3">
+                  <div className="w-6 h-6 bg-indigo-600 text-white rounded-full flex items-center justify-center text-sm font-medium">
+                    4
+                  </div>
+                  <span className="text-gray-700">Review and export the order to your ERP system</span>
+                </div>
               </div>
-              <span className="text-gray-700">Connect your ERP system above</span>
-            </div>
-            <div className="flex items-center space-x-3">
-              <div className="w-6 h-6 bg-indigo-600 text-white rounded-full flex items-center justify-center text-sm font-medium">
-                2
-              </div>
-              <span className="text-gray-700">Open Gmail and find an email with order information</span>
-            </div>
-            <div className="flex items-center space-x-3">
-              <div className="w-6 h-6 bg-indigo-600 text-white rounded-full flex items-center justify-center text-sm font-medium">
-                3
-              </div>
-              <span className="text-gray-700">Click the "Extract" button in the email toolbar</span>
-            </div>
-            <div className="flex items-center space-x-3">
-              <div className="w-6 h-6 bg-indigo-600 text-white rounded-full flex items-center justify-center text-sm font-medium">
-                4
-              </div>
-              <span className="text-gray-700">Review and export the order to your ERP system</span>
             </div>
           </div>
-        </div>
+        )}
+
+        {activeTab === 'orders' && <OrdersSection />}
       </main>
     </div>
   );
