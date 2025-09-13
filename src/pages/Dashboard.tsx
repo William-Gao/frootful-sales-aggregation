@@ -1,7 +1,8 @@
 import React, { useEffect, useState } from 'react';
-import { CheckCircle, ExternalLink, Settings, Zap, Building2, Database, ArrowRight, Loader2, Package, Home, Smartphone } from 'lucide-react';
+import { CheckCircle, ExternalLink, Settings, Zap, Building2, Database, ArrowRight, Loader2, Package, Home, Smartphone, MessageSquare } from 'lucide-react';
 import { supabaseClient } from '../supabaseClient';
 import OrdersSection from '../components/OrdersSection';
+import TextOrdersSection from '../components/TextOrdersSection';
 
 interface User {
   id: string;
@@ -54,6 +55,7 @@ const Dashboard: React.FC = () => {
   const [companies, setCompanies] = useState<Company[]>([]);
   const [selectedCompanyId, setSelectedCompanyId] = useState<string>('');
   const [activeTab, setActiveTab] = useState<'overview' | 'orders'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'orders' | 'text-orders'>('overview');
   const [installPrompt, setInstallPrompt] = useState<any>(null);
   const [isInstallable, setIsInstallable] = useState(false);
 
@@ -622,6 +624,19 @@ const Dashboard: React.FC = () => {
                   <span>Orders</span>
                 </div>
               </button>
+              <button
+                onClick={() => setActiveTab('text-orders')}
+                className={`py-2 px-1 border-b-2 font-medium text-sm ${
+                  activeTab === 'text-orders'
+                    ? 'border-indigo-500 text-indigo-600'
+                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                }`}
+              >
+                <div className="flex items-center space-x-2">
+                  <MessageSquare className="w-4 h-4" />
+                  <span>Text Orders</span>
+                </div>
+              </button>
             </nav>
           </div>
         </div>
@@ -790,6 +805,8 @@ const Dashboard: React.FC = () => {
         )}
 
         {activeTab === 'orders' && <OrdersSection />}
+        
+        {activeTab === 'text-orders' && <TextOrdersSection />}
       </main>
     </div>
   );
