@@ -173,7 +173,7 @@ Deno.serve(async (req) => {
     if (analysisResult.requestedDeliveryDate) {
       console.log('Requested delivery date:', analysisResult.requestedDeliveryDate);
     }
-
+    
     return new Response(JSON.stringify({
       success: true,
       data: {

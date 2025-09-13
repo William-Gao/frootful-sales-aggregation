@@ -59,7 +59,7 @@ interface AnalyzedItem {
 interface AnalysisData {
   customers: Customer[];
   items: Item[];
-  matchingCustomer?: Customer;
+  matchingCustomer: Customer;
   analyzedItems: AnalyzedItem[];
   requestedDeliveryDate?: string;
 }
@@ -124,13 +124,15 @@ const OrdersSection: React.FC = () => {
       }
 
       // Transform text orders to match Order interface
+      console.log('This is textOrder: ');
+      console.log(textOrders);
       const transformedOrders: Order[] = (textOrders || []).map((textOrder: any) => ({
         id: textOrder.id,
         order_number: textOrder.erp_order_number || `TXT-${textOrder.id.slice(0, 8)}`,
-        customer_name: textOrder.analysis_data?.matchingCustomer?.displayName || 'Unknown Customer',
-        customer_email: textOrder.analysis_data?.matchingCustomer?.email || '',
-        customer_phone: textOrder.phone_number,
-        phone_number: textOrder.phone_number,
+        customer_name: textOrder.analysis_data?.customerInfo?.company || 'Unknown Customer',
+        customer_email: textOrder.analysis_data?.customerInfo?.email || '',
+        customer_phone: textOrder.analysis_data?.customerInfo?.phone_number,
+        // phone_number: textOrder.phone_number,
         message_content: textOrder.message_content,
         items: textOrder.analysis_data?.analyzedItems?.map((item: AnalyzedItem) => ({
           name: item.matchedItem?.displayName || item.itemName,
@@ -340,7 +342,7 @@ const OrdersSection: React.FC = () => {
 
       console.log('Creating ERP order:', orderData);
 
-      const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/export-text-order-to-erp`, {
+      const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/export-order-to-erp`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${session.access_token}`,
@@ -774,14 +776,6 @@ const OrdersSection: React.FC = () => {
                                 </span>
                               </div>
                               <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
-                                <div>
-                                  <span className="font-medium text-gray-700">Customer ID:</span>
-                                  <span className="ml-2 text-gray-900">{selectedOrder.analysis_data.matchingCustomer.id}</span>
-                                </div>
-                                <div>
-                                  <span className="font-medium text-gray-700">Customer Number:</span>
-                                  <span className="ml-2 text-gray-900">{selectedOrder.analysis_data.matchingCustomer.number}</span>
-                                </div>
                                 {selectedOrder.analysis_data.matchingCustomer.email && (
                                   <div className="md:col-span-2">
                                     <span className="font-medium text-gray-700">Email:</span>

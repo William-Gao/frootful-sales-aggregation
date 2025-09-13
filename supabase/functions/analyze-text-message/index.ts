@@ -169,16 +169,18 @@ Deno.serve(async (req) => {
     const analysisResult = await analyzeTextWithAI(webhookData.Body, items, webhookData.From);
 
     // Step 4: Try to match customer by phone number or analysis
-    const matchingCustomer = findMatchingCustomer(customers, webhookData.From, analysisResult);
+    // const matchingCustomer = findMatchingCustomer(customers, webhookData.From, analysisResult);
 
     // Step 5: Store analysis results and update status
     const analysisData = {
       customers: customers,
       items: items,
-      matchingCustomer: matchingCustomer,
+      matchingCustomer: analysisResult.matchingCustomer,
       analyzedItems: analysisResult.orderLines,
       requestedDeliveryDate: analysisResult.requestedDeliveryDate,
-      customerInfo: analysisResult.customerInfo
+      originalMessage: webhookData.Body,
+      phoneNumber: webhookData.From,
+      messageSid: webhookData.MessageSid
     };
 
     console.log('Updating text order with analysis results...');
@@ -359,9 +361,9 @@ Return the data in JSON format with the following structure:
     }
   }],
   "requestedDeliveryDate": "YYYY-MM-DD", // ISO date format, only if mentioned
-  "customerInfo": {
-    "name": "customer name if mentioned",
-    "company": "company name if mentioned", 
+  "matchingCustomer": {
+    "displayName": "customer name if mentioned",
+    "number": "company number", 
     "email": "email if mentioned"
   }
 }
@@ -381,7 +383,7 @@ If no customer info is mentioned, omit those fields from customerInfo.`
     return {
       orderLines: analysis.orderLines || [],
       requestedDeliveryDate: analysis.requestedDeliveryDate,
-      customerInfo: analysis.customerInfo
+      matchingCustomer: analysis.matchingCustomer
     };
   } catch (error) {
     console.error('Error analyzing text with AI:', error);
@@ -390,25 +392,25 @@ If no customer info is mentioned, omit those fields from customerInfo.`
 }
 
 // Find matching customer
-function findMatchingCustomer(customers: Customer[], phoneNumber: string, analysisResult: AnalysisResult): Customer | undefined {
-  // First try to match by phone number (would need phone numbers in BC customer data)
-  // For now, try to match by name or email from analysis
-  if (analysisResult.customerInfo?.email) {
-    const emailMatch = customers.find(c => 
-      c.email?.toLowerCase() === analysisResult.customerInfo?.email?.toLowerCase()
-    );
-    if (emailMatch) return emailMatch;
-  }
+// function findMatchingCustomer(customers: Customer[], phoneNumber: string, analysisResult: AnalysisResult): Customer | undefined {
+//   // First try to match by phone number (would need phone numbers in BC customer data)
+//   // For now, try to match by name or email from analysis
+//   if (analysisResult.customerInfo?.email) {
+//     const emailMatch = customers.find(c => 
+//       c.email?.toLowerCase() === analysisResult.customerInfo?.email?.toLowerCase()
+//     );
+//     if (emailMatch) return emailMatch;
+//   }
 
-  if (analysisResult.customerInfo?.name) {
-    const nameMatch = customers.find(c => 
-      c.displayName?.toLowerCase().includes(analysisResult.customerInfo?.name?.toLowerCase() || '')
-    );
-    if (nameMatch) return nameMatch;
-  }
+//   if (analysisResult.customerInfo?.name) {
+//     const nameMatch = customers.find(c => 
+//       c.displayName?.toLowerCase().includes(analysisResult.customerInfo?.name?.toLowerCase() || '')
+//     );
+//     if (nameMatch) return nameMatch;
+//   }
 
-  return undefined;
-}
+//   return undefined;
+// }
 
 // Helper functions (reused from analyze-email)
 async function getValidBusinessCentralToken(userId: string): Promise<string | null> {
