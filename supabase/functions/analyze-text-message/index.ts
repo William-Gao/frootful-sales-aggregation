@@ -187,7 +187,7 @@ Deno.serve(async (req) => {
       .update({
         status: 'analyzed',
         analysis_data: analysisData,
-        processed_at: new Date().toISOString()
+        updated_at: new Date().toISOString()
       })
       .eq('id', textOrder.id);
 
