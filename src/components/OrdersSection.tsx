@@ -670,7 +670,7 @@ const OrdersSection: React.FC = () => {
                         ))}
                       </select>
                      </div>
-                   )}
+                   ) : null}
 
                    {/* Phone Number */}
                    {selectedOrder.customer_phone && (
