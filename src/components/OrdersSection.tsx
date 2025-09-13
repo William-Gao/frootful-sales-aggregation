@@ -92,6 +92,7 @@ const OrdersSection: React.FC = () => {
   const [isEditing, setIsEditing] = useState(false);
   const [editingOrder, setEditingOrder] = useState<Order | null>(null);
   const [isSaving, setIsSaving] = useState(false);
+  const [isCreatingOrder, setIsCreatingOrder] = useState(false);
 
   useEffect(() => {
     loadOrders();
@@ -297,6 +298,87 @@ const OrdersSection: React.FC = () => {
       items: updatedItems,
       total_amount: totalAmount
     });
+  };
+
+  const createERPOrder = async (order: Order) => {
+    if (!order.analysis_data || !order.analysis_data.analyzedItems.length) {
+      alert('No analyzed items found to export');
+      return;
+    }
+
+    const analysisData = order.analysis_data;
+    
+    // Check if we have a matching customer
+    if (!analysisData.matchingCustomer) {
+      alert('No matching customer found. Please select a customer first.');
+      return;
+    }
+
+    try {
+      setIsCreatingOrder(true);
+
+      const { data: { session } } = await supabaseClient.auth.getSession();
+      if (!session) {
+        throw new Error('No session found');
+      }
+
+      // Prepare order data
+      const orderData = {
+        customerNumber: analysisData.matchingCustomer.number,
+        items: analysisData.analyzedItems.map(item => ({
+          itemName: item.matchedItem?.number || item.itemName,
+          quantity: item.quantity,
+          price: item.matchedItem?.unitPrice
+        })),
+        requestedDeliveryDate: analysisData.requestedDeliveryDate
+      };
+
+      console.log('Creating ERP order:', orderData);
+
+      const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/export-text-order-to-erp`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${session.access_token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          textOrderId: order.id,
+          orderData: orderData
+        })
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({ error: 'Unknown error' }));
+        throw new Error(errorData.error || `HTTP ${response.status}: ${response.statusText}`);
+      }
+
+      const result = await response.json();
+      
+      if (!result.success) {
+        throw new Error(result.error || 'Export failed');
+      }
+
+      console.log('ERP order created successfully:', result);
+      
+      // Refresh the orders list to show updated status
+      await loadOrders();
+      
+      // Update the selected order if it's still open
+      if (selectedOrder && selectedOrder.id === order.id) {
+        const updatedOrder = orders.find(o => o.id === order.id);
+        if (updatedOrder) {
+          setSelectedOrder(updatedOrder);
+        }
+      }
+      
+      alert(`Successfully created order #${result.orderNumber} in Business Central!`);
+
+    } catch (error) {
+      console.error('Error creating ERP order:', error);
+      alert(`Failed to create ERP order: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    } finally {
+      setIsCreatingOrder(false);
+    }
   };
 
   const filteredOrders = orders.filter(order => {
@@ -864,7 +946,27 @@ const OrdersSection: React.FC = () => {
                     </button>
                   </div>
                 ) : (
-                  <div className="flex justify-end pt-4 border-t border-gray-200">
+                  <div className="flex flex-col sm:flex-row justify-end space-y-2 sm:space-y-0 sm:space-x-3 pt-4 border-t border-gray-200">
+                    {/* Create ERP Order Button - only show if order hasn't been exported yet */}
+                    {selectedOrder.status !== 'completed' && selectedOrder.analysis_data?.matchingCustomer && selectedOrder.analysis_data?.analyzedItems?.length > 0 && (
+                      <button
+                        onClick={() => createERPOrder(selectedOrder)}
+                        disabled={isCreatingOrder}
+                        className="w-full sm:w-auto flex items-center justify-center space-x-2 px-6 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-base font-medium"
+                      >
+                        {isCreatingOrder ? (
+                          <>
+                            <Loader2 className="w-5 h-5 animate-spin" />
+                            <span>Creating Order...</span>
+                          </>
+                        ) : (
+                          <>
+                            <Package className="w-5 h-5" />
+                            <span>Create ERP Order</span>
+                          </>
+                        )}
+                      </button>
+                    )}
                     <button
                       onClick={() => setSelectedOrder(null)}
                       className="w-full sm:w-auto px-6 py-3 bg-gray-300 text-gray-700 rounded-lg hover:bg-gray-400 transition-colors text-base font-medium"
