@@ -436,14 +436,13 @@ const OrdersSection: React.FC = () => {
     }).format(amount);
   };
 
-  const formatPhoneNumber = (phone: string) => {
-    // Remove +1 country code if present and format as (XXX) XXX-XXXX
-    const cleaned = phone.replace(/^\+1/, '');
-    const match = cleaned.match(/^(\d{3})(\d{3})(\d{4})$/);
-    if (match) {
-      return `(${match[1]}) ${match[2]}-${match[3]}`;
+  const formatPhoneNumber = (phoneNumber: string) => {
+    // Simple phone number formatting
+    const cleaned = phoneNumber.replace(/\D/g, '');
+    if (cleaned.length === 10) {
+      return `(${cleaned.slice(0, 3)}) ${cleaned.slice(3, 6)}-${cleaned.slice(6)}`;
     }
-    return phone;
+    return phoneNumber;
   };
 
   if (loading) {
@@ -1002,9 +1001,9 @@ const OrdersSection: React.FC = () => {
                     <button
                       onClick={() => setSelectedOrder(null)}
                       className="w-full sm:w-auto px-6 py-3 bg-gray-300 text-gray-700 rounded-lg hover:bg-gray-400 transition-colors text-base font-medium"
-                    />
+                    >
                       Close
-                    <span>Phone: {selectedOrder.phone_number}</span>
+                    </button>
                   </div>
                 )}
               </div>
