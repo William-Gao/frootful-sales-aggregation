@@ -759,29 +759,87 @@ const OrdersSection: React.FC = () => {
                   {/* Current Matched Customer Display */}
                   <div className="mb-4">
                     <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Current Matched Customer:
+                      Matched Customer from Business Central:
                     </label>
                     <div className="bg-gray-50 border border-gray-200 rounded-md p-3">
                       {selectedOrder.analysis_data?.matchingCustomer ? (
-                        <div className="flex items-center">
-                          <select
-                            value={isEditing && editingOrder?.analysis_data?.matchingCustomer?.number || selectedOrder.analysis_data?.matchingCustomer?.number || ''}
-                            onChange={(e) => isEditing && handleCustomerChange(e.target.value)}
-                            disabled={!isEditing}
-                            className={`w-full px-3 py-3 text-base border border-gray-300 rounded-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 ${
-                              !isEditing ? 'bg-gray-100 cursor-not-allowed' : 'bg-white'
-                            }`}
-                          >
-                            <option value="">Select a customer...</option>
-                            {selectedOrder.analysis_data.customers.map((customer) => (
-                              <option key={customer.id} value={customer.number}>
-                                {customer.displayName} ({customer.number})
-                                {customer.email && ` - ${customer.email}`}
-                              </option>
-                            ))}
-                          </select>
+                        <div className="space-y-3">
+                          {/* Display current matched customer info */}
+                          {!isEditing && (
+                            <div className="bg-white border border-gray-200 rounded-md p-4">
+                              <div className="flex items-center mb-2">
+                                <User className="w-5 h-5 text-green-600 mr-2" />
+                                <span className="text-lg font-semibold text-gray-900">
+                                  {selectedOrder.analysis_data.matchingCustomer.displayName}
+                                </span>
+                              </div>
+                              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
+                                <div>
+                                  <span className="font-medium text-gray-700">Customer ID:</span>
+                                  <span className="ml-2 text-gray-900">{selectedOrder.analysis_data.matchingCustomer.id}</span>
+                                </div>
+                                <div>
+                                  <span className="font-medium text-gray-700">Customer Number:</span>
+                                  <span className="ml-2 text-gray-900">{selectedOrder.analysis_data.matchingCustomer.number}</span>
+                                </div>
+                                {selectedOrder.analysis_data.matchingCustomer.email && (
+                                  <div className="md:col-span-2">
+                                    <span className="font-medium text-gray-700">Email:</span>
+                                    <span className="ml-2 text-gray-900">{selectedOrder.analysis_data.matchingCustomer.email}</span>
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          )}
+                          
+                          {/* Dropdown for editing */}
+                          {isEditing && (
+                            <div>
+                              <label className="block text-sm font-medium text-gray-700 mb-2">
+                                Select Customer:
+                              </label>
+                              <select
+                                value={editingOrder?.analysis_data?.matchingCustomer?.number || ''}
+                                onChange={(e) => handleCustomerChange(e.target.value)}
+                                className="w-full px-3 py-3 text-base border border-gray-300 rounded-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 bg-white"
+                              >
+                                <option value="">Select a customer...</option>
+                                {selectedOrder.analysis_data.customers.map((customer) => (
+                                  <option key={customer.id} value={customer.number}>
+                                    {customer.displayName} ({customer.number})
+                                    {customer.email && ` - ${customer.email}`}
+                                  </option>
+                                ))}
+                              </select>
+                            </div>
+                          )}
                         </div>
-                      ) : null}
+                      ) : (
+                        <div className="text-center py-4">
+                          <AlertCircle className="w-8 h-8 text-yellow-500 mx-auto mb-2" />
+                          <p className="text-sm text-gray-600">No customer matched from Business Central</p>
+                          {isEditing && selectedOrder.analysis_data?.customers && selectedOrder.analysis_data.customers.length > 0 && (
+                            <div className="mt-3">
+                              <label className="block text-sm font-medium text-gray-700 mb-2">
+                                Select Customer:
+                              </label>
+                              <select
+                                value={editingOrder?.analysis_data?.matchingCustomer?.number || ''}
+                                onChange={(e) => handleCustomerChange(e.target.value)}
+                                className="w-full px-3 py-3 text-base border border-gray-300 rounded-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 bg-white"
+                              >
+                                <option value="">Select a customer...</option>
+                                {selectedOrder.analysis_data.customers.map((customer) => (
+                                  <option key={customer.id} value={customer.number}>
+                                    {customer.displayName} ({customer.number})
+                                    {customer.email && ` - ${customer.email}`}
+                                  </option>
+                                ))}
+                              </select>
+                            </div>
+                          )}
+                        </div>
+                      )}
 
                       {/* Phone Number */}
                       {selectedOrder.customer_phone && (
