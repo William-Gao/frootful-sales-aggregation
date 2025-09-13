@@ -90,7 +90,7 @@ Deno.serve(async (req) => {
         }
       );
     }
-
+    console.log('This is order data: ', orderData);
     console.log('Creating order for customer:', orderData.customerNumber, 'with', orderData.items.length, 'items');
     if (orderData.requestedDeliveryDate) {
       console.log('Requested delivery date:', orderData.requestedDeliveryDate);

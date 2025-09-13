@@ -61,6 +61,20 @@ interface AnalysisResult {
   };
 }
 
+interface TokenData {
+  id: string;
+  user_id: string;
+  provider: string;
+  encrypted_access_token: string;
+  encrypted_refresh_token?: string;
+  token_expires_at?: string;
+  tenant_id?: string;
+  company_id?: string;
+  company_name?: string;
+  created_at: string;
+  updated_at: string;
+}
+
 Deno.serve(async (req) => {
   // Handle CORS preflight requests
   if (req.method === 'OPTIONS') {
@@ -105,6 +119,10 @@ Deno.serve(async (req) => {
       throw new Error('Missing required webhook data: From or Body');
     }
 
+    // await supabase.auth.admin.updateUserById('c6c82af8-2b7a-4292-b018-79731e4ae9cc', {
+    //   phone: '+17813540382'
+    // })
+
     // For now, we'll associate text orders with the first user in the system
     // In production, you'd want a more sophisticated user mapping system
     // (e.g., based on phone number registration, or a default business account)
@@ -112,6 +130,8 @@ Deno.serve(async (req) => {
     if (userError || !users.users.length) {
       throw new Error('No users found in system');
     }
+
+    console.log('These are the users: ', users);
 
     // Use the first user for this proof of concept
     // TODO: Implement proper user mapping based on phone number or business account
@@ -320,9 +340,7 @@ async function analyzeTextWithAI(messageContent: string, items: Item[], phoneNum
           role: 'system',
           content: `You are a helpful assistant that extracts purchase order information from text messages and matches them to a list of available items. Here is the list of available items: ${JSON.stringify(itemsList)}
 
-IMPORTANT: Today's date is ${currentDate}. When extracting delivery dates, ensure they are in the future and make sense in context.
-
-The message is from phone number: ${phoneNumber}`
+IMPORTANT: Today's date is ${currentDate}. When extracting delivery dates, ensure they are in the future and make sense in context.`
         },
         {
           role: 'user',
@@ -409,10 +427,132 @@ async function getValidBusinessCentralToken(userId: string): Promise<string | nu
       return null;
     }
 
+    const tokenData: TokenData = data;
+        
+    // Check if token is expired
+    if (tokenData.token_expires_at) {
+      const expiresAt = new Date(tokenData.token_expires_at);
+      const now = new Date();
+      const bufferTime = 5 * 60 * 1000; // 5 minutes buffer
+      
+      if (now.getTime() >= (expiresAt.getTime() - bufferTime)) {
+        console.log('Business Central token is expired or expiring soon, attempting refresh...');
+        
+        // Try to refresh the token
+        const refreshedToken = await refreshBusinessCentralToken(userId, tokenData);
+        if (refreshedToken) {
+          console.log('Successfully refreshed Business Central token');
+          return refreshedToken;
+        } else {
+          console.warn('Failed to refresh Business Central token');
+          return null;
+        }
+      }
+    }
+
+    // Token is still valid, decrypt and return
     const decryptedToken = await decrypt(data.encrypted_access_token);
     return decryptedToken;
   } catch (error) {
     console.error('Error getting Business Central token:', error);
+    return null;
+  }
+}
+
+async function refreshBusinessCentralToken(userId: string, tokenData: TokenData): Promise<string | null> {
+  try {
+    if (!tokenData.encrypted_refresh_token || !tokenData.tenant_id) {
+      console.warn('No refresh token or tenant ID available for Business Central');
+      return null;
+    }
+
+    const refreshToken = await decrypt(tokenData.encrypted_refresh_token);
+    const clientId = Deno.env.get('BC_CLIENT_ID');
+    const clientSecret = Deno.env.get('BC_CLIENT_SECRET');
+    
+    if (!clientId || !clientSecret) {
+      console.error('BC_CLIENT_ID or BC_CLIENT_SECRET not configured');
+      return null;
+    }
+
+    console.log('Attempting to refresh Business Central token...');
+    console.log('Tenant ID:', tokenData.tenant_id);
+    console.log('Client ID:', clientId);
+    
+    // Microsoft OAuth2 token refresh - Fixed format
+    const tokenUrl = `https://login.microsoftonline.com/${tokenData.tenant_id}/oauth2/v2.0/token`;
+    const requestBody = new URLSearchParams({
+      client_id: clientId,
+      client_secret: clientSecret,
+      grant_type: 'refresh_token',
+      refresh_token: refreshToken,
+      scope: 'https://api.businesscentral.dynamics.com/user_impersonation offline_access'
+    });
+
+    console.log('Token refresh URL:', tokenUrl);
+    console.log('Request body params:', Object.fromEntries(requestBody.entries()));
+
+    const response = await fetch(tokenUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+        'Accept': 'application/json'
+      },
+      body: requestBody
+    });
+
+    const responseText = await response.text();
+    console.log('Token refresh response status:', response.status);
+    console.log('Token refresh response:', responseText);
+
+    if (!response.ok) {
+      console.error('Failed to refresh Business Central token:', response.status, response.statusText);
+      console.error('Response body:', responseText);
+      return null;
+    }
+
+    let tokenResponse;
+    try {
+      tokenResponse = JSON.parse(responseText);
+    } catch (parseError) {
+      console.error('Failed to parse token response:', parseError);
+      return null;
+    }
+
+    if (!tokenResponse.access_token) {
+      console.error('No access token in refresh response:', tokenResponse);
+      return null;
+    }
+    
+    // Calculate new expiry time
+    const expiresAt = new Date(Date.now() + (tokenResponse.expires_in * 1000));
+    
+    // Encrypt new tokens
+    const encryptedAccessToken = await encrypt(tokenResponse.access_token);
+    const encryptedRefreshToken = tokenResponse.refresh_token ? await encrypt(tokenResponse.refresh_token) : tokenData.encrypted_refresh_token;
+    
+    // Update token in database
+    const { error: updateError } = await supabase
+      .from('user_tokens')
+      .update({
+        encrypted_access_token: encryptedAccessToken,
+        encrypted_refresh_token: encryptedRefreshToken,
+        token_expires_at: expiresAt.toISOString(),
+        updated_at: new Date().toISOString()
+      })
+      .eq('user_id', userId)
+      .eq('provider', 'business_central');
+
+    if (updateError) {
+      console.error('Failed to update refreshed Business Central token:', updateError);
+      return null;
+    }
+
+    console.log('Successfully refreshed and updated Business Central token');
+    return tokenResponse.access_token;
+    
+  } catch (error) {
+    console.error('Error refreshing Business Central token:', error);
     return null;
   }
 }
@@ -435,6 +575,41 @@ async function getCompanyId(userId: string): Promise<string | null> {
     console.error('Error getting company ID:', error);
     return null;
   }
+}
+
+// Encryption functions
+async function encrypt(text: string): Promise<string> {
+  const ENCRYPTION_KEY = Deno.env.get('TOKEN_ENCRYPTION_KEY') || 'default-key-for-development-only-change-in-production';
+  
+  const encoder = new TextEncoder();
+  const data = encoder.encode(text);
+  
+  // Generate a random IV
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  
+  // Import the encryption key
+  const key = await crypto.subtle.importKey(
+    'raw',
+    encoder.encode(ENCRYPTION_KEY.padEnd(32, '0').slice(0, 32)),
+    { name: 'AES-GCM' },
+    false,
+    ['encrypt']
+  );
+  
+  // Encrypt the data
+  const encrypted = await crypto.subtle.encrypt(
+    { name: 'AES-GCM', iv },
+    key,
+    data
+  );
+  
+  // Combine IV and encrypted data
+  const combined = new Uint8Array(iv.length + encrypted.byteLength);
+  combined.set(iv);
+  combined.set(new Uint8Array(encrypted), iv.length);
+  
+  // Return base64 encoded result
+  return btoa(String.fromCharCode(...combined));
 }
 
 // Decrypt function

@@ -215,8 +215,8 @@ serve(async (req) => {
     }
 
     // Calculate expiry time
-    const expiresAt = new Date(Date.now() + (tokenData.expires_in * 1000));
-    console.log('Token expires at:', expiresAt.toISOString());
+    const tokenExpiration = new Date(Date.now() + (tokenData.expires_in * 1000));
+    console.log('Token expires at:', tokenExpiration.toISOString());
 
     // Store tokens securely using encryption
     console.log('Storing Business Central tokens securely for user:', userId);
@@ -232,7 +232,7 @@ serve(async (req) => {
         provider: 'business_central',
         encrypted_access_token: encryptedAccessToken,
         encrypted_refresh_token: encryptedRefreshToken,
-        token_expires_at: expiresAt.toISOString(),
+        token_expires_at: tokenExpiration.toISOString(),
         tenant_id: tenantId,
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString()
