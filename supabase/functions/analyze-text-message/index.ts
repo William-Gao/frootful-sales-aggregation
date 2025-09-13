@@ -178,10 +178,7 @@ Deno.serve(async (req) => {
       matchingCustomer: matchingCustomer,
       analyzedItems: analysisResult.orderLines,
       requestedDeliveryDate: analysisResult.requestedDeliveryDate,
-      customerInfo: analysisResult.customerInfo,
-      originalMessage: webhookData.Body,
-      phoneNumber: webhookData.From,
-      messageSid: webhookData.MessageSid
+      customerInfo: analysisResult.customerInfo
     };
 
     console.log('Updating text order with analysis results...');
@@ -190,7 +187,7 @@ Deno.serve(async (req) => {
       .update({
         status: 'analyzed',
         analysis_data: analysisData,
-        updated_at: new Date().toISOString()
+        processed_at: new Date().toISOString()
       })
       .eq('id', textOrder.id);
 
