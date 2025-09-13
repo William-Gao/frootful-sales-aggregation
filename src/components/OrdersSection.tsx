@@ -992,9 +992,9 @@ const OrdersSection: React.FC = () => {
                     <button
                       onClick={() => setSelectedOrder(null)}
                       className="w-full sm:w-auto px-6 py-3 bg-gray-300 text-gray-700 rounded-lg hover:bg-gray-400 transition-colors text-base font-medium"
-                    >
+                    />
                       Close
-                    <span>Phone: {formatPhoneNumber(selectedOrder.phone_number)}</span>
+                    <span>Phone: {selectedOrder.phone_number}</span>
                   </div>
                 )}
               </div>
