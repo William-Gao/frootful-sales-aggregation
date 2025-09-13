@@ -473,8 +473,10 @@ const OrdersSection: React.FC = () => {
       </div>
 
       {/* Orders Table */}
-      <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
-        <div className="overflow-x-auto">
+      {/* Mobile-Friendly Orders List */}
+      <div className="bg-white rounded-lg shadow-sm border border-gray-200">
+        {/* Desktop Table - Hidden on mobile */}
+        <div className="hidden md:block overflow-x-auto">
           <table className="min-w-full divide-y divide-gray-200">
             <thead className="bg-gray-50">
               <tr>
@@ -496,14 +498,15 @@ const OrdersSection: React.FC = () => {
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                   Date
                 </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Actions
-                </th>
               </tr>
             </thead>
             <tbody className="bg-white divide-y divide-gray-200">
               {filteredOrders.map((order) => (
-                <tr key={order.id} className="hover:bg-gray-50">
+                <tr 
+                  key={order.id} 
+                  className="hover:bg-gray-50 cursor-pointer"
+                  onClick={() => setSelectedOrder(order)}
+                >
                   <td className="px-6 py-4 whitespace-nowrap">
                     <div className="flex items-center">
                       <div className="flex-shrink-0">
@@ -555,26 +558,45 @@ const OrdersSection: React.FC = () => {
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                     {formatDate(order.created_at)}
                   </td>
-                  
-                  <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                    <div className="flex items-center space-x-2">
-                      <button
-                        onClick={() => setSelectedOrder(order)}
-                        className="text-indigo-600 hover:text-indigo-900"
-                      >
-                        <Eye className="w-4 h-4" />
-                      </button>
-                      {order.erp_order_number && (
-                        <button className="text-green-600 hover:text-green-900">
-                          <ExternalLink className="w-4 h-4" />
-                        </button>
-                      )}
-                    </div>
-                  </td>
                 </tr>
               ))}
             </tbody>
           </table>
+        </div>
+
+        {/* Mobile Cards - Visible on mobile */}
+        <div className="md:hidden divide-y divide-gray-200">
+          {filteredOrders.map((order) => (
+            <div 
+              key={order.id}
+              className="p-4 hover:bg-gray-50 cursor-pointer active:bg-gray-100 transition-colors"
+              onClick={() => setSelectedOrder(order)}
+            >
+              <div className="flex items-center justify-between mb-2">
+                <div className="flex items-center space-x-2">
+                  {getSourceIcon(order.source)}
+                  <span className="font-medium text-gray-900">{order.order_number}</span>
+                </div>
+                <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${getStatusColor(order.status)}`}>
+                  {order.status.charAt(0).toUpperCase() + order.status.slice(1)}
+                </span>
+              </div>
+              
+              <div className="space-y-1">
+                <div className="text-sm font-medium text-gray-900">{order.customer_name}</div>
+                <div className="text-sm text-gray-500">{order.customer_email}</div>
+                <div className="flex justify-between items-center">
+                  <span className="text-sm text-gray-500">
+                    {order.items.length} item{order.items.length !== 1 ? 's' : ''} • {order.items.reduce((sum, item) => sum + item.quantity, 0)} qty
+                  </span>
+                  <span className="text-sm font-medium text-gray-900">
+                    {order.total_amount ? formatCurrency(order.total_amount) : 'N/A'}
+                  </span>
+                </div>
+                <div className="text-xs text-gray-400">{formatDate(order.created_at)}</div>
+              </div>
+            </div>
+          ))}
         </div>
         
         {filteredOrders.length === 0 && (
@@ -592,10 +614,10 @@ const OrdersSection: React.FC = () => {
 
       {/* Order Detail Modal */}
       {selectedOrder && (
-        <div className="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50">
-          <div className="relative top-20 mx-auto p-5 border w-11/12 md:w-3/4 lg:w-2/3 shadow-lg rounded-md bg-white max-h-[80vh] overflow-y-auto">
+        <div className="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50 p-4 md:p-0">
+          <div className="relative md:top-20 mx-auto md:p-5 border w-full md:w-3/4 lg:w-2/3 shadow-lg rounded-md bg-white h-full md:h-auto md:max-h-[80vh] overflow-y-auto">
             <div className="mt-3">
-              <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center justify-between mb-4 px-4 md:px-0">
                 <h3 className="text-lg font-medium text-gray-900">
                   Order Details - {selectedOrder.order_number}
                 </h3>
@@ -618,7 +640,7 @@ const OrdersSection: React.FC = () => {
                 </div>
               </div>
               
-              <div className="space-y-6">
+              <div className="space-y-6 px-4 md:px-0 pb-4 md:pb-0">
                 {/* Customer Info */}
                 <div>
                   <h4 className="text-sm font-medium text-gray-900 mb-3">Customer Information</h4>
@@ -626,13 +648,265 @@ const OrdersSection: React.FC = () => {
                     {isEditing && editingOrder?.analysis_data ? (
                       <div>
                         <label className="block text-sm font-medium text-gray-700 mb-2">
-                          Select Customer:
+                          Customer:
                         </label>
                         <select
                           value={editingOrder.analysis_data.matchingCustomer?.number || ''}
                           onChange={(e) => handleCustomerChange(e.target.value)}
-                          className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
+                          className="w-full px-3 py-3 text-base border border-gray-300 rounded-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
                         >
+                          <option value="">Select a customer...</option>
+                          {editingOrder.analysis_data.customers.map((customer) => (
+                            <option key={customer.id} value={customer.number}>
+                              {customer.displayName} ({customer.number})
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    ) : (
+                      <div>
+                        <div className="mb-2">
+                          <span className="text-sm font-medium text-gray-700">Matched Customer:</span>
+                        </div>
+                        <div className="bg-white border border-gray-200 rounded-md p-3">
+                          {selectedOrder.analysis_data?.matchingCustomer ? (
+                            <>
+                              <div className="flex items-center mb-2">
+                                <User className="w-4 h-4 text-green-600 mr-2" />
+                                <span className="text-sm font-medium text-green-800">
+                                  {selectedOrder.analysis_data.matchingCustomer.displayName}
+                                </span>
+                                <span className="text-sm text-green-600 ml-2">
+                                  ({selectedOrder.analysis_data.matchingCustomer.number})
+                                </span>
+                              </div>
+                              {selectedOrder.analysis_data.matchingCustomer.email && (
+                                <div className="flex items-center">
+                                  <Mail className="w-4 h-4 text-gray-400 mr-2" />
+                                  <span className="text-sm text-gray-600">
+                                    {selectedOrder.analysis_data.matchingCustomer.email}
+                                  </span>
+                                </div>
+                              )}
+                            </>
+                          ) : (
+                            <div className="flex items-center">
+                              <AlertCircle className="w-4 h-4 text-yellow-600 mr-2" />
+                              <span className="text-sm text-yellow-800">No customer matched</span>
+                            </div>
+                          )}
+                        </div>
+                        {selectedOrder.customer_phone && (
+                          <div className="flex items-center mt-2">
+                            <Phone className="w-4 h-4 text-gray-400 mr-2" />
+                            <span className="text-sm text-gray-600">{selectedOrder.customer_phone}</span>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Delivery Date */}
+                {(selectedOrder.requested_delivery_date || isEditing) && (
+                  <div>
+                    <h4 className="text-sm font-medium text-gray-900 mb-3">Delivery Date</h4>
+                    <div className="bg-gray-50 rounded-lg p-4">
+                      {isEditing && editingOrder ? (
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-2">
+                            Requested Delivery Date:
+                          </label>
+                          <input
+                            type="date"
+                            value={editingOrder.analysis_data?.requestedDeliveryDate || ''}
+                            onChange={(e) => handleDeliveryDateChange(e.target.value)}
+                            className="px-3 py-3 text-base border border-gray-300 rounded-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
+                          />
+                        </div>
+                      ) : (
+                        <div className="flex items-center">
+                          <Calendar className="w-4 h-4 text-gray-400 mr-2" />
+                          <span className="text-sm">
+                            {selectedOrder.requested_delivery_date ? 
+                              new Date(selectedOrder.requested_delivery_date).toLocaleDateString() : 
+                              'No delivery date specified'}
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {/* Order Items */}
+                <div>
+                  <h4 className="text-sm font-medium text-gray-900 mb-3">Order Items</h4>
+                  <div className="bg-gray-50 rounded-lg p-4">
+                    <div className="space-y-3">
+                      {isEditing && editingOrder?.analysis_data ? (
+                        editingOrder.analysis_data.analyzedItems.map((item, index) => (
+                          <div key={index} className="border border-gray-200 rounded-lg p-3 bg-white">
+                            <div className="space-y-4">
+                              <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-2">
+                                  Item:
+                                </label>
+                                <select
+                                  value={item.matchedItem?.number || ''}
+                                  onChange={(e) => handleItemChange(index, e.target.value)}
+                                  className="w-full px-3 py-3 text-base border border-gray-300 rounded-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
+                                >
+                                  <option value="">-- Select Item --</option>
+                                  {editingOrder.analysis_data.items.map((availableItem) => (
+                                    <option key={availableItem.id} value={availableItem.number}>
+                                      {availableItem.displayName} (${availableItem.unitPrice})
+                                    </option>
+                                  ))}
+                                </select>
+                              </div>
+                              <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-2">
+                                  Quantity:
+                                </label>
+                                <input
+                                  type="number"
+                                  min="1"
+                                  value={item.quantity}
+                                  onChange={(e) => handleQuantityChange(index, parseInt(e.target.value) || 0)}
+                                  className="w-full px-3 py-3 text-base border border-gray-300 rounded-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
+                                />
+                              </div>
+                            </div>
+                            <div className="mt-2 text-sm text-gray-600">
+                              Original: {item.itemName}
+                            </div>
+                          </div>
+                        ))
+                      ) : (
+                        selectedOrder.items.map((item, index) => (
+                          <div key={index} className="border border-gray-200 rounded-lg p-3 bg-white">
+                            <div className="flex justify-between items-start">
+                              <div className="flex-1">
+                                <div className="text-sm font-medium text-gray-900">{item.name}</div>
+                                {item.description && (
+                                  <div className="text-xs text-gray-500 mt-1">Item #: {item.description}</div>
+                                )}
+                                {selectedOrder.analysis_data?.analyzedItems[index] && (
+                                  <div className="text-xs text-gray-400 mt-1">
+                                    Original: {selectedOrder.analysis_data.analyzedItems[index].itemName}
+                                  </div>
+                                )}
+                              </div>
+                              <div className="text-right ml-4">
+                                <div className="text-sm font-medium text-gray-900">
+                                  Qty: {item.quantity}
+                                </div>
+                                {item.price && (
+                                  <>
+                                    <div className="text-xs text-gray-500">
+                                      ${item.price} each
+                                    </div>
+                                    <div className="text-sm font-medium text-gray-900">
+                                      = {formatCurrency(item.quantity * item.price)}
+                                    </div>
+                                  </>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                    {selectedOrder.total_amount && !isEditing && (
+                      <div className="border-t border-gray-200 mt-4 pt-4">
+                        <div className="flex justify-between items-center">
+                          <span className="text-base font-medium text-gray-900">Total</span>
+                          <span className="text-lg font-bold text-gray-900">
+                            {formatCurrency(selectedOrder.total_amount)}
+                          </span>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Original Content */}
+                <div>
+                  <h4 className="text-sm font-medium text-gray-900 mb-3">Original Message</h4>
+                  <div className="bg-gray-50 rounded-lg p-4">
+                    <p className="text-sm text-gray-700 whitespace-pre-wrap">
+                      {selectedOrder.original_content}
+                    </p>
+                  </div>
+                </div>
+
+                {/* Order Status & Dates */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <h4 className="text-sm font-medium text-gray-900 mb-3">Status</h4>
+                    <span className={`inline-flex px-3 py-1 text-sm font-semibold rounded-full ${getStatusColor(selectedOrder.status)}`}>
+                      {selectedOrder.status.charAt(0).toUpperCase() + selectedOrder.status.slice(1)}
+                    </span>
+                  </div>
+                  <div>
+                    <h4 className="text-sm font-medium text-gray-900 mb-3">Important Dates</h4>
+                    <div className="space-y-1 text-sm text-gray-600">
+                      <div>Created: {formatDate(selectedOrder.created_at)}</div>
+                      {selectedOrder.processed_at && (
+                        <div>Processed: {formatDate(selectedOrder.processed_at)}</div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Action Buttons */}
+                {isEditing ? (
+                  <div className="flex flex-col sm:flex-row justify-end space-y-2 sm:space-y-0 sm:space-x-3 pt-4 border-t border-gray-200">
+                    <button
+                      onClick={handleCancelEdit}
+                      disabled={isSaving}
+                      className="w-full sm:w-auto px-6 py-3 bg-gray-300 text-gray-700 rounded-lg hover:bg-gray-400 disabled:opacity-50 transition-colors text-base font-medium"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      onClick={handleSaveOrder}
+                      disabled={isSaving}
+                      className="w-full sm:w-auto flex items-center justify-center space-x-2 px-6 py-3 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-base font-medium"
+                    >
+                      {isSaving ? (
+                        <>
+                          <Loader2 className="w-5 h-5 animate-spin" />
+                          <span>Saving...</span>
+                        </>
+                      ) : (
+                        <>
+                          <Save className="w-5 h-5" />
+                          <span>Save Changes</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
+                ) : (
+                  <div className="flex justify-end pt-4 border-t border-gray-200">
+                    <button
+                      onClick={() => setSelectedOrder(null)}
+                      className="w-full sm:w-auto px-6 py-3 bg-gray-300 text-gray-700 rounded-lg hover:bg-gray-400 transition-colors text-base font-medium"
+                    >
+                      Close
+                    </button>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+export default OrdersSection;
                           <option value="">Select a customer...</option>
                           {editingOrder.analysis_data.customers.map((customer) => (
                             <option key={customer.id} value={customer.number}>
