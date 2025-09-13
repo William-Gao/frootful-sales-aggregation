@@ -129,9 +129,9 @@ const OrdersSection: React.FC = () => {
       const transformedOrders: Order[] = (textOrders || []).map((textOrder: any) => ({
         id: textOrder.id,
         order_number: textOrder.erp_order_number || `TXT-${textOrder.id.slice(0, 8)}`,
-        customer_name: textOrder.analysis_data?.customerInfo?.company || 'Unknown Customer',
-        customer_email: textOrder.analysis_data?.customerInfo?.email || '',
-        customer_phone: textOrder.analysis_data?.customerInfo?.phone_number,
+        customer_name: textOrder.analysis_data?.matchingCustomer?.displayName || 'Unknown Customer',
+        customer_email: textOrder.analysis_data?.matchingCustomer?.email || '',
+        customer_phone: textOrder.analysis_data?.matchingCustomer?.phone_number,
         // phone_number: textOrder.phone_number,
         message_content: textOrder.message_content,
         items: textOrder.analysis_data?.analyzedItems?.map((item: AnalyzedItem) => ({

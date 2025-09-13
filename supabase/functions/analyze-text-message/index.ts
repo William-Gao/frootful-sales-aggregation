@@ -166,7 +166,7 @@ Deno.serve(async (req) => {
 
     // Step 3: Analyze text message content with AI
     console.log('Analyzing text message with AI...');
-    const analysisResult = await analyzeTextWithAI(webhookData.Body, items, webhookData.From);
+    const analysisResult = await analyzeTextWithAI(items, customers, webhookData);
 
     // Step 4: Try to match customer by phone number or analysis
     // const matchingCustomer = findMatchingCustomer(customers, webhookData.From, analysisResult);
@@ -316,7 +316,10 @@ async function fetchItemsFromBC(userId: string): Promise<Item[]> {
 }
 
 // Analyze text message with AI
-async function analyzeTextWithAI(messageContent: string, items: Item[], phoneNumber: string): Promise<AnalysisResult> {
+async function analyzeTextWithAI(items: Item[], customers: Customer[], webhookData: any): Promise<AnalysisResult> {
+  const messageContent = webhookData.Body;
+  const phoneNumber = webhookData.From;
+
   if (items.length === 0) {
     console.warn('No items available for analysis');
     return { orderLines: [] };
@@ -361,11 +364,6 @@ Return the data in JSON format with the following structure:
     }
   }],
   "requestedDeliveryDate": "YYYY-MM-DD", // ISO date format, only if mentioned
-  "matchingCustomer": {
-    "displayName": "customer name if mentioned",
-    "number": "company number", 
-    "email": "email if mentioned"
-  }
 }
 
 Look for delivery date phrases like "need by", "deliver by", "required by", "delivery date", "ship by", "due", etc.
@@ -379,11 +377,44 @@ If no customer info is mentioned, omit those fields from customerInfo.`
       response_format: { type: "json_object" }
     });
 
-    const analysis = JSON.parse(completion.choices[0].message.content);
+    const itemsAnalysis = JSON.parse(completion.choices[0].message.content);
+
+    const customerCompletion = await openai.chat.completions.create({
+      model: 'gpt-4o',
+      messages: [
+        {
+          role: 'system',
+          content: `You are a helpful assistant that extracts purchase order information from text messages and matches them to a list of available items. Here is the list of customers ${JSON.stringify(customers)}`
+        },
+        {
+          role: 'user',
+          content: `Extract the corresponding customer based on the text message content.
+
+Text message content:
+${messageContent}
+
+Return the data in JSON format with the following structure:
+{
+  "matchingCustomer": {
+    id: string;
+    number: string;
+    displayName: string;
+    email: string;
+  }
+}`
+        }
+      ],
+      temperature: 0.7,
+      max_tokens: 1000,
+      response_format: { type: "json_object" }
+    });
+
+    const customerAnalysis = JSON.parse(customerCompletion.choices[0].message.content);
+
     return {
-      orderLines: analysis.orderLines || [],
-      requestedDeliveryDate: analysis.requestedDeliveryDate,
-      matchingCustomer: analysis.matchingCustomer
+      orderLines: itemsAnalysis.orderLines || [],
+      requestedDeliveryDate: itemsAnalysis.requestedDeliveryDate,
+      matchingCustomer: customerAnalysis.matchingCustomer
     };
   } catch (error) {
     console.error('Error analyzing text with AI:', error);
