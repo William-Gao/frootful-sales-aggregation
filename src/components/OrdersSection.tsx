@@ -653,32 +653,34 @@ const OrdersSection: React.FC = () => {
                     <div className="bg-gray-50 border border-gray-200 rounded-md p-3">
                       {selectedOrder.analysis_data?.matchingCustomer ? (
                         <div className="flex items-center">
-                      <select
-                        value={isEditing && editingOrder?.analysis_data?.matchingCustomer?.number || selectedOrder.analysis_data?.matchingCustomer?.number || ''}
-                        onChange={(e) => isEditing && handleCustomerChange(e.target.value)}
-                        disabled={!isEditing}
-                        className={`w-full px-3 py-3 text-base border border-gray-300 rounded-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 ${
-                          !isEditing ? 'bg-gray-100 cursor-not-allowed' : 'bg-white'
-                        }`}
-                      >
-                        <option value="">Select a customer...</option>
-                        {selectedOrder.analysis_data.customers.map((customer) => (
-                          <option key={customer.id} value={customer.number}>
-                            {customer.displayName} ({customer.number})
-                            {customer.email && ` - ${customer.email}`}
-                          </option>
-                        ))}
-                      </select>
-                     </div>
-                   ) : null}
+                          <select
+                            value={isEditing && editingOrder?.analysis_data?.matchingCustomer?.number || selectedOrder.analysis_data?.matchingCustomer?.number || ''}
+                            onChange={(e) => isEditing && handleCustomerChange(e.target.value)}
+                            disabled={!isEditing}
+                            className={`w-full px-3 py-3 text-base border border-gray-300 rounded-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 ${
+                              !isEditing ? 'bg-gray-100 cursor-not-allowed' : 'bg-white'
+                            }`}
+                          >
+                            <option value="">Select a customer...</option>
+                            {selectedOrder.analysis_data.customers.map((customer) => (
+                              <option key={customer.id} value={customer.number}>
+                                {customer.displayName} ({customer.number})
+                                {customer.email && ` - ${customer.email}`}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                      ) : null}
 
-                   {/* Phone Number */}
-                   {selectedOrder.customer_phone && (
-                     <div className="flex items-center text-sm text-gray-600">
-                       <Phone className="w-4 h-4 mr-2" />
-                       <span>Phone: {selectedOrder.customer_phone}</span>
-                     </div>
-                   )}
+                      {/* Phone Number */}
+                      {selectedOrder.customer_phone && (
+                        <div className="flex items-center text-sm text-gray-600">
+                          <Phone className="w-4 h-4 mr-2" />
+                          <span>Phone: {selectedOrder.customer_phone}</span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
                 </div>
 
                 {/* Delivery Date */}
