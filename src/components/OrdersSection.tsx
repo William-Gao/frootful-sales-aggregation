@@ -18,7 +18,9 @@ import {
   Edit,
   Save,
   X,
-  Loader2
+  Loader2,
+  MessageSquare,
+  Send
 } from 'lucide-react';
 import { supabaseClient } from '../supabaseClient';
 
@@ -71,7 +73,7 @@ interface Order {
   customer_address?: string;
   items: OrderItem[];
   total_amount?: number;
-  status: 'pending' | 'processing' | 'completed' | 'cancelled';
+  status: 'received' | 'processing' | 'analyzed' | 'exported' | 'failed' | 'pending' | 'completed' | 'cancelled';
   source: 'email' | 'text' | 'manual';
   original_content: string;
   requested_delivery_date?: string;
@@ -80,6 +82,8 @@ interface Order {
   erp_order_id?: string;
   erp_order_number?: string;
   analysis_data?: AnalysisData;
+  phone_number?: string;
+  message_content?: string;
 }
 
 const OrdersSection: React.FC = () => {
@@ -122,10 +126,12 @@ const OrdersSection: React.FC = () => {
       // Transform text orders to match Order interface
       const transformedOrders: Order[] = (textOrders || []).map((textOrder: any) => ({
         id: textOrder.id,
-        order_number: `TXT-${textOrder.id.slice(0, 8)}`,
+        order_number: textOrder.erp_order_number || `TXT-${textOrder.id.slice(0, 8)}`,
         customer_name: textOrder.analysis_data?.matchingCustomer?.displayName || 'Unknown Customer',
         customer_email: textOrder.analysis_data?.matchingCustomer?.email || '',
         customer_phone: textOrder.phone_number,
+        phone_number: textOrder.phone_number,
+        message_content: textOrder.message_content,
         items: textOrder.analysis_data?.analyzedItems?.map((item: AnalyzedItem) => ({
           name: item.matchedItem?.displayName || item.itemName,
           quantity: item.quantity,
@@ -134,8 +140,7 @@ const OrdersSection: React.FC = () => {
         })) || [],
         total_amount: textOrder.analysis_data?.analyzedItems?.reduce((sum: number, item: AnalyzedItem) => 
           sum + (item.quantity * (item.matchedItem?.unitPrice || 0)), 0),
-        status: textOrder.status === 'exported' ? 'completed' : 
-               textOrder.status === 'analyzed' ? 'pending' : 'processing',
+        status: textOrder.status,
         source: 'text',
         original_content: textOrder.message_content,
         requested_delivery_date: textOrder.analysis_data?.requestedDeliveryDate,
@@ -394,9 +399,13 @@ const OrdersSection: React.FC = () => {
 
   const getStatusColor = (status: string) => {
     switch (status) {
+      case 'exported': 
       case 'completed': return 'text-green-600 bg-green-100';
+      case 'analyzed': return 'text-blue-600 bg-blue-100';
       case 'processing': return 'text-blue-600 bg-blue-100';
+      case 'received':
       case 'pending': return 'text-yellow-600 bg-yellow-100';
+      case 'failed':
       case 'cancelled': return 'text-red-600 bg-red-100';
       default: return 'text-gray-600 bg-gray-100';
     }
@@ -405,7 +414,7 @@ const OrdersSection: React.FC = () => {
   const getSourceIcon = (source: string) => {
     switch (source) {
       case 'email': return <Mail className="w-4 h-4" />;
-      case 'text': return <Phone className="w-4 h-4" />;
+      case 'text': return <MessageSquare className="w-4 h-4" />;
       default: return <Package className="w-4 h-4" />;
     }
   };
@@ -444,7 +453,7 @@ const OrdersSection: React.FC = () => {
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
           <h2 className="text-2xl font-bold text-gray-900">Orders</h2>
-          <p className="text-gray-600">Manage and track all orders processed by Frootful</p>
+          <p className="text-gray-600">Manage and track all orders from email and text messages processed by Frootful</p>
         </div>
         <div className="flex items-center space-x-3">
           <button className="flex items-center space-x-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors">
@@ -474,9 +483,9 @@ const OrdersSection: React.FC = () => {
               <CheckCircle className="w-6 h-6 text-green-600" />
             </div>
             <div className="ml-4">
-              <p className="text-sm font-medium text-gray-600">Completed</p>
+              <p className="text-sm font-medium text-gray-600">Exported</p>
               <p className="text-2xl font-bold text-gray-900">
-                {orders.filter(o => o.status === 'completed').length}
+                {orders.filter(o => o.status === 'exported' || o.status === 'completed').length}
               </p>
             </div>
           </div>
@@ -488,9 +497,9 @@ const OrdersSection: React.FC = () => {
               <Clock className="w-6 h-6 text-yellow-600" />
             </div>
             <div className="ml-4">
-              <p className="text-sm font-medium text-gray-600">Pending</p>
+              <p className="text-sm font-medium text-gray-600">Processing</p>
               <p className="text-2xl font-bold text-gray-900">
-                {orders.filter(o => o.status === 'pending').length}
+                {orders.filter(o => ['received', 'processing', 'analyzed', 'pending'].includes(o.status)).length}
               </p>
             </div>
           </div>
@@ -534,9 +543,13 @@ const OrdersSection: React.FC = () => {
               className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
             >
               <option value="all">All Status</option>
+              <option value="received">Received</option>
               <option value="pending">Pending</option>
               <option value="processing">Processing</option>
+              <option value="analyzed">Analyzed</option>
+              <option value="exported">Exported</option>
               <option value="completed">Completed</option>
+              <option value="failed">Failed</option>
               <option value="cancelled">Cancelled</option>
             </select>
             
@@ -611,9 +624,15 @@ const OrdersSection: React.FC = () => {
                     <div className="text-sm font-medium text-gray-900">
                       {order.customer_name}
                     </div>
-                    <div className="text-sm text-gray-500">
-                      {order.customer_email}
-                    </div>
+                    {order.customer_email ? (
+                      <div className="text-sm text-gray-500">
+                        {order.customer_email}
+                      </div>
+                    ) : order.phone_number ? (
+                      <div className="text-sm text-gray-500">
+                        {formatPhoneNumber(order.phone_number)}
+                      </div>
+                    ) : null}
                   </td>
                   
                   <td className="px-6 py-4 whitespace-nowrap">
@@ -666,10 +685,14 @@ const OrdersSection: React.FC = () => {
               
               <div className="space-y-1">
                 <div className="text-sm font-medium text-gray-900">{order.customer_name}</div>
-                <div className="text-sm text-gray-500">{order.customer_email}</div>
+                {order.customer_email ? (
+                  <div className="text-sm text-gray-500">{order.customer_email}</div>
+                ) : order.phone_number ? (
+                  <div className="text-sm text-gray-500">{formatPhoneNumber(order.phone_number)}</div>
+                ) : null}
                 <div className="flex justify-between items-center">
-                  <span className="text-sm text-gray-500">
-                    {order.items.length} item{order.items.length !== 1 ? 's' : ''} • {order.items.reduce((sum, item) => sum + item.quantity, 0)} qty
+                {/* Phone Number - Show for text orders */}
+                {selectedOrder.phone_number && (
                   </span>
                   <span className="text-sm font-medium text-gray-900">
                     {order.total_amount ? formatCurrency(order.total_amount) : 'N/A'}
@@ -890,7 +913,9 @@ const OrdersSection: React.FC = () => {
 
                 {/* Original Content */}
                 <div>
-                  <h4 className="text-sm font-medium text-gray-900 mb-3">Original Message</h4>
+                  <h4 className="text-sm font-medium text-gray-900 mb-3">
+                    {selectedOrder.source === 'text' ? 'Original Text Message' : 'Original Email Content'}
+                  </h4>
                   <div className="bg-gray-50 rounded-lg p-4">
                     <p className="text-sm text-gray-700 whitespace-pre-wrap">
                       {selectedOrder.original_content}
@@ -948,7 +973,7 @@ const OrdersSection: React.FC = () => {
                 ) : (
                   <div className="flex flex-col sm:flex-row justify-end space-y-2 sm:space-y-0 sm:space-x-3 pt-4 border-t border-gray-200">
                     {/* Create ERP Order Button - only show if order hasn't been exported yet */}
-                    {selectedOrder.status !== 'completed' && selectedOrder.analysis_data?.matchingCustomer && selectedOrder.analysis_data?.analyzedItems?.length > 0 && (
+                    {!['exported', 'completed'].includes(selectedOrder.status) && selectedOrder.analysis_data?.matchingCustomer && selectedOrder.analysis_data?.analyzedItems?.length > 0 && (
                       <button
                         onClick={() => createERPOrder(selectedOrder)}
                         disabled={isCreatingOrder}
@@ -961,7 +986,7 @@ const OrdersSection: React.FC = () => {
                           </>
                         ) : (
                           <>
-                            <Package className="w-5 h-5" />
+                            <Send className="w-5 h-5" />
                             <span>Create ERP Order</span>
                           </>
                         )}
@@ -972,7 +997,7 @@ const OrdersSection: React.FC = () => {
                       className="w-full sm:w-auto px-6 py-3 bg-gray-300 text-gray-700 rounded-lg hover:bg-gray-400 transition-colors text-base font-medium"
                     >
                       Close
-                    </button>
+                    <span>Phone: {formatPhoneNumber(selectedOrder.phone_number)}</span>
                   </div>
                 )}
               </div>
