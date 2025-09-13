@@ -436,6 +436,16 @@ const OrdersSection: React.FC = () => {
     }).format(amount);
   };
 
+  const formatPhoneNumber = (phone: string) => {
+    // Remove +1 country code if present and format as (XXX) XXX-XXXX
+    const cleaned = phone.replace(/^\+1/, '');
+    const match = cleaned.match(/^(\d{3})(\d{3})(\d{4})$/);
+    if (match) {
+      return `(${match[1]}) ${match[2]}-${match[3]}`;
+    }
+    return phone;
+  };
+
   if (loading) {
     return (
       <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-8">
