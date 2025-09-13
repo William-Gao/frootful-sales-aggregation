@@ -693,7 +693,6 @@ const OrdersSection: React.FC = () => {
                 <div className="flex justify-between items-center">
                 {/* Phone Number - Show for text orders */}
                 {selectedOrder.phone_number && (
-                  </span>
                   <span className="text-sm font-medium text-gray-900">
                     {order.total_amount ? formatCurrency(order.total_amount) : 'N/A'}
                   </span>
