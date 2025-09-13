@@ -14,7 +14,11 @@ import {
   Filter,
   Download,
   Eye,
-  ExternalLink
+  ExternalLink,
+  Edit,
+  Save,
+  X,
+  Loader2
 } from 'lucide-react';
 import { supabaseClient } from '../supabaseClient';
 
@@ -23,6 +27,39 @@ interface OrderItem {
   quantity: number;
   price?: number;
   description?: string;
+}
+
+interface Customer {
+  id: string;
+  number: string;
+  displayName: string;
+  email: string;
+}
+
+interface Item {
+  id: string;
+  number: string;
+  displayName: string;
+  unitPrice: number;
+}
+
+interface AnalyzedItem {
+  itemName: string;
+  quantity: number;
+  matchedItem?: {
+    id: string;
+    number: string;
+    displayName: string;
+    unitPrice: number;
+  };
+}
+
+interface AnalysisData {
+  customers: Customer[];
+  items: Item[];
+  matchingCustomer?: Customer;
+  analyzedItems: AnalyzedItem[];
+  requestedDeliveryDate?: string;
 }
 
 interface Order {
@@ -42,6 +79,7 @@ interface Order {
   processed_at?: string;
   erp_order_id?: string;
   erp_order_number?: string;
+  analysis_data?: AnalysisData;
 }
 
 const OrdersSection: React.FC = () => {
@@ -51,6 +89,9 @@ const OrdersSection: React.FC = () => {
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [sourceFilter, setSourceFilter] = useState<string>('all');
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
+  const [isEditing, setIsEditing] = useState(false);
+  const [editingOrder, setEditingOrder] = useState<Order | null>(null);
+  const [isSaving, setIsSaving] = useState(false);
 
   useEffect(() => {
     loadOrders();
@@ -60,71 +101,202 @@ const OrdersSection: React.FC = () => {
     try {
       setLoading(true);
       
-      // Mock data for proof of concept
-      const mockOrders: Order[] = [
-        {
-          id: '1',
-          order_number: 'FRT-2025-001',
-          customer_name: 'John Smith',
-          customer_email: 'john.smith@example.com',
-          customer_phone: '+1 (555) 123-4567',
-          customer_address: '123 Main St, Anytown, ST 12345',
-          items: [
-            { name: 'Widget A', quantity: 10, price: 25.99, description: 'Premium quality widget' },
-            { name: 'Gadget B', quantity: 5, price: 45.50, description: 'Multi-purpose gadget' }
-          ],
-          total_amount: 487.40,
-          status: 'completed',
-          source: 'email',
-          original_content: 'Hi, I need 10 Widget A and 5 Gadget B for next week. Please confirm availability.',
-          requested_delivery_date: '2025-01-20',
-          created_at: '2025-01-15T10:30:00Z',
-          processed_at: '2025-01-15T11:15:00Z',
-          erp_order_id: 'bc-12345',
-          erp_order_number: 'SO-2025-0156'
-        },
-        {
-          id: '2',
-          order_number: 'FRT-2025-002',
-          customer_name: 'Sarah Johnson',
-          customer_email: 'sarah.j@company.com',
-          items: [
-            { name: 'Component X', quantity: 25, price: 12.75 },
-            { name: 'Assembly Kit', quantity: 3, price: 89.99 }
-          ],
-          total_amount: 588.72,
-          status: 'processing',
-          source: 'text',
-          original_content: 'Need urgent order: 25x Component X, 3x Assembly Kit. Rush delivery needed.',
-          requested_delivery_date: '2025-01-18',
-          created_at: '2025-01-16T14:22:00Z'
-        },
-        {
-          id: '3',
-          order_number: 'FRT-2025-003',
-          customer_name: 'Mike Wilson',
-          customer_email: 'mike.wilson@business.net',
-          customer_phone: '+1 (555) 987-6543',
-          items: [
-            { name: 'Tool Set Pro', quantity: 2, price: 156.00 },
-            { name: 'Replacement Parts', quantity: 8, price: 23.50 }
-          ],
-          total_amount: 500.00,
-          status: 'pending',
-          source: 'email',
-          original_content: 'Please quote and process order for 2 Tool Set Pro and 8 Replacement Parts.',
-          created_at: '2025-01-16T16:45:00Z'
-        }
-      ];
+      const { data: { session } } = await supabaseClient.auth.getSession();
+      if (!session) {
+        console.error('No session found');
+        return;
+      }
 
-      // Simulate API delay
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      setOrders(mockOrders);
+      // Load text orders from database
+      const { data: textOrders, error } = await supabaseClient
+        .from('text_orders')
+        .select('*')
+        .order('created_at', { ascending: false });
+
+      if (error) {
+        console.error('Error loading text orders:', error);
+        return;
+      }
+
+      // Transform text orders to match Order interface
+      const transformedOrders: Order[] = (textOrders || []).map((textOrder: any) => ({
+        id: textOrder.id,
+        order_number: `TXT-${textOrder.id.slice(0, 8)}`,
+        customer_name: textOrder.analysis_data?.matchingCustomer?.displayName || 'Unknown Customer',
+        customer_email: textOrder.analysis_data?.matchingCustomer?.email || '',
+        customer_phone: textOrder.phone_number,
+        items: textOrder.analysis_data?.analyzedItems?.map((item: AnalyzedItem) => ({
+          name: item.matchedItem?.displayName || item.itemName,
+          quantity: item.quantity,
+          price: item.matchedItem?.unitPrice,
+          description: item.matchedItem?.number
+        })) || [],
+        total_amount: textOrder.analysis_data?.analyzedItems?.reduce((sum: number, item: AnalyzedItem) => 
+          sum + (item.quantity * (item.matchedItem?.unitPrice || 0)), 0),
+        status: textOrder.status === 'exported' ? 'completed' : 
+               textOrder.status === 'analyzed' ? 'pending' : 'processing',
+        source: 'text',
+        original_content: textOrder.message_content,
+        requested_delivery_date: textOrder.analysis_data?.requestedDeliveryDate,
+        created_at: textOrder.created_at,
+        processed_at: textOrder.updated_at,
+        erp_order_id: textOrder.erp_order_id,
+        erp_order_number: textOrder.erp_order_number,
+        analysis_data: textOrder.analysis_data
+      }));
+
+      setOrders(transformedOrders);
     } catch (error) {
       console.error('Error loading orders:', error);
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleEditOrder = (order: Order) => {
+    setEditingOrder({ ...order });
+    setIsEditing(true);
+  };
+
+  const handleSaveOrder = async () => {
+    if (!editingOrder || !editingOrder.analysis_data) return;
+
+    try {
+      setIsSaving(true);
+
+      const { data: { session } } = await supabaseClient.auth.getSession();
+      if (!session) {
+        throw new Error('No session found');
+      }
+
+      // Update the analysis data in the database
+      const { error } = await supabaseClient
+        .from('text_orders')
+        .update({
+          analysis_data: editingOrder.analysis_data,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', editingOrder.id);
+
+      if (error) {
+        throw new Error(`Failed to update order: ${error.message}`);
+      }
+
+      // Update local state
+      setOrders(prev => prev.map(order => 
+        order.id === editingOrder.id ? editingOrder : order
+      ));
+      
+      setSelectedOrder(editingOrder);
+      setIsEditing(false);
+      setEditingOrder(null);
+
+    } catch (error) {
+      console.error('Error saving order:', error);
+      alert(`Failed to save order: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleCancelEdit = () => {
+    setIsEditing(false);
+    setEditingOrder(null);
+  };
+
+  const handleCustomerChange = (customerNumber: string) => {
+    if (!editingOrder?.analysis_data) return;
+
+    const selectedCustomer = editingOrder.analysis_data.customers.find(c => c.number === customerNumber);
+    setEditingOrder({
+      ...editingOrder,
+      analysis_data: {
+        ...editingOrder.analysis_data,
+        matchingCustomer: selectedCustomer
+      },
+      customer_name: selectedCustomer?.displayName || 'Unknown Customer',
+      customer_email: selectedCustomer?.email || ''
+    });
+  };
+
+  const handleDeliveryDateChange = (date: string) => {
+    if (!editingOrder?.analysis_data) return;
+
+    setEditingOrder({
+      ...editingOrder,
+      analysis_data: {
+        ...editingOrder.analysis_data,
+        requestedDeliveryDate: date
+      },
+      requested_delivery_date: date
+    });
+  };
+
+  const handleItemChange = (index: number, itemNumber: string) => {
+    if (!editingOrder?.analysis_data) return;
+
+    const selectedItem = editingOrder.analysis_data.items.find(item => item.number === itemNumber);
+    const updatedAnalyzedItems = [...editingOrder.analysis_data.analyzedItems];
+    
+    if (updatedAnalyzedItems[index]) {
+      updatedAnalyzedItems[index] = {
+        ...updatedAnalyzedItems[index],
+        matchedItem: selectedItem
+      };
+    }
+
+    const updatedItems = updatedAnalyzedItems.map(item => ({
+      name: item.matchedItem?.displayName || item.itemName,
+      quantity: item.quantity,
+      price: item.matchedItem?.unitPrice,
+      description: item.matchedItem?.number
+    }));
+
+    const totalAmount = updatedAnalyzedItems.reduce((sum, item) => 
+      sum + (item.quantity * (item.matchedItem?.unitPrice || 0)), 0);
+
+    setEditingOrder({
+      ...editingOrder,
+      analysis_data: {
+        ...editingOrder.analysis_data,
+        analyzedItems: updatedAnalyzedItems
+      },
+      items: updatedItems,
+      total_amount: totalAmount
+    });
+  };
+
+  const handleQuantityChange = (index: number, quantity: number) => {
+    if (!editingOrder?.analysis_data) return;
+
+    const updatedAnalyzedItems = [...editingOrder.analysis_data.analyzedItems];
+    
+    if (updatedAnalyzedItems[index]) {
+      updatedAnalyzedItems[index] = {
+        ...updatedAnalyzedItems[index],
+        quantity: quantity
+      };
+    }
+
+    const updatedItems = updatedAnalyzedItems.map(item => ({
+      name: item.matchedItem?.displayName || item.itemName,
+      quantity: item.quantity,
+      price: item.matchedItem?.unitPrice,
+      description: item.matchedItem?.number
+    }));
+
+    const totalAmount = updatedAnalyzedItems.reduce((sum, item) => 
+      sum + (item.quantity * (item.matchedItem?.unitPrice || 0)), 0);
+
+    setEditingOrder({
+      ...editingOrder,
+      analysis_data: {
+        ...editingOrder.analysis_data,
+        analyzedItems: updatedAnalyzedItems
+      },
+      items: updatedItems,
+      total_amount: totalAmount
+    });
   };
 
   const filteredOrders = orders.filter(order => {
@@ -421,21 +593,29 @@ const OrdersSection: React.FC = () => {
       {/* Order Detail Modal */}
       {selectedOrder && (
         <div className="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50">
-          <div className="relative top-20 mx-auto p-5 border w-11/12 md:w-3/4 lg:w-1/2 shadow-lg rounded-md bg-white">
+          <div className="relative top-20 mx-auto p-5 border w-11/12 md:w-3/4 lg:w-2/3 shadow-lg rounded-md bg-white max-h-[80vh] overflow-y-auto">
             <div className="mt-3">
               <div className="flex items-center justify-between mb-4">
                 <h3 className="text-lg font-medium text-gray-900">
                   Order Details - {selectedOrder.order_number}
                 </h3>
-                <button
-                  onClick={() => setSelectedOrder(null)}
-                  className="text-gray-400 hover:text-gray-600"
-                >
-                  <span className="sr-only">Close</span>
-                  <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                  </svg>
-                </button>
+                <div className="flex items-center space-x-2">
+                  {!isEditing && selectedOrder.analysis_data && (
+                    <button
+                      onClick={() => handleEditOrder(selectedOrder)}
+                      className="flex items-center space-x-1 px-3 py-1 text-sm bg-indigo-600 text-white rounded hover:bg-indigo-700"
+                    >
+                      <Edit className="w-4 h-4" />
+                      <span>Edit</span>
+                    </button>
+                  )}
+                  <button
+                    onClick={() => setSelectedOrder(null)}
+                    className="text-gray-400 hover:text-gray-600"
+                  >
+                    <X className="h-6 w-6" />
+                  </button>
+                </div>
               </div>
               
               <div className="space-y-6">
@@ -443,56 +623,144 @@ const OrdersSection: React.FC = () => {
                 <div>
                   <h4 className="text-sm font-medium text-gray-900 mb-3">Customer Information</h4>
                   <div className="bg-gray-50 rounded-lg p-4 space-y-2">
-                    <div className="flex items-center">
-                      <User className="w-4 h-4 text-gray-400 mr-2" />
-                      <span className="text-sm">{selectedOrder.customer_name}</span>
-                    </div>
-                    <div className="flex items-center">
-                      <Mail className="w-4 h-4 text-gray-400 mr-2" />
-                      <span className="text-sm">{selectedOrder.customer_email}</span>
-                    </div>
-                    {selectedOrder.customer_phone && (
-                      <div className="flex items-center">
-                        <Phone className="w-4 h-4 text-gray-400 mr-2" />
-                        <span className="text-sm">{selectedOrder.customer_phone}</span>
+                    {isEditing && editingOrder?.analysis_data ? (
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                          Select Customer:
+                        </label>
+                        <select
+                          value={editingOrder.analysis_data.matchingCustomer?.number || ''}
+                          onChange={(e) => handleCustomerChange(e.target.value)}
+                          className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
+                        >
+                          <option value="">Select a customer...</option>
+                          {editingOrder.analysis_data.customers.map((customer) => (
+                            <option key={customer.id} value={customer.number}>
+                              {customer.displayName} ({customer.number})
+                            </option>
+                          ))}
+                        </select>
                       </div>
-                    )}
-                    {selectedOrder.customer_address && (
-                      <div className="flex items-center">
-                        <MapPin className="w-4 h-4 text-gray-400 mr-2" />
-                        <span className="text-sm">{selectedOrder.customer_address}</span>
-                      </div>
+                    ) : (
+                      <>
+                        <div className="flex items-center">
+                          <User className="w-4 h-4 text-gray-400 mr-2" />
+                          <span className="text-sm">{selectedOrder.customer_name}</span>
+                        </div>
+                        <div className="flex items-center">
+                          <Mail className="w-4 h-4 text-gray-400 mr-2" />
+                          <span className="text-sm">{selectedOrder.customer_email}</span>
+                        </div>
+                        {selectedOrder.customer_phone && (
+                          <div className="flex items-center">
+                            <Phone className="w-4 h-4 text-gray-400 mr-2" />
+                            <span className="text-sm">{selectedOrder.customer_phone}</span>
+                          </div>
+                        )}
+                      </>
                     )}
                   </div>
                 </div>
+
+                {/* Delivery Date */}
+                {(selectedOrder.requested_delivery_date || isEditing) && (
+                  <div>
+                    <h4 className="text-sm font-medium text-gray-900 mb-3">Delivery Date</h4>
+                    <div className="bg-gray-50 rounded-lg p-4">
+                      {isEditing && editingOrder ? (
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-2">
+                            Requested Delivery Date:
+                          </label>
+                          <input
+                            type="date"
+                            value={editingOrder.analysis_data?.requestedDeliveryDate || ''}
+                            onChange={(e) => handleDeliveryDateChange(e.target.value)}
+                            className="px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
+                          />
+                        </div>
+                      ) : (
+                        <div className="flex items-center">
+                          <Calendar className="w-4 h-4 text-gray-400 mr-2" />
+                          <span className="text-sm">
+                            {selectedOrder.requested_delivery_date ? 
+                              new Date(selectedOrder.requested_delivery_date).toLocaleDateString() : 
+                              'No delivery date specified'}
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
 
                 {/* Order Items */}
                 <div>
                   <h4 className="text-sm font-medium text-gray-900 mb-3">Order Items</h4>
                   <div className="bg-gray-50 rounded-lg p-4">
                     <div className="space-y-3">
-                      {selectedOrder.items.map((item, index) => (
-                        <div key={index} className="flex justify-between items-center">
-                          <div>
-                            <div className="text-sm font-medium text-gray-900">{item.name}</div>
-                            {item.description && (
-                              <div className="text-xs text-gray-500">{item.description}</div>
-                            )}
-                          </div>
-                          <div className="text-right">
-                            <div className="text-sm font-medium text-gray-900">
-                              {item.quantity} × {item.price ? formatCurrency(item.price) : 'N/A'}
-                            </div>
-                            {item.price && (
-                              <div className="text-xs text-gray-500">
-                                = {formatCurrency(item.quantity * item.price)}
+                      {isEditing && editingOrder?.analysis_data ? (
+                        editingOrder.analysis_data.analyzedItems.map((item, index) => (
+                          <div key={index} className="border border-gray-200 rounded-lg p-3 bg-white">
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                              <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-2">
+                                  Item:
+                                </label>
+                                <select
+                                  value={item.matchedItem?.number || ''}
+                                  onChange={(e) => handleItemChange(index, e.target.value)}
+                                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
+                                >
+                                  <option value="">-- Select Item --</option>
+                                  {editingOrder.analysis_data.items.map((availableItem) => (
+                                    <option key={availableItem.id} value={availableItem.number}>
+                                      {availableItem.displayName} (${availableItem.unitPrice})
+                                    </option>
+                                  ))}
+                                </select>
                               </div>
-                            )}
+                              <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-2">
+                                  Quantity:
+                                </label>
+                                <input
+                                  type="number"
+                                  min="1"
+                                  value={item.quantity}
+                                  onChange={(e) => handleQuantityChange(index, parseInt(e.target.value) || 0)}
+                                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
+                                />
+                              </div>
+                            </div>
+                            <div className="mt-2 text-sm text-gray-600">
+                              Original: {item.itemName}
+                            </div>
                           </div>
-                        </div>
-                      ))}
+                        ))
+                      ) : (
+                        selectedOrder.items.map((item, index) => (
+                          <div key={index} className="flex justify-between items-center">
+                            <div>
+                              <div className="text-sm font-medium text-gray-900">{item.name}</div>
+                              {item.description && (
+                                <div className="text-xs text-gray-500">{item.description}</div>
+                              )}
+                            </div>
+                            <div className="text-right">
+                              <div className="text-sm font-medium text-gray-900">
+                                {item.quantity} × {item.price ? formatCurrency(item.price) : 'N/A'}
+                              </div>
+                              {item.price && (
+                                <div className="text-xs text-gray-500">
+                                  = {formatCurrency(item.quantity * item.price)}
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        ))
+                      )}
                     </div>
-                    {selectedOrder.total_amount && (
+                    {selectedOrder.total_amount && !isEditing && (
                       <div className="border-t border-gray-200 mt-3 pt-3">
                         <div className="flex justify-between items-center">
                           <span className="text-sm font-medium text-gray-900">Total</span>
@@ -530,12 +798,39 @@ const OrdersSection: React.FC = () => {
                       {selectedOrder.processed_at && (
                         <div>Processed: {formatDate(selectedOrder.processed_at)}</div>
                       )}
-                      {selectedOrder.requested_delivery_date && (
-                        <div>Delivery: {new Date(selectedOrder.requested_delivery_date).toLocaleDateString()}</div>
-                      )}
                     </div>
                   </div>
                 </div>
+
+                {/* Action Buttons */}
+                {isEditing && (
+                  <div className="flex justify-end space-x-3 pt-4 border-t border-gray-200">
+                    <button
+                      onClick={handleCancelEdit}
+                      disabled={isSaving}
+                      className="px-4 py-2 bg-gray-300 text-gray-700 rounded-lg hover:bg-gray-400 disabled:opacity-50 transition-colors"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      onClick={handleSaveOrder}
+                      disabled={isSaving}
+                      className="flex items-center space-x-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                    >
+                      {isSaving ? (
+                        <>
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                          <span>Saving...</span>
+                        </>
+                      ) : (
+                        <>
+                          <Save className="w-4 h-4" />
+                          <span>Save Changes</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
+                )}
               </div>
             </div>
           </div>
