@@ -653,59 +653,6 @@ const OrdersSection: React.FC = () => {
                     <div className="bg-gray-50 border border-gray-200 rounded-md p-3">
                       {selectedOrder.analysis_data?.matchingCustomer ? (
                         <div className="flex items-center">
-                    {isEditing && editingOrder?.analysis_data ? (
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-2">
-                          Customer:
-                        </label>
-                        <select
-                          value={editingOrder.analysis_data.matchingCustomer?.number || ''}
-                          onChange={(e) => handleCustomerChange(e.target.value)}
-                          className="w-full px-3 py-3 text-base border border-gray-300 rounded-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
-                        >
-                          <option value="">Select a customer...</option>
-                          {editingOrder.analysis_data.customers.map((customer) => (
-                <div className="bg-white border border-gray-200 rounded-lg p-4">
-                  <h4 className="text-lg font-semibold text-gray-900 mb-4">Customer Information</h4>
-                  
-                  {/* Current Matched Customer Display */}
-                  <div className="mb-4">
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Current Matched Customer:
-                    </label>
-                    <div className="bg-gray-50 border border-gray-200 rounded-md p-3">
-                      {selectedOrder.analysis_data?.matchingCustomer ? (
-                        <div className="flex items-center">
-                          <CheckCircle className="w-5 h-5 text-green-600 mr-3" />
-                          <div>
-                            <div className="text-sm font-medium text-gray-900">
-                              {selectedOrder.analysis_data.matchingCustomer.displayName}
-                            </div>
-                            <div className="text-xs text-gray-500">
-                              Customer #: {selectedOrder.analysis_data.matchingCustomer.number}
-                            </div>
-                            {selectedOrder.analysis_data.matchingCustomer.email && (
-                              <div className="text-xs text-gray-500">
-                                Email: {selectedOrder.analysis_data.matchingCustomer.email}
-                              </div>
-                            )}
-                          </div>
-                        </div>
-                      ) : (
-                        <div className="flex items-center">
-                          <AlertCircle className="w-5 h-5 text-yellow-600 mr-3" />
-                          <span className="text-sm text-yellow-800">No customer matched automatically</span>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* Customer Selection Dropdown */}
-                  {selectedOrder.analysis_data?.customers && selectedOrder.analysis_data.customers.length > 0 && (
-                    <div className="mb-4">
-                      <label className="block text-sm font-medium text-gray-700 mb-2">
-                        {isEditing ? 'Change Customer:' : 'Available Customers:'}
-                      </label>
                       <select
                         value={isEditing && editingOrder?.analysis_data?.matchingCustomer?.number || selectedOrder.analysis_data?.matchingCustomer?.number || ''}
                         onChange={(e) => isEditing && handleCustomerChange(e.target.value)}
@@ -722,17 +669,16 @@ const OrdersSection: React.FC = () => {
                           </option>
                         ))}
                       </select>
-                    </div>
-                  )}
+                     </div>
+                   )}
 
-                  {/* Phone Number */}
-                  {selectedOrder.customer_phone && (
-                    <div className="flex items-center text-sm text-gray-600">
-                      <Phone className="w-4 h-4 mr-2" />
-                      <span>Phone: {selectedOrder.customer_phone}</span>
-                    </div>
-                  )}
-                  </div>
+                   {/* Phone Number */}
+                   {selectedOrder.customer_phone && (
+                     <div className="flex items-center text-sm text-gray-600">
+                       <Phone className="w-4 h-4 mr-2" />
+                       <span>Phone: {selectedOrder.customer_phone}</span>
+                     </div>
+                   )}
                 </div>
 
                 {/* Delivery Date */}
