@@ -189,6 +189,40 @@ Deno.serve(async (req) => {
     if (analysisResult.requestedDeliveryDate) {
       console.log('Requested delivery date:', analysisResult.requestedDeliveryDate);
     }
+
+    // Step 7: Store email order in database
+    console.log('Step 7: Storing email order in database...');
+    const { data: emailOrder, error: emailOrderError } = await supabase
+      .from('email_orders')
+      .insert({
+        user_id: userId,
+        email_id: emailId,
+        thread_id: processedEmailData.threadId,
+        subject: processedEmailData.subject,
+        from_email: processedEmailData.from,
+        to_email: processedEmailData.to,
+        email_content: processedEmailData.body,
+        status: 'analyzed',
+        analysis_data: {
+          customers: customers,
+          items: items,
+          matchingCustomer: matchingCustomer,
+          analyzedItems: analysisResult.orderLines,
+          requestedDeliveryDate: analysisResult.requestedDeliveryDate,
+          originalEmail: processedEmailData,
+          aiAnalysisLogId: aiLogId
+        },
+        ai_analysis_log_id: aiLogId
+      })
+      .select()
+      .single();
+
+    if (emailOrderError) {
+      console.warn('Failed to store email order:', emailOrderError);
+      // Continue anyway - analysis was successful
+    } else {
+      console.log('Email order stored with ID:', emailOrder.id);
+    }
     
     return new Response(JSON.stringify({
       success: true,

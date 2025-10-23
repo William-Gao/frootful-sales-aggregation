@@ -120,19 +120,28 @@ const OrdersSection: React.FC = () => {
 
       if (error) {
         console.error('Error loading text orders:', error);
-        return;
+        // Continue to load email orders even if text orders fail
+      }
+
+      // Load email orders from database
+      const { data: emailOrders, error: emailError } = await supabaseClient
+        .from('email_orders')
+        .select('*')
+        .order('created_at', { ascending: false });
+
+      if (emailError) {
+        console.error('Error loading email orders:', emailError);
+        // Continue anyway
       }
 
       // Transform text orders to match Order interface
-      console.log('This is textOrder: ');
-      console.log(textOrders);
       const transformedOrders: Order[] = (textOrders || []).map((textOrder: any) => ({
         id: textOrder.id,
         order_number: textOrder.erp_order_number || `TXT-${textOrder.id.slice(0, 8)}`,
         customer_name: textOrder.analysis_data?.matchingCustomer?.displayName || 'Unknown Customer',
         customer_email: textOrder.analysis_data?.matchingCustomer?.email || '',
         customer_phone: textOrder.analysis_data?.matchingCustomer?.phone_number,
-        // phone_number: textOrder.phone_number,
+        phone_number: textOrder.phone_number,
         message_content: textOrder.message_content,
         items: textOrder.analysis_data?.analyzedItems?.map((item: AnalyzedItem) => ({
           name: item.matchedItem?.displayName || item.itemName,
@@ -153,7 +162,38 @@ const OrdersSection: React.FC = () => {
         analysis_data: textOrder.analysis_data
       }));
 
-      setOrders(transformedOrders);
+      // Transform email orders to match Order interface
+      const transformedEmailOrders: Order[] = (emailOrders || []).map((emailOrder: any) => ({
+        id: emailOrder.id,
+        order_number: emailOrder.erp_order_number || `EMAIL-${emailOrder.id.slice(0, 8)}`,
+        customer_name: emailOrder.analysis_data?.matchingCustomer?.displayName || 'Unknown Customer',
+        customer_email: emailOrder.analysis_data?.matchingCustomer?.email || emailOrder.from_email,
+        customer_phone: emailOrder.analysis_data?.matchingCustomer?.phone_number,
+        items: emailOrder.analysis_data?.analyzedItems?.map((item: AnalyzedItem) => ({
+          name: item.matchedItem?.displayName || item.itemName,
+          quantity: item.quantity,
+          price: item.matchedItem?.unitPrice,
+          description: item.matchedItem?.number
+        })) || [],
+        total_amount: emailOrder.analysis_data?.analyzedItems?.reduce((sum: number, item: AnalyzedItem) => 
+          sum + (item.quantity * (item.matchedItem?.unitPrice || 0)), 0),
+        status: emailOrder.status,
+        source: 'email',
+        original_content: emailOrder.email_content,
+        requested_delivery_date: emailOrder.analysis_data?.requestedDeliveryDate,
+        created_at: emailOrder.created_at,
+        processed_at: emailOrder.updated_at,
+        erp_order_id: emailOrder.erp_order_id,
+        erp_order_number: emailOrder.erp_order_number,
+        analysis_data: emailOrder.analysis_data
+      }));
+
+      // Combine and sort all orders by creation date
+      const allOrders = [...transformedOrders, ...transformedEmailOrders].sort((a, b) => 
+        new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+      );
+
+      setOrders(allOrders);
     } catch (error) {
       console.error('Error loading orders:', error);
     } finally {
@@ -178,8 +218,9 @@ const OrdersSection: React.FC = () => {
       }
 
       // Update the analysis data in the database
+      const tableName = editingOrder.source === 'email' ? 'email_orders' : 'text_orders';
       const { error } = await supabaseClient
-        .from('text_orders')
+        .from(tableName)
         .update({
           analysis_data: editingOrder.analysis_data,
           updated_at: new Date().toISOString()
@@ -349,7 +390,8 @@ const OrdersSection: React.FC = () => {
           'Content-Type': 'application/json'
         },
         body: JSON.stringify({
-          textOrderId: order.id,
+          orderId: order.id,
+          orderType: order.source, // 'email' or 'text'
           orderData: orderData
         })
       });
