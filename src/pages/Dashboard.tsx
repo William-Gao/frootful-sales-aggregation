@@ -27,6 +27,13 @@ interface Company {
   businessProfileId: string;
 }
 
+interface OrderCounts {
+  totalOrders: number;
+  emailOrders: number;
+  textOrders: number;
+  totalCost: number;
+}
+
 const Dashboard: React.FC = () => {
   const [user, setUser] = useState<User | null>(null);
   const [erpConnections, setErpConnections] = useState<ERPConnection[]>([
@@ -56,6 +63,12 @@ const Dashboard: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'overview' | 'orders'>('overview');
   const [installPrompt, setInstallPrompt] = useState<any>(null);
   const [isInstallable, setIsInstallable] = useState(false);
+  const [orderCounts, setOrderCounts] = useState<OrderCounts>({
+    totalOrders: 0,
+    emailOrders: 0,
+    textOrders: 0,
+    totalCost: 0
+  });
 
   useEffect(() => {
     checkAuthState();
@@ -91,6 +104,67 @@ const Dashboard: React.FC = () => {
       window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
     };
   }, []);
+
+  // Load order counts
+  const loadOrderCounts = async () => {
+    try {
+      const { data: { session } } = await supabaseClient.auth.getSession();
+      if (!session) return;
+
+      // Get email orders count
+      const { count: emailCount } = await supabaseClient
+        .from('email_orders')
+        .select('*', { count: 'exact', head: true });
+
+      // Get text orders count  
+      const { count: textCount } = await supabaseClient
+        .from('text_orders')
+        .select('*', { count: 'exact', head: true });
+
+      // Get exported orders for cost calculation
+      const { data: exportedEmailOrders } = await supabaseClient
+        .from('email_orders')
+        .select('analysis_data')
+        .eq('status', 'exported');
+
+      const { data: exportedTextOrders } = await supabaseClient
+        .from('text_orders')
+        .select('analysis_data')
+        .eq('status', 'exported');
+
+      // Calculate total cost
+      let totalCost = 0;
+      
+      exportedEmailOrders?.forEach(order => {
+        if (order.analysis_data?.analyzedItems) {
+          order.analysis_data.analyzedItems.forEach((item: any) => {
+            if (item.matchedItem?.unitPrice && item.quantity) {
+              totalCost += item.matchedItem.unitPrice * item.quantity;
+            }
+          });
+        }
+      });
+
+      exportedTextOrders?.forEach(order => {
+        if (order.analysis_data?.analyzedItems) {
+          order.analysis_data.analyzedItems.forEach((item: any) => {
+            if (item.matchedItem?.unitPrice && item.quantity) {
+              totalCost += item.matchedItem.unitPrice * item.quantity;
+            }
+          });
+        }
+      });
+
+      setOrderCounts({
+        totalOrders: (emailCount || 0) + (textCount || 0),
+        emailOrders: emailCount || 0,
+        textOrders: textCount || 0,
+        totalCost: totalCost
+      });
+    } catch (error) {
+      console.error('Error loading order counts:', error);
+    }
+  };
 
   const handleInstallPWA = async () => {
     if (!installPrompt) return;
@@ -179,6 +253,11 @@ const Dashboard: React.FC = () => {
       window.location.href = '/login';
     } finally {
       setIsLoading(false);
+    }
+
+    // Load order counts after auth check
+    if (session && !error) {
+      loadOrderCounts();
     }
   };
 
