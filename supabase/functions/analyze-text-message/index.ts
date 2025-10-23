@@ -528,6 +528,7 @@ Return the data in JSON format with the following structure:
           })
           .eq('id', aiLogId);
       }
+    }
 
     const analysisResult = {
       orderLines: itemsAnalysis.orderLines || [],
