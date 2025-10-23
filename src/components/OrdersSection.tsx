@@ -1,27 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { 
-  Package, 
-  Calendar, 
-  User, 
-  Mail, 
-  Phone, 
-  MapPin, 
-  DollarSign,
-  Clock,
-  CheckCircle,
-  AlertCircle,
-  Search,
-  Filter,
-  Download,
-  Eye,
-  ExternalLink,
-  Edit,
-  Save,
-  X,
-  Loader2,
-  MessageSquare,
-  Send
-} from 'lucide-react';
+import { Package, Calendar, User, Mail, Phone, MapPin, DollarSign, Clock, CheckCircle, AlertCircle, Search, Filter, Download, Eye, ExternalLink, CreditCard as Edit, Save, X, Loader2, MessageSquare, Send } from 'lucide-react';
 import { supabaseClient } from '../supabaseClient';
 
 interface OrderItem {
@@ -390,8 +368,7 @@ const OrdersSection: React.FC = () => {
           'Content-Type': 'application/json'
         },
         body: JSON.stringify({
-          orderId: order.id,
-          orderType: order.source, // 'email' or 'text'
+          textOrderId: order.id,
           orderData: orderData
         })
       });
