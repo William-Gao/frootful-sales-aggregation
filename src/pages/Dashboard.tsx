@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { CheckCircle, ExternalLink, Settings, Zap, Building2, Database, ArrowRight, Loader2, Package, Home, Smartphone, MessageSquare } from 'lucide-react';
+import { CheckCircle, ExternalLink, Settings, Building2, Database, ArrowRight, Loader2, Package, Home, Smartphone, MessageSquare } from 'lucide-react';
 import { supabaseClient } from '../supabaseClient';
 import OrdersSection from '../components/OrdersSection';
 
@@ -529,10 +529,7 @@ const Dashboard: React.FC = () => {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between items-center py-4">
             <div className="flex items-center space-x-3">
-              <div className="w-10 h-10 bg-gradient-to-br from-indigo-600 to-purple-600 rounded-xl flex items-center justify-center">
-                <Zap className="w-6 h-6 text-white" />
-              </div>
-              <h1 className="text-2xl font-bold bg-gradient-to-r from-indigo-600 to-purple-600 bg-clip-text text-transparent">
+              <h1 className="text-2xl font-bold" style={{ color: '#53AD6D' }}>
                 Frootful
               </h1>
             </div>
@@ -600,9 +597,10 @@ const Dashboard: React.FC = () => {
                 onClick={() => setActiveTab('overview')}
                 className={`py-2 px-1 border-b-2 font-medium text-sm ${
                   activeTab === 'overview'
-                    ? 'border-indigo-500 text-indigo-600'
+                    ? 'text-gray-900'
                     : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
                 }`}
+                style={activeTab === 'overview' ? { borderBottomColor: '#53AD6D', color: '#53AD6D' } : {}}
               >
                 <div className="flex items-center space-x-2">
                   <Home className="w-4 h-4" />
@@ -613,9 +611,10 @@ const Dashboard: React.FC = () => {
                 onClick={() => setActiveTab('orders')}
                 className={`py-2 px-1 border-b-2 font-medium text-sm ${
                   activeTab === 'orders'
-                    ? 'border-indigo-500 text-indigo-600'
+                    ? 'text-gray-900'
                     : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
                 }`}
+                style={activeTab === 'orders' ? { borderBottomColor: '#53AD6D', color: '#53AD6D' } : {}}
               >
                 <div className="flex items-center space-x-2">
                   <Package className="w-4 h-4" />
@@ -653,7 +652,14 @@ const Dashboard: React.FC = () => {
                 </div>
                 <button
                   onClick={openGmail}
-                  className="flex items-center space-x-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors"
+                  className="flex items-center space-x-2 px-4 py-2 text-white rounded-lg transition-colors"
+                  style={{ backgroundColor: '#53AD6D' }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.backgroundColor = '#4a9c63';
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.backgroundColor = '#53AD6D';
+                  }}
                 >
                   <span>Open Gmail</span>
                   <ExternalLink className="w-4 h-4" />
@@ -730,8 +736,19 @@ const Dashboard: React.FC = () => {
                         className={`w-full flex items-center justify-center space-x-2 px-4 py-3 rounded-lg font-medium transition-colors ${
                           erp.status === 'connected'
                             ? 'bg-green-50 text-green-700 cursor-default'
-                            : 'bg-indigo-600 text-white hover:bg-indigo-700'
+                            : 'text-white'
                         } disabled:opacity-50 disabled:cursor-not-allowed`}
+                        style={erp.status !== 'connected' ? { backgroundColor: '#53AD6D' } : {}}
+                        onMouseEnter={(e) => {
+                          if (erp.status !== 'connected') {
+                            e.currentTarget.style.backgroundColor = '#4a9c63';
+                          }
+                        }}
+                        onMouseLeave={(e) => {
+                          if (erp.status !== 'connected') {
+                            e.currentTarget.style.backgroundColor = '#53AD6D';
+                          }
+                        }}
                       >
                         {isConnecting ? (
                           <>
@@ -761,25 +778,25 @@ const Dashboard: React.FC = () => {
               <h3 className="text-xl font-semibold text-gray-900 mb-4">Next Steps</h3>
               <div className="space-y-3">
                 <div className="flex items-center space-x-3">
-                  <div className="w-6 h-6 bg-indigo-600 text-white rounded-full flex items-center justify-center text-sm font-medium">
+                  <div className="w-6 h-6 text-white rounded-full flex items-center justify-center text-sm font-medium" style={{ backgroundColor: '#53AD6D' }}>
                     1
                   </div>
                   <span className="text-gray-700">Connect your ERP system above</span>
                 </div>
                 <div className="flex items-center space-x-3">
-                  <div className="w-6 h-6 bg-indigo-600 text-white rounded-full flex items-center justify-center text-sm font-medium">
+                  <div className="w-6 h-6 text-white rounded-full flex items-center justify-center text-sm font-medium" style={{ backgroundColor: '#53AD6D' }}>
                     2
                   </div>
                   <span className="text-gray-700">Open Gmail and find an email with order information</span>
                 </div>
                 <div className="flex items-center space-x-3">
-                  <div className="w-6 h-6 bg-indigo-600 text-white rounded-full flex items-center justify-center text-sm font-medium">
+                  <div className="w-6 h-6 text-white rounded-full flex items-center justify-center text-sm font-medium" style={{ backgroundColor: '#53AD6D' }}>
                     3
                   </div>
                   <span className="text-gray-700">Click the "Extract" button in the email toolbar</span>
                 </div>
                 <div className="flex items-center space-x-3">
-                  <div className="w-6 h-6 bg-indigo-600 text-white rounded-full flex items-center justify-center text-sm font-medium">
+                  <div className="w-6 h-6 text-white rounded-full flex items-center justify-center text-sm font-medium" style={{ backgroundColor: '#53AD6D' }}>
                     4
                   </div>
                   <span className="text-gray-700">Review and export the order to your ERP system</span>

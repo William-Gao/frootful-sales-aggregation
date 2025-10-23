@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { LogIn, Shield, Zap } from 'lucide-react';
+import { LogIn, Shield } from 'lucide-react';
 import { supabaseClient } from '../supabaseClient';
 
 const Login: React.FC = () => {
@@ -107,10 +107,7 @@ const Login: React.FC = () => {
           {/* Logo and Header */}
           <div className="flex justify-center">
             <div className="flex items-center space-x-3">
-              <div className="w-12 h-12 bg-gradient-to-br from-indigo-600 to-purple-600 rounded-xl flex items-center justify-center">
-                <Zap className="w-7 h-7 text-white" />
-              </div>
-              <h1 className="text-3xl font-bold bg-gradient-to-r from-indigo-600 to-purple-600 bg-clip-text text-transparent">
+              <h1 className="text-3xl font-bold" style={{ color: '#53AD6D' }}>
                 Frootful
               </h1>
             </div>
@@ -143,20 +140,20 @@ const Login: React.FC = () => {
                 
                 <div className="flex items-start space-x-3">
                   <div className="flex-shrink-0">
-                    <div className="w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center">
-                      <Zap className="w-4 h-4 text-blue-600" />
+                    <div className="w-8 h-8 bg-green-100 rounded-full flex items-center justify-center">
+                      <Shield className="w-4 h-4" style={{ color: '#53AD6D' }} />
                     </div>
                   </div>
                   <div>
-                    <h3 className="text-sm font-medium text-gray-900">ERP Integration</h3>
-                    <p className="text-sm text-gray-500">Direct connection to Business Central and more</p>
+                    <h3 className="text-sm font-medium text-gray-900">One-Click Processing</h3>
+                    <p className="text-sm text-gray-500">Transform emails into orders instantly</p>
                   </div>
                 </div>
                 
                 <div className="flex items-start space-x-3">
                   <div className="flex-shrink-0">
-                    <div className="w-8 h-8 bg-purple-100 rounded-full flex items-center justify-center">
-                      <LogIn className="w-4 h-4 text-purple-600" />
+                    <div className="w-8 h-8 bg-green-100 rounded-full flex items-center justify-center">
+                      <LogIn className="w-4 h-4" style={{ color: '#53AD6D' }} />
                     </div>
                   </div>
                   <div>
@@ -179,7 +176,17 @@ const Login: React.FC = () => {
               <button
                 onClick={handleGoogleSignIn}
                 disabled={isLoading}
-                className="group relative w-full flex justify-center py-3 px-4 border border-transparent text-sm font-medium rounded-md text-white bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200 transform hover:scale-[1.02] active:scale-[0.98]"
+                className="group relative w-full flex justify-center py-3 px-4 border border-transparent text-sm font-medium rounded-md text-white disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200 transform hover:scale-[1.02] active:scale-[0.98]"
+                style={{ 
+                  backgroundColor: '#53AD6D',
+                  boxShadow: '0 4px 6px -1px rgba(83, 173, 109, 0.1), 0 2px 4px -1px rgba(83, 173, 109, 0.06)'
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.backgroundColor = '#4a9c63';
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.backgroundColor = '#53AD6D';
+                }}
               >
                 {isLoading ? (
                   <div className="flex items-center space-x-2">
@@ -204,11 +211,11 @@ const Login: React.FC = () => {
             <div className="mt-6">
               <div className="text-xs text-gray-500 text-center">
                 By signing in, you agree to our{' '}
-                <a href="/privacy" className="text-indigo-600 hover:text-indigo-500">
+                <a href="/privacy" style={{ color: '#53AD6D' }} className="hover:opacity-80">
                   Privacy Policy
                 </a>{' '}
                 and{' '}
-                <a href="/terms" className="text-indigo-600 hover:text-indigo-500">
+                <a href="/terms" style={{ color: '#53AD6D' }} className="hover:opacity-80">
                   Terms of Service
                 </a>
               </div>
