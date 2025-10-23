@@ -64,12 +64,12 @@ interface Order {
   message_content?: string;
 }
 
-const OrdersSection: React.FC = () => {
+const OrdersSection: React.FC<OrdersSectionProps> = ({ initialSourceFilter = 'all' }) => {
   const [orders, setOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
-  const [sourceFilter, setSourceFilter] = useState<string>('all');
+  const [sourceFilter, setSourceFilter] = useState<string>(initialSourceFilter);
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
   const [isEditing, setIsEditing] = useState(false);
   const [editingOrder, setEditingOrder] = useState<Order | null>(null);
