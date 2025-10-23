@@ -64,12 +64,12 @@ interface Order {
   message_content?: string;
 }
 
-const OrdersSection: React.FC<OrdersSectionProps> = ({ initialSourceFilter = 'all' }) => {
+const OrdersSection: React.FC = () => {
   const [orders, setOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
-  const [sourceFilter, setSourceFilter] = useState<string>(initialSourceFilter);
+  const [sourceFilter, setSourceFilter] = useState<string>('all');
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
   const [isEditing, setIsEditing] = useState(false);
   const [editingOrder, setEditingOrder] = useState<Order | null>(null);
@@ -565,7 +565,12 @@ const OrdersSection: React.FC<OrdersSectionProps> = ({ initialSourceFilter = 'al
 
       {/* Stats Cards */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+        <div 
+          className={`bg-white rounded-lg shadow-sm border border-gray-200 p-6 cursor-pointer hover:shadow-md transition-shadow ${
+            sourceFilter === 'all' ? 'ring-2 ring-indigo-500' : ''
+          }`}
+          onClick={() => setSourceFilter('all')}
+        >
           <div className="flex items-center">
             <div className="p-2 bg-blue-100 rounded-lg">
               <Package className="w-6 h-6 text-blue-600" />
@@ -573,6 +578,44 @@ const OrdersSection: React.FC<OrdersSectionProps> = ({ initialSourceFilter = 'al
             <div className="ml-4">
               <p className="text-sm font-medium text-gray-600">Total Orders</p>
               <p className="text-2xl font-bold text-gray-900">{orders.length}</p>
+            </div>
+          </div>
+        </div>
+        
+        <div 
+          className={`bg-white rounded-lg shadow-sm border border-gray-200 p-6 cursor-pointer hover:shadow-md transition-shadow ${
+            sourceFilter === 'email' ? 'ring-2 ring-green-500' : ''
+          }`}
+          onClick={() => setSourceFilter('email')}
+        >
+          <div className="flex items-center">
+            <div className="p-2 bg-green-100 rounded-lg">
+              <Mail className="w-6 h-6 text-green-600" />
+            </div>
+            <div className="ml-4">
+              <p className="text-sm font-medium text-gray-600">Email Orders</p>
+              <p className="text-2xl font-bold text-gray-900">
+                {orders.filter(o => o.source === 'email').length}
+              </p>
+            </div>
+          </div>
+        </div>
+        
+        <div 
+          className={`bg-white rounded-lg shadow-sm border border-gray-200 p-6 cursor-pointer hover:shadow-md transition-shadow ${
+            sourceFilter === 'text' ? 'ring-2 ring-yellow-500' : ''
+          }`}
+          onClick={() => setSourceFilter('text')}
+        >
+          <div className="flex items-center">
+            <div className="p-2 bg-yellow-100 rounded-lg">
+              <MessageSquare className="w-6 h-6 text-yellow-600" />
+            </div>
+            <div className="ml-4">
+              <p className="text-sm font-medium text-gray-600">Text Orders</p>
+              <p className="text-2xl font-bold text-gray-900">
+                {orders.filter(o => o.source === 'text').length}
+              </p>
             </div>
           </div>
         </div>
@@ -586,34 +629,6 @@ const OrdersSection: React.FC<OrdersSectionProps> = ({ initialSourceFilter = 'al
               <p className="text-sm font-medium text-gray-600">Exported</p>
               <p className="text-2xl font-bold text-gray-900">
                 {orders.filter(o => o.status === 'exported' || o.status === 'completed').length}
-              </p>
-            </div>
-          </div>
-        </div>
-        
-        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-          <div className="flex items-center">
-            <div className="p-2 bg-yellow-100 rounded-lg">
-              <Clock className="w-6 h-6 text-yellow-600" />
-            </div>
-            <div className="ml-4">
-              <p className="text-sm font-medium text-gray-600">Processing</p>
-              <p className="text-2xl font-bold text-gray-900">
-                {orders.filter(o => ['received', 'processing', 'analyzed', 'pending'].includes(o.status)).length}
-              </p>
-            </div>
-          </div>
-        </div>
-        
-        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-          <div className="flex items-center">
-            <div className="p-2 bg-purple-100 rounded-lg">
-              <DollarSign className="w-6 h-6 text-purple-600" />
-            </div>
-            <div className="ml-4">
-              <p className="text-sm font-medium text-gray-600">Total Value</p>
-              <p className="text-2xl font-bold text-gray-900">
-                {formatCurrency(orders.reduce((sum, order) => sum + (order.total_amount || 0), 0))}
               </p>
             </div>
           </div>
