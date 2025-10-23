@@ -1045,12 +1045,9 @@ const OrdersSection: React.FC = () => {
                     {selectedOrder.source === 'text' ? 'Original Text Message' : 'Original Email Content'}
                   </h4>
                   <div className="bg-gray-50 rounded-lg p-4">
-                    <div 
-                      className="text-sm text-gray-700 whitespace-pre-wrap break-words"
-                      dangerouslySetInnerHTML={{ 
-                        __html: cleanAndFormatContent(selectedOrder.original_content) 
-                      }}
-                    />
+                    <div className="text-sm text-gray-700 whitespace-pre-wrap break-words">
+                      {selectedOrder.original_content}
+                    </div>
                   </div>
                 </div>
 

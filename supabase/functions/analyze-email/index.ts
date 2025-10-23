@@ -1143,6 +1143,64 @@ async function decrypt(encryptedText: string): Promise<string> {
   return decoder.decode(decrypted);
 }
 
+// Clean text content and fix encoding issues
+function cleanTextContent(text: string): string {
+  return text
+    // Fix common encoding issues
+    .replace(/â¦/g, '...')
+    .replace(/â/g, "'")
+    .replace(/â/g, "'")
+    .replace(/â/g, '"')
+    .replace(/â/g, '"')
+    .replace(/â/g, '—')
+    .replace(/Â/g, ' ')
+    // Clean up extra whitespace
+    .replace(/\r\n/g, '\n')
+    .replace(/\r/g, '\n')
+    .replace(/\n\s*\n\s*\n/g, '\n\n')
+    .trim();
+}
+
+// Convert HTML to clean text
+function convertHtmlToText(html: string): string {
+  return html
+    // Remove Gmail-specific classes and spans
+    .replace(/class="[^"]*"/g, '')
+    .replace(/<span[^>]*>/g, '')
+    .replace(/<\/span>/g, '')
+    // Clean up Microsoft Word formatting
+    .replace(/class="MsoNormal"/g, '')
+    .replace(/<u><\/u>/g, '')
+    // Replace HTML entities
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    // Convert HTML line breaks and paragraphs to proper formatting
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<\/p>\s*<p[^>]*>/gi, '\n\n')
+    .replace(/<p[^>]*>/gi, '')
+    .replace(/<\/p>/gi, '\n')
+    // Remove div tags but keep content with line breaks
+    .replace(/<div[^>]*>/gi, '')
+    .replace(/<\/div>/gi, '\n')
+    // Remove any remaining HTML tags
+    .replace(/<[^>]*>/g, '')
+    // Fix character encoding issues
+    .replace(/â¦/g, '...')
+    .replace(/â/g, "'")
+    .replace(/â/g, "'")
+    .replace(/â/g, '"')
+    .replace(/â/g, '"')
+    .replace(/â/g, '—')
+    .replace(/Â/g, ' ')
+    // Clean up extra whitespace
+    .replace(/\n\s*\n\s*\n/g, '\n\n')
+    .replace(/^\s+|\s+$/g, '')
+    .trim();
+}
+
 // Parse Gmail API response
 function parseEmailData(emailData: GmailResponse): EmailData {
   const headers: Record<string, string> = {};
@@ -1153,7 +1211,8 @@ function parseEmailData(emailData: GmailResponse): EmailData {
     });
   }
 
-  let body = '';
+  let htmlBody = '';
+  let textBody = '';
   const attachments: Attachment[] = [];
 
   function extractBodyParts(part: any): void {
@@ -1168,25 +1227,21 @@ function parseEmailData(emailData: GmailResponse): EmailData {
       return;
     }
 
-    // Extract body text
+    // Extract body text based on MIME type
     if (part.body && part.body.data && !part.filename) {
       const decodedData = atob(part.body.data.replace(/-/g, '+').replace(/_/g, '/'));
-      body += decodedData;
+      
+      if (part.mimeType === 'text/html') {
+        htmlBody += decodedData;
+      } else if (part.mimeType === 'text/plain') {
+        textBody += decodedData;
+      }
     }
 
     if (part.parts) {
       part.parts.forEach((subPart: any) => {
         extractBodyParts(subPart);
       });
-
-      // Fallback for text extraction if no body found yet
-      if (!body) {
-        part.parts.forEach((subPart: any) => {
-          if ((subPart.mimeType === 'text/html' || subPart.mimeType === 'text/plain') && !subPart.filename) {
-            extractBodyParts(subPart);
-          }
-        });
-      }
     }
   }
 
@@ -1194,6 +1249,15 @@ function parseEmailData(emailData: GmailResponse): EmailData {
     extractBodyParts(emailData.payload);
   }
 
+  // Clean and process the email body
+  let finalBody = '';
+  
+  // Prefer plain text if available, otherwise convert HTML to text
+  if (textBody.trim()) {
+    finalBody = cleanTextContent(textBody);
+  } else if (htmlBody.trim()) {
+    finalBody = convertHtmlToText(htmlBody);
+  }
   console.log(`Found ${attachments.length} attachments in email ${emailData.id}`);
   attachments.forEach(att => {
     console.log(`- ${att.filename} (${att.mimeType}, ${att.size} bytes)`);
@@ -1208,7 +1272,7 @@ function parseEmailData(emailData: GmailResponse): EmailData {
     from: headers.from || '',
     to: headers.to || '',
     date: headers.date || '',
-    body: body,
+    body: finalBody,
     attachments: attachments
   };
 }
