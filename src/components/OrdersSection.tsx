@@ -1139,7 +1139,18 @@ const OrdersSection: React.FC = () => {
                       <button
                         onClick={() => createERPOrder(selectedOrder)}
                         disabled={isCreatingOrder}
-                        className="w-full sm:w-auto flex items-center justify-center space-x-2 px-6 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-base font-medium"
+                        className="w-full sm:w-auto flex items-center justify-center space-x-2 px-4 py-2 text-white rounded-lg disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                        style={{ backgroundColor: '#53AD6D' }}
+                        onMouseEnter={(e) => {
+                          if (!e.currentTarget.disabled) {
+                            e.currentTarget.style.backgroundColor = '#4a9c63';
+                          }
+                        }}
+                        onMouseLeave={(e) => {
+                          if (!e.currentTarget.disabled) {
+                            e.currentTarget.style.backgroundColor = '#53AD6D';
+                          }
+                        }}
                       >
                         {isCreatingOrder ? (
                           <>
