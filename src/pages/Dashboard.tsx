@@ -646,7 +646,7 @@ const Dashboard: React.FC = () => {
                     <CheckCircle className="w-6 h-6 text-green-600" />
                   </div>
                   <div>
-                      ${orderCounts.totalCost.toLocaleString()}
+                    <h3 className="text-lg font-semibold text-gray-900">Gmail Connected</h3>
                     <p className="text-gray-600">Ready to extract orders from your emails</p>
                   </div>
                 </div>
