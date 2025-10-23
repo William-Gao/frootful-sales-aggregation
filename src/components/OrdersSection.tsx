@@ -76,6 +76,57 @@ const OrdersSection: React.FC = () => {
   const [isSaving, setIsSaving] = useState(false);
   const [isCreatingOrder, setIsCreatingOrder] = useState(false);
 
+  // Function to clean and format content for better display
+  const cleanAndFormatContent = (content: string): string => {
+    if (!content) return '';
+    
+    // If it's HTML content (contains HTML tags)
+    if (content.includes('<') && content.includes('>')) {
+      return content
+        // Remove Gmail-specific classes and spans
+        .replace(/class="[^"]*"/g, '')
+        .replace(/<span[^>]*>/g, '')
+        .replace(/<\/span>/g, '')
+        // Clean up Microsoft Word formatting
+        .replace(/class="MsoNormal"/g, '')
+        .replace(/<u><\/u>/g, '')
+        // Replace HTML entities
+        .replace(/&nbsp;/g, ' ')
+        .replace(/Â/g, ' ')
+        .replace(/â¦/g, '...')
+        // Convert HTML line breaks and paragraphs to proper formatting
+        .replace(/<br\s*\/?>/g, '\n')
+        .replace(/<\/p><p[^>]*>/g, '\n\n')
+        .replace(/<p[^>]*>/g, '')
+        .replace(/<\/p>/g, '\n')
+        // Remove div tags but keep content
+        .replace(/<div[^>]*>/g, '')
+        .replace(/<\/div>/g, '\n')
+        // Clean up extra whitespace
+        .replace(/\n\s*\n\s*\n/g, '\n\n')
+        .replace(/^\s+|\s+$/g, '')
+        // Remove any remaining HTML tags
+        .replace(/<[^>]*>/g, '')
+        // Fix character encoding issues
+        .replace(/â/g, "'")
+        .replace(/â/g, "'")
+        .replace(/â/g, '"')
+        .replace(/â/g, '"')
+        .replace(/â/g, '—')
+        .replace(/â¦/g, '...');
+    }
+    
+    // For plain text content, just clean up encoding issues
+    return content
+      .replace(/â¦/g, '...')
+      .replace(/â/g, "'")
+      .replace(/â/g, "'")
+      .replace(/â/g, '"')
+      .replace(/â/g, '"')
+      .replace(/â/g, '—')
+      .replace(/Â/g, ' ')
+      .trim();
+  };
   useEffect(() => {
     loadOrders();
   }, []);
@@ -994,9 +1045,12 @@ const OrdersSection: React.FC = () => {
                     {selectedOrder.source === 'text' ? 'Original Text Message' : 'Original Email Content'}
                   </h4>
                   <div className="bg-gray-50 rounded-lg p-4">
-                    <p className="text-sm text-gray-700 whitespace-pre-wrap">
-                      {selectedOrder.original_content}
-                    </p>
+                    <div 
+                      className="text-sm text-gray-700 whitespace-pre-wrap break-words"
+                      dangerouslySetInnerHTML={{ 
+                        __html: cleanAndFormatContent(selectedOrder.original_content) 
+                      }}
+                    />
                   </div>
                 </div>
 
