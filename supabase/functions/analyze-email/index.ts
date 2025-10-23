@@ -183,7 +183,7 @@ Deno.serve(async (req) => {
 
     // Step 6: Analyze email content and match items using AI (now includes delivery date and attachments)
     console.log('Step 6: Analyzing email content with AI...');
-    const analysisResult = await analyzeEmailWithAI(processedEmailData.body, processedEmailData.attachments, items);
+    const { analysisResult, aiLogId } = await analyzeEmailWithAI(processedEmailData.body, processedEmailData.attachments, items, userId, emailId);
 
     console.log('Analysis complete! Found', analysisResult.orderLines.length, 'items');
     if (analysisResult.requestedDeliveryDate) {
@@ -198,7 +198,8 @@ Deno.serve(async (req) => {
         items: items,
         matchingCustomer: matchingCustomer,
         analyzedItems: analysisResult.orderLines,
-        requestedDeliveryDate: analysisResult.requestedDeliveryDate
+        requestedDeliveryDate: analysisResult.requestedDeliveryDate,
+        aiAnalysisLogId: aiLogId
       }
     }), {
       headers: {
@@ -838,13 +839,15 @@ async function extractTextFromPDFBasic(pdfBytes: Uint8Array): Promise<string> {
 }
 
 // Analyze email content with AI - now includes delivery date extraction, current date, and attachments
-async function analyzeEmailWithAI(emailContent: string, attachments: Attachment[], items: Item[]): Promise<AnalysisResult> {
+async function analyzeEmailWithAI(emailContent: string, attachments: Attachment[], items: Item[], userId: string, emailId: string): Promise<{ analysisResult: AnalysisResult; aiLogId: string }> {
   if (items.length === 0) {
     console.warn('No items available for analysis');
-    return { orderLines: [] };
+    return { analysisResult: { orderLines: [] }, aiLogId: '' };
   }
 
   try {
+    const startTime = Date.now();
+    
     const itemsList = items.map((item: Item) => ({
       id: item.id,
       number: item.number,
@@ -867,7 +870,8 @@ async function analyzeEmailWithAI(emailContent: string, attachments: Attachment[
       });
     }
 
-    const completion = await openai.chat.completions.create({
+    // Prepare request data for logging
+    const requestData = {
       model: 'gpt-4o',
       messages: [
         {
@@ -916,16 +920,52 @@ If no delivery date is mentioned, omit the requestedDeliveryDate field entirely.
       temperature: 0.7,
       max_tokens: 1000,
       response_format: { type: "json_object" }
+    };
+
+    const completion = await openai.chat.completions.create({
+      model: 'gpt-4o',
+      messages: requestData.messages,
+      temperature: requestData.temperature,
+      max_tokens: requestData.max_tokens,
+      response_format: requestData.response_format
     });
 
+    const processingTime = Date.now() - startTime;
     const analysis = JSON.parse(completion.choices[0].message.content);
-    return {
+    
+    const analysisResult = {
       orderLines: analysis.orderLines || [],
       requestedDeliveryDate: analysis.requestedDeliveryDate
     };
+
+    // Store AI analysis log
+    const { data: aiLog, error: logError } = await supabase
+      .from('ai_analysis_logs')
+      .insert({
+        user_id: userId,
+        analysis_type: 'email',
+        source_id: emailId,
+        raw_request: requestData,
+        raw_response: completion,
+        parsed_result: analysisResult,
+        model_used: 'gpt-4o',
+        tokens_used: completion.usage?.total_tokens || 0,
+        processing_time_ms: processingTime
+      })
+      .select('id')
+      .single();
+
+    if (logError) {
+      console.warn('Failed to store AI analysis log:', logError);
+    }
+
+    return { 
+      analysisResult, 
+      aiLogId: aiLog?.id || '' 
+    };
   } catch (error) {
     console.error('Error analyzing email with AI:', error);
-    return { orderLines: [] };
+    return { analysisResult: { orderLines: [] }, aiLogId: '' };
   }
 }
 

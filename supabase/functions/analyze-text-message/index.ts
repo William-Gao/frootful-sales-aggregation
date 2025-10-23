@@ -166,7 +166,7 @@ Deno.serve(async (req) => {
 
     // Step 3: Analyze text message content with AI
     console.log('Analyzing text message with AI...');
-    const analysisResult = await analyzeTextWithAI(items, customers, webhookData);
+    const { analysisResult, aiLogId } = await analyzeTextWithAI(items, customers, webhookData, userId);
 
     // Step 4: Try to match customer by phone number or analysis
     // const matchingCustomer = findMatchingCustomer(customers, webhookData.From, analysisResult);
@@ -180,7 +180,8 @@ Deno.serve(async (req) => {
       requestedDeliveryDate: analysisResult.requestedDeliveryDate,
       originalMessage: webhookData.Body,
       phoneNumber: webhookData.From,
-      messageSid: webhookData.MessageSid
+      messageSid: webhookData.MessageSid,
+      aiAnalysisLogId: aiLogId
     };
 
     console.log('Updating text order with analysis results...');
@@ -189,6 +190,7 @@ Deno.serve(async (req) => {
       .update({
         status: 'analyzed',
         analysis_data: analysisData,
+        ai_analysis_log_id: aiLogId,
         updated_at: new Date().toISOString()
       })
       .eq('id', textOrder.id);
@@ -316,16 +318,18 @@ async function fetchItemsFromBC(userId: string): Promise<Item[]> {
 }
 
 // Analyze text message with AI
-async function analyzeTextWithAI(items: Item[], customers: Customer[], webhookData: any): Promise<AnalysisResult> {
+async function analyzeTextWithAI(items: Item[], customers: Customer[], webhookData: any, userId: string): Promise<{ analysisResult: AnalysisResult; aiLogId: string }> {
   const messageContent = webhookData.Body;
   const phoneNumber = webhookData.From;
 
   if (items.length === 0) {
     console.warn('No items available for analysis');
-    return { orderLines: [] };
+    return { analysisResult: { orderLines: [] }, aiLogId: '' };
   }
 
   try {
+    const startTime = Date.now();
+    
     const itemsList = items.map((item: Item) => ({
       id: item.id,
       number: item.number,
@@ -335,7 +339,8 @@ async function analyzeTextWithAI(items: Item[], customers: Customer[], webhookDa
 
     const currentDate = new Date().toISOString().split('T')[0];
 
-    const completion = await openai.chat.completions.create({
+    // Prepare request data for logging
+    const requestData = {
       model: 'gpt-4o',
       messages: [
         {
@@ -375,10 +380,20 @@ If no customer info is mentioned, omit those fields from customerInfo.`
       temperature: 0.7,
       max_tokens: 1000,
       response_format: { type: "json_object" }
+    };
+
+    const completion = await openai.chat.completions.create({
+      model: 'gpt-4o',
+      messages: requestData.messages,
+      temperature: requestData.temperature,
+      max_tokens: requestData.max_tokens,
+      response_format: requestData.response_format
     });
 
+    const processingTime = Date.now() - startTime;
     const itemsAnalysis = JSON.parse(completion.choices[0].message.content);
 
+    // Customer analysis
     const customerCompletion = await openai.chat.completions.create({
       model: 'gpt-4o',
       messages: [
@@ -411,14 +426,43 @@ Return the data in JSON format with the following structure:
 
     const customerAnalysis = JSON.parse(customerCompletion.choices[0].message.content);
 
-    return {
+    const analysisResult = {
       orderLines: itemsAnalysis.orderLines || [],
       requestedDeliveryDate: itemsAnalysis.requestedDeliveryDate,
       matchingCustomer: customerAnalysis.matchingCustomer
     };
+
+    // Store AI analysis log
+    const { data: aiLog, error: logError } = await supabase
+      .from('ai_analysis_logs')
+      .insert({
+        user_id: userId,
+        analysis_type: 'text_message',
+        source_id: webhookData.MessageSid,
+        raw_request: requestData,
+        raw_response: {
+          items_analysis: completion,
+          customer_analysis: customerCompletion
+        },
+        parsed_result: analysisResult,
+        model_used: 'gpt-4o',
+        tokens_used: (completion.usage?.total_tokens || 0) + (customerCompletion.usage?.total_tokens || 0),
+        processing_time_ms: processingTime
+      })
+      .select('id')
+      .single();
+
+    if (logError) {
+      console.warn('Failed to store AI analysis log:', logError);
+    }
+
+    return { 
+      analysisResult, 
+      aiLogId: aiLog?.id || '' 
+    };
   } catch (error) {
     console.error('Error analyzing text with AI:', error);
-    return { orderLines: [] };
+    return { analysisResult: { orderLines: [] }, aiLogId: '' };
   }
 }
 
