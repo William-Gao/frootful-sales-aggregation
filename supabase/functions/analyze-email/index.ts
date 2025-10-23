@@ -922,6 +922,24 @@ If no delivery date is mentioned, omit the requestedDeliveryDate field entirely.
       response_format: { type: "json_object" }
     };
 
+    // Store initial AI analysis log with request data
+    const { data: initialAiLog, error: initialLogError } = await supabase
+      .from('ai_analysis_logs')
+      .insert({
+        user_id: userId,
+        analysis_type: 'email',
+        source_id: emailId,
+        raw_request: requestData,
+        model_used: 'gpt-4o',
+        created_at: new Date().toISOString()
+      })
+      .select('id')
+      .single();
+
+    const aiLogId = initialAiLog?.id || '';
+    if (initialLogError) {
+      console.warn('Failed to create initial AI analysis log:', initialLogError);
+    }
     const completion = await openai.chat.completions.create({
       model: 'gpt-4o',
       messages: requestData.messages,
@@ -931,37 +949,72 @@ If no delivery date is mentioned, omit the requestedDeliveryDate field entirely.
     });
 
     const processingTime = Date.now() - startTime;
-    const analysis = JSON.parse(completion.choices[0].message.content);
+
+    // Store raw response immediately after getting it from OpenAI
+    if (aiLogId) {
+      const { error: updateRawError } = await supabase
+        .from('ai_analysis_logs')
+        .update({
+          raw_response: completion,
+          tokens_used: completion.usage?.total_tokens || 0,
+          processing_time_ms: processingTime
+        })
+        .eq('id', aiLogId);
+
+      if (updateRawError) {
+        console.warn('Failed to store raw AI response:', updateRawError);
+      } else {
+        console.log('Successfully stored raw AI response for log ID:', aiLogId);
+      }
+    }
+
+    // Now attempt to parse the response
+    let analysis;
+    try {
+      analysis = JSON.parse(completion.choices[0].message.content);
+    } catch (parseError) {
+      console.error('Failed to parse AI response JSON:', parseError);
+      console.error('Raw content:', completion.choices[0].message.content);
+      
+      // Store the parsing error in the log
+      if (aiLogId) {
+        await supabase
+          .from('ai_analysis_logs')
+          .update({
+            parsed_result: {
+              error: 'JSON parsing failed',
+              raw_content: completion.choices[0].message.content,
+              parse_error: parseError.message
+            }
+          })
+          .eq('id', aiLogId);
+      }
+      
+      return { analysisResult: { orderLines: [] }, aiLogId };
+    }
     
     const analysisResult = {
       orderLines: analysis.orderLines || [],
       requestedDeliveryDate: analysis.requestedDeliveryDate
     };
 
-    // Store AI analysis log
-    const { data: aiLog, error: logError } = await supabase
-      .from('ai_analysis_logs')
-      .insert({
-        user_id: userId,
-        analysis_type: 'email',
-        source_id: emailId,
-        raw_request: requestData,
-        raw_response: completion,
-        parsed_result: analysisResult,
-        model_used: 'gpt-4o',
-        tokens_used: completion.usage?.total_tokens || 0,
-        processing_time_ms: processingTime
-      })
-      .select('id')
-      .single();
+    // Update log with final parsed result
+    if (aiLogId) {
+      const { error: finalUpdateError } = await supabase
+        .from('ai_analysis_logs')
+        .update({
+          parsed_result: analysisResult
+        })
+        .eq('id', aiLogId);
 
-    if (logError) {
-      console.warn('Failed to store AI analysis log:', logError);
+      if (finalUpdateError) {
+        console.warn('Failed to update AI log with final result:', finalUpdateError);
+      }
     }
 
     return { 
       analysisResult, 
-      aiLogId: aiLog?.id || '' 
+      aiLogId 
     };
   } catch (error) {
     console.error('Error analyzing email with AI:', error);

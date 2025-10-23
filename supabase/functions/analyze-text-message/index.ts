@@ -382,6 +382,24 @@ If no customer info is mentioned, omit those fields from customerInfo.`
       response_format: { type: "json_object" }
     };
 
+    // Store initial AI analysis log with request data
+    const { data: initialAiLog, error: initialLogError } = await supabase
+      .from('ai_analysis_logs')
+      .insert({
+        user_id: userId,
+        analysis_type: 'text_message',
+        source_id: webhookData.MessageSid,
+        raw_request: requestData,
+        model_used: 'gpt-4o',
+        created_at: new Date().toISOString()
+      })
+      .select('id')
+      .single();
+
+    const aiLogId = initialAiLog?.id || '';
+    if (initialLogError) {
+      console.warn('Failed to create initial AI analysis log:', initialLogError);
+    }
     const completion = await openai.chat.completions.create({
       model: 'gpt-4o',
       messages: requestData.messages,
@@ -390,6 +408,52 @@ If no customer info is mentioned, omit those fields from customerInfo.`
       response_format: requestData.response_format
     });
 
+    const processingTime = Date.now() - startTime;
+
+    // Store raw response immediately after getting it from OpenAI
+    if (aiLogId) {
+      const { error: updateRawError } = await supabase
+        .from('ai_analysis_logs')
+        .update({
+          raw_response: {
+            items_analysis: completion
+          },
+          tokens_used: completion.usage?.total_tokens || 0,
+          processing_time_ms: processingTime
+        })
+        .eq('id', aiLogId);
+
+      if (updateRawError) {
+        console.warn('Failed to store raw AI response:', updateRawError);
+      } else {
+        console.log('Successfully stored raw AI response for log ID:', aiLogId);
+      }
+    }
+
+    // Now attempt to parse the response
+    let itemsAnalysis;
+    try {
+      itemsAnalysis = JSON.parse(completion.choices[0].message.content);
+    } catch (parseError) {
+      console.error('Failed to parse items analysis JSON:', parseError);
+      console.error('Raw content:', completion.choices[0].message.content);
+      
+      // Store the parsing error in the log
+      if (aiLogId) {
+        await supabase
+          .from('ai_analysis_logs')
+          .update({
+            parsed_result: {
+              error: 'JSON parsing failed',
+              raw_content: completion.choices[0].message.content,
+              parse_error: parseError.message
+            }
+          })
+          .eq('id', aiLogId);
+      }
+      
+      return { analysisResult: { orderLines: [] }, aiLogId };
+    }
     const processingTime = Date.now() - startTime;
     const itemsAnalysis = JSON.parse(completion.choices[0].message.content);
 
@@ -424,7 +488,46 @@ Return the data in JSON format with the following structure:
       response_format: { type: "json_object" }
     });
 
-    const customerAnalysis = JSON.parse(customerCompletion.choices[0].message.content);
+    // Update log with customer analysis response
+    if (aiLogId) {
+      const { error: updateCustomerError } = await supabase
+        .from('ai_analysis_logs')
+        .update({
+          raw_response: {
+            items_analysis: completion,
+            customer_analysis: customerCompletion
+          },
+          tokens_used: (completion.usage?.total_tokens || 0) + (customerCompletion.usage?.total_tokens || 0)
+        })
+        .eq('id', aiLogId);
+
+      if (updateCustomerError) {
+        console.warn('Failed to update AI log with customer analysis:', updateCustomerError);
+      }
+    }
+
+    // Parse customer analysis
+    let customerAnalysis;
+    try {
+      customerAnalysis = JSON.parse(customerCompletion.choices[0].message.content);
+    } catch (parseError) {
+      console.error('Failed to parse customer analysis JSON:', parseError);
+      console.error('Raw content:', customerCompletion.choices[0].message.content);
+      
+      // Store the parsing error in the log
+      if (aiLogId) {
+        await supabase
+          .from('ai_analysis_logs')
+          .update({
+            parsed_result: {
+              items_analysis: itemsAnalysis,
+              customer_error: 'JSON parsing failed',
+              customer_raw_content: customerCompletion.choices[0].message.content,
+              customer_parse_error: parseError.message
+            }
+          })
+          .eq('id', aiLogId);
+      }
 
     const analysisResult = {
       orderLines: itemsAnalysis.orderLines || [],
@@ -432,33 +535,23 @@ Return the data in JSON format with the following structure:
       matchingCustomer: customerAnalysis.matchingCustomer
     };
 
-    // Store AI analysis log
-    const { data: aiLog, error: logError } = await supabase
-      .from('ai_analysis_logs')
-      .insert({
-        user_id: userId,
-        analysis_type: 'text_message',
-        source_id: webhookData.MessageSid,
-        raw_request: requestData,
-        raw_response: {
-          items_analysis: completion,
-          customer_analysis: customerCompletion
-        },
-        parsed_result: analysisResult,
-        model_used: 'gpt-4o',
-        tokens_used: (completion.usage?.total_tokens || 0) + (customerCompletion.usage?.total_tokens || 0),
-        processing_time_ms: processingTime
-      })
-      .select('id')
-      .single();
+    // Update log with final parsed result
+    if (aiLogId) {
+      const { error: finalUpdateError } = await supabase
+        .from('ai_analysis_logs')
+        .update({
+          parsed_result: analysisResult
+        })
+        .eq('id', aiLogId);
 
-    if (logError) {
-      console.warn('Failed to store AI analysis log:', logError);
+      if (finalUpdateError) {
+        console.warn('Failed to update AI log with final result:', finalUpdateError);
+      }
     }
 
     return { 
       analysisResult, 
-      aiLogId: aiLog?.id || '' 
+      aiLogId 
     };
   } catch (error) {
     console.error('Error analyzing text with AI:', error);
