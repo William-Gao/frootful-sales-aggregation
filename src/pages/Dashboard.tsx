@@ -717,6 +717,56 @@ const Dashboard: React.FC = () => {
               </p>
             </div>
 
+            {/* Stats Cards */}
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+              <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+                <div className="flex items-center">
+                  <div className="p-2 bg-blue-100 rounded-lg">
+                    <Package className="w-6 h-6 text-blue-600" />
+                  </div>
+                  <div className="ml-4">
+                    <p className="text-sm font-medium text-gray-600">Total Orders</p>
+                    <p className="text-2xl font-bold text-gray-900">{orderCounts.totalOrders}</p>
+                  </div>
+                </div>
+              </div>
+              
+              <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+                <div className="flex items-center">
+                  <div className="p-2 bg-green-100 rounded-lg">
+                    <MessageSquare className="w-6 h-6 text-green-600" />
+                  </div>
+                  <div className="ml-4">
+                    <p className="text-sm font-medium text-gray-600">Email Orders</p>
+                    <p className="text-2xl font-bold text-gray-900">{orderCounts.emailOrders}</p>
+                  </div>
+                </div>
+              </div>
+              
+              <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+                <div className="flex items-center">
+                  <div className="p-2 bg-purple-100 rounded-lg">
+                    <Smartphone className="w-6 h-6 text-purple-600" />
+                  </div>
+                  <div className="ml-4">
+                    <p className="text-sm font-medium text-gray-600">Text Orders</p>
+                    <p className="text-2xl font-bold text-gray-900">{orderCounts.textOrders}</p>
+                  </div>
+                </div>
+              </div>
+              
+              <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+                <div className="flex items-center">
+                  <div className="p-2 bg-yellow-100 rounded-lg">
+                    <span className="text-yellow-600 font-bold text-lg">$</span>
+                  </div>
+                  <div className="ml-4">
+                    <p className="text-sm font-medium text-gray-600">Total Cost</p>
+                    <p className="text-2xl font-bold text-gray-900">${orderCounts.totalCost.toLocaleString()}</p>
+                  </div>
+                </div>
+              </div>
+            </div>
             {/* Gmail Connection Status */}
             <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
               <div className="flex items-center justify-between">
