@@ -92,8 +92,14 @@ const OrdersSection: React.FC = () => {
         .replace(/<u><\/u>/g, '')
         // Replace HTML entities
         .replace(/&nbsp;/g, ' ')
-        .replace(/Â/g, ' ')
-        .replace(/â¦/g, '...')
+        .replace(/&amp;/g, '&')
+        .replace(/&lt;/g, '<')
+        .replace(/&gt;/g, '>')
+        .replace(/&quot;/g, '"')
+        .replace(/&#39;/g, "'")
+        .replace(/&hellip;/g, '...')
+        .replace(/&mdash;/g, '—')
+        .replace(/&ndash;/g, '–')
         // Convert HTML line breaks and paragraphs to proper formatting
         .replace(/<br\s*\/?>/g, '\n')
         .replace(/<\/p><p[^>]*>/g, '\n\n')
@@ -108,23 +114,36 @@ const OrdersSection: React.FC = () => {
         // Remove any remaining HTML tags
         .replace(/<[^>]*>/g, '')
         // Fix character encoding issues
-        .replace(/â/g, "'")
-        .replace(/â/g, "'")
-        .replace(/â/g, '"')
-        .replace(/â/g, '"')
-        .replace(/â/g, '—')
-        .replace(/â¦/g, '...');
+        .replace(/â€¦/g, '...')
+        .replace(/â€™/g, "'")
+        .replace(/â€˜/g, "'")
+        .replace(/â€œ/g, '"')
+        .replace(/â€/g, '"')
+        .replace(/â€"/g, '—')
+        .replace(/â€"/g, '–')
+        .replace(/Â/g, ' ')
+        .replace(/â€¢/g, '•')
+        .replace(/Â /g, ' ')
+        .replace(/â€‹/g, '') // Zero-width space
+        .replace(/â€Š/g, ' ') // Thin space
+        .replace(/â€¯/g, ' '); // Narrow no-break space
     }
     
     // For plain text content, just clean up encoding issues
     return content
-      .replace(/â¦/g, '...')
-      .replace(/â/g, "'")
-      .replace(/â/g, "'")
-      .replace(/â/g, '"')
-      .replace(/â/g, '"')
-      .replace(/â/g, '—')
+      .replace(/â€¦/g, '...')
+      .replace(/â€™/g, "'")
+      .replace(/â€˜/g, "'")
+      .replace(/â€œ/g, '"')
+      .replace(/â€/g, '"')
+      .replace(/â€"/g, '—')
+      .replace(/â€"/g, '–')
       .replace(/Â/g, ' ')
+      .replace(/â€¢/g, '•')
+      .replace(/Â /g, ' ')
+      .replace(/â€‹/g, '') // Zero-width space
+      .replace(/â€Š/g, ' ') // Thin space
+      .replace(/â€¯/g, ' ') // Narrow no-break space
       .trim();
   };
   useEffect(() => {

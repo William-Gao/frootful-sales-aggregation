@@ -1148,12 +1148,20 @@ function cleanTextContent(text: string): string {
   return text
     // Fix common encoding issues
     .replace(/â¦/g, '...')
-    .replace(/â/g, "'")
-    .replace(/â/g, "'")
-    .replace(/â/g, '"')
-    .replace(/â/g, '"')
-    .replace(/â/g, '—')
+    .replace(/â€™/g, "'")
+    .replace(/â€˜/g, "'")
+    .replace(/â€œ/g, '"')
+    .replace(/â€/g, '"')
+    .replace(/â€"/g, '—')
+    .replace(/â€"/g, '–')
     .replace(/Â/g, ' ')
+    .replace(/â€¦/g, '...')
+    // Additional common encoding issues
+    .replace(/â€¢/g, '•')
+    .replace(/Â /g, ' ')
+    .replace(/â€‹/g, '') // Zero-width space
+    .replace(/â€Š/g, ' ') // Thin space
+    .replace(/â€¯/g, ' ') // Narrow no-break space
     // Clean up extra whitespace
     .replace(/\r\n/g, '\n')
     .replace(/\r/g, '\n')
@@ -1177,6 +1185,10 @@ function convertHtmlToText(html: string): string {
     .replace(/&lt;/g, '<')
     .replace(/&gt;/g, '>')
     .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&hellip;/g, '...')
+    .replace(/&mdash;/g, '—')
+    .replace(/&ndash;/g, '–')
     // Convert HTML line breaks and paragraphs to proper formatting
     .replace(/<br\s*\/?>/gi, '\n')
     .replace(/<\/p>\s*<p[^>]*>/gi, '\n\n')
@@ -1188,13 +1200,17 @@ function convertHtmlToText(html: string): string {
     // Remove any remaining HTML tags
     .replace(/<[^>]*>/g, '')
     // Fix character encoding issues
-    .replace(/â¦/g, '...')
-    .replace(/â/g, "'")
-    .replace(/â/g, "'")
-    .replace(/â/g, '"')
-    .replace(/â/g, '"')
-    .replace(/â/g, '—')
+    .replace(/â€¦/g, '...')
+    .replace(/â€™/g, "'")
+    .replace(/â€˜/g, "'")
+    .replace(/â€œ/g, '"')
+    .replace(/â€/g, '"')
+    .replace(/â€"/g, '—')
+    .replace(/â€"/g, '–')
     .replace(/Â/g, ' ')
+    .replace(/â€¢/g, '•')
+    .replace(/Â /g, ' ')
+    .replace(/â€‹/g, '') // Zero-width space
     // Clean up extra whitespace
     .replace(/\n\s*\n\s*\n/g, '\n\n')
     .replace(/^\s+|\s+$/g, '')
