@@ -298,6 +298,16 @@ async function extractEmailFromGmail(emailId: string, userId: string): Promise<E
     console.warn('Failed to retrieve raw .eml content for email:', emailId);
   }
   
+  // Fetch raw .eml content
+  console.log('Fetching raw .eml content for email:', emailId);
+  const rawEmlContent = await fetchRawEmlContent(emailId, googleToken);
+  if (rawEmlContent) {
+    parsedEmailData.rawEmlContent = rawEmlContent;
+    console.log('Successfully retrieved raw .eml content:', rawEmlContent.length, 'characters');
+  } else {
+    console.warn('Failed to retrieve raw .eml content for email:', emailId);
+  }
+  
   return parsedEmailData;
 }
 
