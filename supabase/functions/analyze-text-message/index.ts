@@ -376,7 +376,7 @@ Extract any customer information mentioned in the message.
 If no delivery date is mentioned, omit the requestedDeliveryDate field.
 If no customer info is mentioned, omit those fields from customerInfo.
 
-If the customer asks for two roses, two premiere, three majestic, all different kinds, then do the following order:
+If the customer asks for two roses, two premiere, three majestic, all different kinds, then do the following order of 7 items:
 
 qty 1 for Rose Dozen Rainbow 40cm (IG0155)
 qty 1 for Rose Dozen Red 50cm (M2018)
