@@ -47,6 +47,9 @@ interface Attachment {
   content?: string;
   hasContent: boolean;
   extractedTextLength: number;
+  hasExtractedText?: boolean;
+  extractedText?: string;
+  storageUrl?: string;
 }
 
 interface AnalysisData {
@@ -555,7 +558,7 @@ const EmailOrdersSection: React.FC = () => {
                                 </div>
                                 <div className="text-xs text-gray-500">
                                   {attachment.mimeType} • {formatFileSize(attachment.size)}
-                                  {attachment.hasContent && (
+                                  {attachment.hasExtractedText && (
                                     <span className="ml-2 text-green-600">
                                       • Text extracted ({attachment.extractedTextLength} chars)
                                     </span>
@@ -564,11 +567,11 @@ const EmailOrdersSection: React.FC = () => {
                               </div>
                             </div>
                             <div className="flex items-center space-x-2">
-                              {attachment.hasContent && (
+                              {attachment.hasExtractedText && (
                                 <button
                                   onClick={() => {
                                     // Show extracted text in a modal or expand inline
-                                    alert(`Extracted text from ${attachment.filename}:\n\n${attachment.content?.substring(0, 500)}...`);
+                                    alert(`Extracted text from ${attachment.filename}:\n\n${attachment.extractedText?.substring(0, 500)}...`);
                                   }}
                                   className="text-blue-600 hover:text-blue-800 text-xs"
                                   title="View extracted text"
@@ -576,16 +579,17 @@ const EmailOrdersSection: React.FC = () => {
                                   <FileText className="w-4 h-4" />
                                 </button>
                               )}
-                              <button
-                                onClick={() => {
-                                  // In a real implementation, you'd download the attachment
-                                  alert('Download functionality would be implemented here');
-                                }}
-                                className="text-gray-600 hover:text-gray-800 text-xs"
-                                title="Download attachment"
-                              >
-                                <Download className="w-4 h-4" />
-                              </button>
+                              {attachment.storageUrl && (
+                                <button
+                                  onClick={() => {
+                                    window.open(attachment.storageUrl, '_blank');
+                                  }}
+                                  className="text-green-600 hover:text-green-800 text-xs"
+                                  title="View/Download file"
+                                >
+                                  <Download className="w-4 h-4" />
+                                </button>
+                              )}
                             </div>
                           </div>
                         ))}
