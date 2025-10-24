@@ -827,7 +827,7 @@ async function submitDocumentToLLMWhisperer(bytes: Uint8Array, filename: string,
 // Retrieve extracted text from LLM Whisperer
 async function retrieveExtractedText(whisperHash: string, apiKey: string): Promise<string | null> {
   try {
-    const maxAttempts = 10;
+    const maxAttempts = 20;
     const delayMs = 2000; // 2 seconds
 
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
@@ -909,7 +909,6 @@ async function analyzeEmailWithAI(emailContent: string, attachments: Attachment[
     let fullContent = `Email content:\n${emailContent}`;
 
     // Add attachment content if available
-    const attachments = attachments.filter(att => att.content);
     if (attachments.length > 0) {
       fullContent += '\n\nAttachments:\n';
       attachments.forEach((att, index) => {
