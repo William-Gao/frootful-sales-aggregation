@@ -211,7 +211,7 @@ Deno.serve(async (req) => {
 
     // Step 5: Process attachments
     console.log('Step 5: Processing attachments...');
-    const processedEmailData = await processAttachments(emailData, userId);
+    const { processedEmailData, llmWhispererResults } = await processAttachments(emailData, userId);
 
     // Step 6: Analyze email content and match items using AI (now includes delivery date and attachments)
     console.log('Step 6: Analyzing email content with AI...');
@@ -246,7 +246,8 @@ Deno.serve(async (req) => {
         aiAnalysisLogId: aiLogId,
         processingCompleted: new Date().toISOString()
       },
-      ai_analysis_log_id: aiLogId
+      ai_analysis_log_id: aiLogId,
+      llm_whisperer_data: llmWhispererResults
     };
 
     // Try to update existing record first, then insert if not found
@@ -696,18 +697,22 @@ async function refreshBusinessCentralToken(userId: string, tokenData: TokenData)
 }
 
 // Process attachments and extract text content
-async function processAttachments(emailData: EmailData, userId: string): Promise<EmailData> {
+async function processAttachments(emailData: EmailData, userId: string): Promise<{ processedEmailData: EmailData; llmWhispererResults: any }> {
   if (!emailData.attachments || emailData.attachments.length === 0) {
-    return emailData;
+    return { processedEmailData: emailData, llmWhispererResults: null };
   }
 
   const googleToken = await getValidGoogleToken(userId);
   if (!googleToken) {
     console.warn('No Google token available for downloading attachments');
-    return emailData;
+    return { processedEmailData: emailData, llmWhispererResults: null };
   }
 
   const processedAttachments: Attachment[] = [];
+  const llmWhispererResults: any = {
+    processedAt: new Date().toISOString(),
+    attachments: {}
+  };
 
   for (const attachment of emailData.attachments) {
       try {
@@ -740,7 +745,18 @@ async function processAttachments(emailData: EmailData, userId: string): Promise
         }
 
         // Extract text using LLM Whisperer PRO
-        const textContent = await extractTextWithLLMWhisperer(bytes, attachment.filename);
+        const { textContent, whispererData } = await extractTextWithLLMWhisperer(bytes, attachment.filename);
+
+        // Store LLM Whisperer results
+        llmWhispererResults.attachments[attachment.filename] = {
+          originalFilename: attachment.filename,
+          mimeType: attachment.mimeType,
+          size: attachment.size,
+          attachmentId: attachment.attachmentId,
+          whispererData: whispererData,
+          extractedTextLength: textContent.length,
+          processedAt: new Date().toISOString()
+        };
 
         processedAttachments.push({
           ...attachment,
@@ -750,53 +766,100 @@ async function processAttachments(emailData: EmailData, userId: string): Promise
         console.log(`Successfully extracted text from ${attachment.filename}: ${textContent.length} characters`);
       } catch (error) {
         console.error(`Error processing attachment ${attachment.filename}:`, error);
+        
+        // Store error information
+        llmWhispererResults.attachments[attachment.filename] = {
+          originalFilename: attachment.filename,
+          mimeType: attachment.mimeType,
+          size: attachment.size,
+          attachmentId: attachment.attachmentId,
+          error: error instanceof Error ? error.message : 'Unknown error',
+          processedAt: new Date().toISOString()
+        };
+        
         processedAttachments.push(attachment);
       }
   }
 
   return {
-    ...emailData,
-    attachments: processedAttachments
+    processedEmailData: {
+      ...emailData,
+      attachments: processedAttachments
+    },
+    llmWhispererResults
   };
 }
 
 // Extract text from files using LLM Whisperer PRO API
-async function extractTextWithLLMWhisperer(bytes: Uint8Array, filename: string): Promise<string> {
+async function extractTextWithLLMWhisperer(bytes: Uint8Array, filename: string): Promise<{ textContent: string; whispererData: any }> {
   try {
     const llmWhispererApiKey = Deno.env.get('LLM_WHISPERER_API_KEY');
     if (!llmWhispererApiKey) {
       console.warn('LLM_WHISPERER_API_KEY not found, returning empty string');
-      return Promise.resolve("");
+      return Promise.resolve({ textContent: "", whispererData: { error: "API key not found" } });
     }
 
     console.log(`Extracting text from ${filename} using LLM Whisperer PRO high_quality mode...`);
 
     // Step 1: Submit document for processing
-    const whisperHash = await submitDocumentToLLMWhisperer(bytes, filename, llmWhispererApiKey);
-    if (!whisperHash) {
+    const submitResult = await submitDocumentToLLMWhisperer(bytes, filename, llmWhispererApiKey);
+    if (!submitResult.whisperHash) {
       console.warn('Failed to submit document to LLM Whisperer, returning empty string');
-      return Promise.resolve("");
+      return Promise.resolve({ 
+        textContent: "", 
+        whispererData: { 
+          error: "Failed to submit document",
+          submitResult: submitResult
+        } 
+      });
     }
 
     // Step 2: Wait for processing and retrieve text
-    const extractedText = await retrieveExtractedText(whisperHash, llmWhispererApiKey);
-    if (!extractedText) {
+    const retrieveResult = await retrieveExtractedText(submitResult.whisperHash, llmWhispererApiKey);
+    if (!retrieveResult.extractedText) {
       console.warn('Failed to retrieve extracted text from LLM Whisperer, returning empty string');
-      return Promise.resolve("");
+      return Promise.resolve({ 
+        textContent: "", 
+        whispererData: { 
+          error: "Failed to retrieve text",
+          whisperHash: submitResult.whisperHash,
+          submitResult: submitResult,
+          retrieveResult: retrieveResult
+        } 
+      });
     }
 
-    console.log(`Successfully extracted ${extractedText.length} characters from ${filename} using LLM Whisperer`);
-    return extractedText;
+    console.log(`Successfully extracted ${retrieveResult.extractedText.length} characters from ${filename} using LLM Whisperer`);
+    
+    const whispererData = {
+      whisperHash: submitResult.whisperHash,
+      filename: filename,
+      submitResult: submitResult,
+      retrieveResult: retrieveResult,
+      extractedTextLength: retrieveResult.extractedText.length,
+      processedAt: new Date().toISOString()
+    };
+    
+    return { 
+      textContent: retrieveResult.extractedText, 
+      whispererData: whispererData 
+    };
 
   } catch (error) {
     console.error('Error using LLM Whisperer, returning empty string:', error);
     // Fall back to basic extraction
-    return Promise.resolve("");
+    return Promise.resolve({ 
+      textContent: "", 
+      whispererData: { 
+        error: error instanceof Error ? error.message : 'Unknown error',
+        processedAt: new Date().toISOString()
+      } 
+    });
   }
 }
 
 // Submit document to LLM Whisperer for processing
-async function submitDocumentToLLMWhisperer(bytes: Uint8Array, filename: string, apiKey: string): Promise<string | null> {
+async function submitDocumentToLLMWhisperer(bytes: Uint8Array, filename: string, apiKey: string): Promise<{ whisperHash: string | null; submitResponse: any }> {
   try {
     // Call LLM Whisperer v2 API
     const response = await fetch('https://llmwhisperer-api.us-central.unstract.com/api/v2/whisper', {
@@ -808,30 +871,64 @@ async function submitDocumentToLLMWhisperer(bytes: Uint8Array, filename: string,
       body: bytes
     });
 
-    if (response.status !== 202) {
-      const errorText = await response.text();
-      console.error(`LLM Whisperer API error: ${response.status} ${response.statusText}`, errorText);
-      return null;
+    const responseText = await response.text();
+    let result;
+    
+    try {
+      result = JSON.parse(responseText);
+    } catch (parseError) {
+      result = { error: 'Failed to parse response', responseText: responseText };
     }
 
-    const result = await response.json();
+    if (response.status !== 202) {
+      console.error(`LLM Whisperer API error: ${response.status} ${response.statusText}`, responseText);
+      return { 
+        whisperHash: null, 
+        submitResponse: { 
+          status: response.status, 
+          statusText: response.statusText, 
+          error: responseText,
+          result: result
+        } 
+      };
+    }
+
     console.log('Document submitted to LLM Whisperer, whisper_hash:', result.whisper_hash);
-    return result.whisper_hash;
+    return { 
+      whisperHash: result.whisper_hash, 
+      submitResponse: { 
+        status: response.status, 
+        result: result,
+        submittedAt: new Date().toISOString()
+      } 
+    };
 
   } catch (error) {
     console.error('Error submitting document to LLM Whisperer:', error);
-    return null;
+    return { 
+      whisperHash: null, 
+      submitResponse: { 
+        error: error instanceof Error ? error.message : 'Unknown error',
+        submittedAt: new Date().toISOString()
+      } 
+    };
   }
 }
 
 // Retrieve extracted text from LLM Whisperer
-async function retrieveExtractedText(whisperHash: string, apiKey: string): Promise<string | null> {
+async function retrieveExtractedText(whisperHash: string, apiKey: string): Promise<{ extractedText: string | null; retrieveData: any }> {
   try {
     const maxAttempts = 20;
     const delayMs = 2000; // 2 seconds
+    const retrieveData: any = {
+      whisperHash: whisperHash,
+      attempts: [],
+      startedAt: new Date().toISOString()
+    };
 
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
       console.log(`Checking LLM Whisperer status (attempt ${attempt}/${maxAttempts})...`);
+      const attemptStart = new Date().toISOString();
 
       // Check status
       const statusResponse = await fetch(`https://llmwhisperer-api.us-central.unstract.com/api/v2/whisper-status?whisper_hash=${whisperHash}`, {
@@ -842,11 +939,25 @@ async function retrieveExtractedText(whisperHash: string, apiKey: string): Promi
 
       if (!statusResponse.ok) {
         console.error(`Status check failed: ${statusResponse.status} ${statusResponse.statusText}`);
-        return null;
+        retrieveData.attempts.push({
+          attempt: attempt,
+          attemptStart: attemptStart,
+          error: `Status check failed: ${statusResponse.status} ${statusResponse.statusText}`,
+          attemptEnd: new Date().toISOString()
+        });
+        return { extractedText: null, retrieveData: retrieveData };
       }
 
       const statusResult = await statusResponse.json();
       console.log('LLM Whisperer status:', statusResult.status);
+      
+      retrieveData.attempts.push({
+        attempt: attempt,
+        attemptStart: attemptStart,
+        status: statusResult.status,
+        statusResult: statusResult,
+        attemptEnd: new Date().toISOString()
+      });
 
       if (statusResult.status === 'processed') {
         // Retrieve the extracted text
@@ -858,11 +969,18 @@ async function retrieveExtractedText(whisperHash: string, apiKey: string): Promi
 
         if (!textResponse.ok) {
           console.error(`Text retrieval failed: ${textResponse.status} ${textResponse.statusText}`);
-          return null;
+          retrieveData.textRetrievalError = {
+            status: textResponse.status,
+            statusText: textResponse.statusText,
+            retrievedAt: new Date().toISOString()
+          };
+          return { extractedText: null, retrieveData: retrieveData };
         }
 
         const extractedText = await textResponse.text();
-        return extractedText;
+        retrieveData.completedAt = new Date().toISOString();
+        retrieveData.extractedTextLength = extractedText.length;
+        return { extractedText: extractedText, retrieveData: retrieveData };
 
       } else if (statusResult.status === 'processing') {
         // Wait before next attempt
@@ -872,16 +990,30 @@ async function retrieveExtractedText(whisperHash: string, apiKey: string): Promi
         }
       } else if (statusResult.status === 'failed') {
         console.error('LLM Whisperer processing failed:', statusResult);
-        return null;
+        retrieveData.processingFailed = {
+          statusResult: statusResult,
+          failedAt: new Date().toISOString()
+        };
+        return { extractedText: null, retrieveData: retrieveData };
       }
     }
 
     console.warn('LLM Whisperer processing timed out after maximum attempts');
-    return null;
+    retrieveData.timedOut = {
+      maxAttempts: maxAttempts,
+      timedOutAt: new Date().toISOString()
+    };
+    return { extractedText: null, retrieveData: retrieveData };
 
   } catch (error) {
     console.error('Error retrieving extracted text from LLM Whisperer:', error);
-    return null;
+    return { 
+      extractedText: null, 
+      retrieveData: { 
+        error: error instanceof Error ? error.message : 'Unknown error',
+        errorAt: new Date().toISOString()
+      } 
+    };
   }
 }
 
