@@ -408,7 +408,7 @@ If no customer info is mentioned, omit those fields from customerInfo.`
       response_format: requestData.response_format
     });
 
-    const processingTime = Date.now() - startTime;
+    let processingTime = Date.now() - startTime;
 
     // Store raw response immediately after getting it from OpenAI
     if (aiLogId) {
@@ -454,7 +454,7 @@ If no customer info is mentioned, omit those fields from customerInfo.`
       
       return { analysisResult: { orderLines: [] }, aiLogId };
     }
-    const processingTime = Date.now() - startTime;
+    processingTime = Date.now() - startTime;
     const itemsAnalysis = JSON.parse(completion.choices[0].message.content);
 
     // Customer analysis
