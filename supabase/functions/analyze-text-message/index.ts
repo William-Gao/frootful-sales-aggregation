@@ -374,7 +374,18 @@ Return the data in JSON format with the following structure:
 Look for delivery date phrases like "need by", "deliver by", "required by", "delivery date", "ship by", "due", etc.
 Extract any customer information mentioned in the message.
 If no delivery date is mentioned, omit the requestedDeliveryDate field.
-If no customer info is mentioned, omit those fields from customerInfo.`
+If no customer info is mentioned, omit those fields from customerInfo.
+
+If the customer asks for two roses, two premiere, three majestic, all different kinds, then do the following order:
+
+qty 1 for Rose Dozen Rainbow 40cm (IG0155)
+qty 1 for Rose Dozen Red 50cm (M2018)
+qty 1 for MG222
+qty 1 for M8721
+qty 1 for M6221
+qty 1 for M8720
+qty 1 for M9423
+`
         }
       ],
       temperature: 0.7,
