@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Package, Calendar, User, Mail, Phone, MapPin, DollarSign, Clock, CheckCircle, AlertCircle, Search, Filter, Download, Eye, ExternalLink, CreditCard as Edit, Save, X, Loader2, MessageSquare, Send } from 'lucide-react';
+import { Package, Calendar, User, Mail, Phone, MapPin, DollarSign, Clock, CheckCircle, AlertCircle, Search, Filter, Download, Eye, ExternalLink, CreditCard as Edit, Save, X, Loader2, MessageSquare, Send, Paperclip, FileText, Image as ImageIcon, File as FileIcon } from 'lucide-react';
 import { supabaseClient } from '../supabaseClient';
 
 interface OrderItem {
@@ -12,13 +12,21 @@ interface OrderItem {
 interface Customer {
   id: string;
   number: string;
-  Send,
-  Paperclip,
-  Download,
-  FileText,
-  Image,
-  File
+  displayName: string;
   email: string;
+}
+
+interface Attachment {
+  filename: string;
+  mimeType: string;
+  size: number;
+  attachmentId: string;
+  content?: string;
+  hasContent: boolean;
+  extractedTextLength: number;
+  hasExtractedText?: boolean;
+  extractedText?: string;
+  storageUrl?: string;
 }
 
 interface Item {
@@ -67,6 +75,7 @@ interface Order {
   analysis_data?: AnalysisData;
   phone_number?: string;
   message_content?: string;
+  attachments?: Attachment[];
 }
 
 const OrdersSection: React.FC = () => {
@@ -228,7 +237,7 @@ const OrdersSection: React.FC = () => {
           price: item.matchedItem?.unitPrice,
           description: item.matchedItem?.number
         })) || [],
-        total_amount: emailOrder.analysis_data?.analyzedItems?.reduce((sum: number, item: AnalyzedItem) => 
+        total_amount: emailOrder.analysis_data?.analyzedItems?.reduce((sum: number, item: AnalyzedItem) =>
           sum + (item.quantity * (item.matchedItem?.unitPrice || 0)), 0),
         status: emailOrder.status,
         source: 'email',
@@ -238,7 +247,8 @@ const OrdersSection: React.FC = () => {
         processed_at: emailOrder.updated_at,
         erp_order_id: emailOrder.erp_order_id,
         erp_order_number: emailOrder.erp_order_number,
-        analysis_data: emailOrder.analysis_data
+        analysis_data: emailOrder.analysis_data,
+        attachments: emailOrder.attachments || []
       }));
 
       // Combine and sort all orders by creation date
@@ -539,6 +549,26 @@ const OrdersSection: React.FC = () => {
       return `(${cleaned.slice(0, 3)}) ${cleaned.slice(3, 6)}-${cleaned.slice(6)}`;
     }
     return phoneNumber;
+  };
+
+  const getAttachmentIcon = (mimeType: string) => {
+    if (mimeType.startsWith('image/')) {
+      return <ImageIcon className="w-4 h-4 text-blue-500" />;
+    } else if (mimeType.includes('pdf')) {
+      return <FileText className="w-4 h-4 text-red-500" />;
+    } else if (mimeType.includes('text/') || mimeType.includes('document')) {
+      return <FileText className="w-4 h-4 text-green-500" />;
+    } else {
+      return <FileIcon className="w-4 h-4 text-gray-500" />;
+    }
+  };
+
+  const formatFileSize = (bytes: number) => {
+    if (bytes === 0) return '0 Bytes';
+    const k = 1024;
+    const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
   };
 
   if (loading) {
@@ -1089,6 +1119,115 @@ const OrdersSection: React.FC = () => {
                     </div>
                   </div>
                 </div>
+
+                {/* Attachments Section */}
+                {selectedOrder.attachments && selectedOrder.attachments.length > 0 && (
+                  <div>
+                    <h4 className="text-sm font-medium text-gray-900 mb-3">
+                      Attachments ({selectedOrder.attachments.length})
+                    </h4>
+                    <div className="bg-gray-50 rounded-lg p-4">
+                      <div className="space-y-4">
+                        {selectedOrder.attachments.map((attachment, index) => (
+                          <div key={index} className="bg-white rounded-lg border p-4">
+                            <div className="flex items-start justify-between mb-3">
+                              <div className="flex items-center space-x-3">
+                                {getAttachmentIcon(attachment.mimeType)}
+                                <div>
+                                  <div className="text-sm font-medium text-gray-900">
+                                    {attachment.filename}
+                                  </div>
+                                  <div className="text-xs text-gray-500">
+                                    {attachment.mimeType} • {formatFileSize(attachment.size)}
+                                    {attachment.hasExtractedText && (
+                                      <span className="ml-2 text-green-600">
+                                        • Text extracted ({attachment.extractedTextLength} chars)
+                                      </span>
+                                    )}
+                                  </div>
+                                </div>
+                              </div>
+                              <div className="flex items-center space-x-2">
+                                {attachment.hasExtractedText && attachment.extractedText && (
+                                  <button
+                                    onClick={() => {
+                                      const textPreview = attachment.extractedText!.substring(0, 1000);
+                                      const fullText = attachment.extractedText!;
+                                      if (fullText.length > 1000) {
+                                        alert(`Extracted text from ${attachment.filename}:\n\n${textPreview}...\n\n[Text truncated - ${fullText.length} total characters]`);
+                                      } else {
+                                        alert(`Extracted text from ${attachment.filename}:\n\n${fullText}`);
+                                      }
+                                    }}
+                                    className="text-blue-600 hover:text-blue-800 text-xs px-2 py-1 rounded border border-blue-200 hover:bg-blue-50"
+                                    title="View extracted text"
+                                  >
+                                    <FileText className="w-4 h-4 inline mr-1" />
+                                    View Text
+                                  </button>
+                                )}
+                                {attachment.storageUrl && (
+                                  <button
+                                    onClick={() => {
+                                      window.open(attachment.storageUrl, '_blank');
+                                    }}
+                                    className="text-green-600 hover:text-green-800 text-xs px-2 py-1 rounded border border-green-200 hover:bg-green-50"
+                                    title="View/Download file"
+                                  >
+                                    <Download className="w-4 h-4 inline mr-1" />
+                                    Download
+                                  </button>
+                                )}
+                              </div>
+                            </div>
+
+                            {/* Image Preview */}
+                            {attachment.mimeType.startsWith('image/') && attachment.storageUrl && (
+                              <div className="mt-3">
+                                <img
+                                  src={attachment.storageUrl}
+                                  alt={attachment.filename}
+                                  className="max-w-full max-h-96 rounded-lg border border-gray-200 shadow-sm"
+                                  onError={(e) => {
+                                    e.currentTarget.style.display = 'none';
+                                  }}
+                                />
+                              </div>
+                            )}
+
+                            {/* PDF Preview Placeholder */}
+                            {attachment.mimeType === 'application/pdf' && attachment.storageUrl && (
+                              <div className="mt-3 p-4 bg-red-50 rounded-lg border border-red-200">
+                                <div className="flex items-center space-x-2 text-red-700">
+                                  <FileText className="w-5 h-5" />
+                                  <span className="text-sm font-medium">PDF Document</span>
+                                </div>
+                                <p className="text-xs text-red-600 mt-1">
+                                  Click "Download" above to view the PDF file
+                                </p>
+                              </div>
+                            )}
+
+                            {/* Other File Types */}
+                            {!attachment.mimeType.startsWith('image/') && attachment.mimeType !== 'application/pdf' && attachment.storageUrl && (
+                              <div className="mt-3 p-4 bg-gray-100 rounded-lg border border-gray-200">
+                                <div className="flex items-center space-x-2 text-gray-700">
+                                  <FileIcon className="w-5 h-5" />
+                                  <span className="text-sm font-medium">
+                                    {attachment.mimeType.split('/')[1].toUpperCase()} File
+                                  </span>
+                                </div>
+                                <p className="text-xs text-gray-600 mt-1">
+                                  Click "Download" above to view the file
+                                </p>
+                              </div>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                )}
 
                 {/* Order Status & Dates */}
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
