@@ -250,6 +250,9 @@ Deno.serve(async (req) => {
     return new Response(JSON.stringify({
       success: true,
       data: {
+        email: processedEmailData,
+        customers: customers,
+        items: items,
         matchingCustomer: matchingCustomer,
         analyzedItems: analysisResult.orderLines,
         requestedDeliveryDate: analysisResult.requestedDeliveryDate,
