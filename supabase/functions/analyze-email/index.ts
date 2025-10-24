@@ -30,6 +30,7 @@ interface EmailData {
   rawGmailResponse?: any; // Store the complete Gmail API response
   htmlBody?: string; // Store original HTML content
   textBody?: string; // Store original plain text content
+  rawEmlContent?: string; // Store raw .eml content
 }
 
 interface Attachment {
@@ -1266,38 +1267,6 @@ function cleanTextContent(text: string): string {
   return text
     // Fix common encoding issues
     .replace(/â¦/g, '...')
-      headers: {
-        Authorization: `Bearer ${googleToken}`
-      }
-    });
-    
-    if (!response.ok) {
-      console.error(`Failed to fetch raw email: ${response.status} ${response.statusText}`);
-      return null;
-    }
-    
-    const rawData = await response.json();
-    
-    if (!rawData.raw) {
-      console.error('No raw content found in Gmail API response');
-      return null;
-    }
-    
-    // Decode base64url encoded content
-    const base64Data = rawData.raw.replace(/-/g, '+').replace(/_/g, '/');
-    const paddedBase64 = base64Data + '='.repeat((4 - base64Data.length % 4) % 4);
-    const emlContent = atob(paddedBase64);
-    
-    console.log('Successfully decoded raw .eml content:', emlContent.length, 'characters');
-    return emlContent;
-    
-  } catch (error) {
-    console.error('Error fetching raw .eml content:', error);
-    return null;
-  }
-}
-
-  rawEmlContent?: string; // Store raw .eml content
     .replace(/â€™/g, "'")
     .replace(/â€˜/g, "'")
     .replace(/â€œ/g, '"')
@@ -1365,6 +1334,43 @@ function convertHtmlToText(html: string): string {
     .replace(/\n\s*\n\s*\n/g, '\n\n')
     .replace(/^\s+|\s+$/g, '')
     .trim();
+}
+
+// Fetch raw .eml content from Gmail API
+async function fetchRawEmlContent(emailId: string, googleToken: string): Promise<string | null> {
+  try {
+    console.log('Fetching raw .eml content for email:', emailId);
+    
+    const response = await fetch(`https://gmail.googleapis.com/gmail/v1/users/me/messages/${emailId}?format=raw`, {
+      headers: {
+        Authorization: `Bearer ${googleToken}`
+      }
+    });
+    
+    if (!response.ok) {
+      console.error(`Failed to fetch raw email: ${response.status} ${response.statusText}`);
+      return null;
+    }
+    
+    const rawData = await response.json();
+    
+    if (!rawData.raw) {
+      console.error('No raw content found in Gmail API response');
+      return null;
+    }
+    
+    // Decode base64url encoded content
+    const base64Data = rawData.raw.replace(/-/g, '+').replace(/_/g, '/');
+    const paddedBase64 = base64Data + '='.repeat((4 - base64Data.length % 4) % 4);
+    const emlContent = atob(paddedBase64);
+    
+    console.log('Successfully decoded raw .eml content:', emlContent.length, 'characters');
+    return emlContent;
+    
+  } catch (error) {
+    console.error('Error fetching raw .eml content:', error);
+    return null;
+  }
 }
 
 // Parse Gmail API response
