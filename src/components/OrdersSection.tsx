@@ -188,7 +188,16 @@ const OrdersSection: React.FC = () => {
       // Load email orders from database
       const { data: emailOrders, error: emailError } = await supabaseClient
         .from('email_orders')
-        .select('*')
+        .select( `id,
+    erp_order_number,
+    from_email,
+    status,
+    email_content,
+    created_at,
+    updated_at,
+    erp_order_id,
+    analysis_data,
+    attachments`)
         .order('created_at', { ascending: false });
 
       if (emailError) {
