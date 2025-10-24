@@ -12,7 +12,12 @@ interface OrderItem {
 interface Customer {
   id: string;
   number: string;
-  displayName: string;
+  Send,
+  Paperclip,
+  Download,
+  FileText,
+  Image,
+  File
   email: string;
 }
 

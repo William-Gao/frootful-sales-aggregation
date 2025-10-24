@@ -190,9 +190,24 @@ Deno.serve(async (req) => {
 
     // Step 7: Store complete email data in database
     console.log('Step 7: Storing complete email data in database...');
-    const emailContentToStore = processedEmailData.rawEmlContent || processedEmailData.body;
-    console.log('Storing email content type:', processedEmailData.rawEmlContent ? 'Raw .eml content' : 'Parsed body content');
-    console.log('Email content length:', emailContentToStore.length, 'characters');
+    
+    // Store email body (not raw .eml) for readable display
+    const emailContentToStore = processedEmailData.body;
+    console.log('Storing email body content length:', emailContentToStore.length, 'characters');
+    
+    // Prepare attachments data for storage
+    const attachmentsToStore = processedEmailData.attachments.map(att => ({
+      filename: att.filename,
+      mimeType: att.mimeType,
+      size: att.size,
+      attachmentId: att.attachmentId,
+      content: att.content || null, // Extracted text content from LLM Whisperer
+      hasContent: !!att.content,
+      extractedTextLength: att.content ? att.content.length : 0
+    }));
+    
+    console.log(`Storing ${attachmentsToStore.length} attachments:`, 
+      attachmentsToStore.map(a => `${a.filename} (${a.mimeType}, ${a.size} bytes, text: ${a.extractedTextLength} chars)`));
     
     const { data: storedEmail, error: storeError } = await supabase
       .from('email_orders')
@@ -204,6 +219,7 @@ Deno.serve(async (req) => {
         from_email: processedEmailData.from,
         to_email: processedEmailData.to,
         email_content: emailContentToStore,
+        attachments: attachmentsToStore,
         status: 'analyzed',
         analysis_data: {
           originalEmail: processedEmailData,
