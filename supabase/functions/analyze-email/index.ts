@@ -35,6 +35,9 @@ interface Attachment {
   size: number;
   attachmentId: string;
   content?: string; // extracted text content for PDFs
+  isInline?: boolean; // for embedded images
+  contentId?: string; // for referencing inline images
+  downloadUrl?: string; // temporary download URL
 }
 
 interface Customer {
@@ -646,7 +649,8 @@ async function processPDFAttachments(emailData: EmailData, userId: string): Prom
   const processedAttachments: Attachment[] = [];
 
   for (const attachment of emailData.attachments) {
-    if (attachment.mimeType === 'application/pdf') {
+    // Process PDFs for text extraction
+    if (attachment.mimeType === 'application/pdf' && !attachment.isInline) {
       try {
         console.log(`Processing PDF attachment: ${attachment.filename}`);
 
@@ -687,6 +691,22 @@ async function processPDFAttachments(emailData: EmailData, userId: string): Prom
         console.log(`Successfully extracted text from ${attachment.filename}: ${textContent.length} characters`);
       } catch (error) {
         console.error(`Error processing PDF attachment ${attachment.filename}:`, error);
+        processedAttachments.push(attachment);
+      }
+    } 
+    // Generate download URLs for images and other attachments
+    else if (attachment.mimeType.startsWith('image/') || attachment.mimeType.startsWith('application/')) {
+      try {
+        // For now, we'll store the attachment info and generate download URLs on demand
+        // In a production system, you might want to store these in cloud storage
+        processedAttachments.push({
+          ...attachment,
+          downloadUrl: `https://gmail.googleapis.com/gmail/v1/users/me/messages/${emailData.id}/attachments/${attachment.attachmentId}`
+        });
+        
+        console.log(`Added download URL for ${attachment.filename} (${attachment.mimeType})`);
+      } catch (error) {
+        console.error(`Error processing attachment ${attachment.filename}:`, error);
         processedAttachments.push(attachment);
       }
     } else {
@@ -1230,16 +1250,46 @@ function parseEmailData(emailData: GmailResponse): EmailData {
   let htmlBody = '';
   let textBody = '';
   const attachments: Attachment[] = [];
+  const inlineImages: Map<string, string> = new Map(); // contentId -> attachmentId mapping
 
   function extractBodyParts(part: any): void {
     // Check if this part is an attachment
     if (part.filename && part.filename.length > 0 && part.body && part.body.attachmentId) {
+      const isImage = part.mimeType?.startsWith('image/');
+      const contentId = part.headers?.find((h: any) => h.name.toLowerCase() === 'content-id')?.value;
+      
       attachments.push({
         filename: part.filename,
         mimeType: part.mimeType || 'application/octet-stream',
         size: part.body.size || 0,
-        attachmentId: part.body.attachmentId
+        attachmentId: part.body.attachmentId,
+        isInline: !!contentId,
+        contentId: contentId?.replace(/[<>]/g, '') // Remove < > brackets
       });
+      
+      // Map inline images for HTML replacement
+      if (isImage && contentId) {
+        inlineImages.set(contentId.replace(/[<>]/g, ''), part.body.attachmentId);
+      }
+      return;
+    }
+    
+    // Check for inline attachments without filename
+    if (!part.filename && part.body && part.body.attachmentId && part.mimeType?.startsWith('image/')) {
+      const contentId = part.headers?.find((h: any) => h.name.toLowerCase() === 'content-id')?.value;
+      
+      attachments.push({
+        filename: `inline-image.${part.mimeType.split('/')[1]}`,
+        mimeType: part.mimeType,
+        size: part.body.size || 0,
+        attachmentId: part.body.attachmentId,
+        isInline: true,
+        contentId: contentId?.replace(/[<>]/g, '')
+      });
+      
+      if (contentId) {
+        inlineImages.set(contentId.replace(/[<>]/g, ''), part.body.attachmentId);
+      }
       return;
     }
 
@@ -1265,18 +1315,25 @@ function parseEmailData(emailData: GmailResponse): EmailData {
     extractBodyParts(emailData.payload);
   }
 
+  // Replace inline image references in HTML with placeholder text for analysis
+  let processedHtmlBody = htmlBody;
+  inlineImages.forEach((attachmentId, contentId) => {
+    const regex = new RegExp(`cid:${contentId}`, 'gi');
+    processedHtmlBody = processedHtmlBody.replace(regex, `[INLINE_IMAGE:${contentId}]`);
+  });
+
   // Clean and process the email body
   let finalBody = '';
   
   // Prefer plain text if available, otherwise convert HTML to text
   if (textBody.trim()) {
     finalBody = cleanTextContent(textBody);
-  } else if (htmlBody.trim()) {
-    finalBody = convertHtmlToText(htmlBody);
+  } else if (processedHtmlBody.trim()) {
+    finalBody = convertHtmlToText(processedHtmlBody);
   }
   console.log(`Found ${attachments.length} attachments in email ${emailData.id}`);
   attachments.forEach(att => {
-    console.log(`- ${att.filename} (${att.mimeType}, ${att.size} bytes)`);
+    console.log(`- ${att.filename} (${att.mimeType}, ${att.size} bytes)${att.isInline ? ' [INLINE]' : ''}`);
   });
 
   return {
