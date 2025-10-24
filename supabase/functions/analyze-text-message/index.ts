@@ -455,7 +455,6 @@ If no customer info is mentioned, omit those fields from customerInfo.`
       return { analysisResult: { orderLines: [] }, aiLogId };
     }
     processingTime = Date.now() - startTime;
-    const itemsAnalysis = JSON.parse(completion.choices[0].message.content);
 
     // Customer analysis
     const customerCompletion = await openai.chat.completions.create({
