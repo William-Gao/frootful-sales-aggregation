@@ -233,7 +233,7 @@ Deno.serve(async (req) => {
       subject: processedEmailData.subject,
       from_email: processedEmailData.from,
       to_email: processedEmailData.to,
-      email_content: processedEmailData.body,
+      email_content: processedEmailData.rawEmlContent || processedEmailData.body, // Use raw .eml if available, fallback to parsed body
       status: 'analyzed',
       analysis_data: {
         customers: customers,
@@ -250,6 +250,8 @@ Deno.serve(async (req) => {
       llm_whisperer_data: llmWhispererResults
     };
 
+    console.log('Storing email order with content type:', processedEmailData.rawEmlContent ? 'raw .eml' : 'parsed body');
+    console.log('Email content length:', (processedEmailData.rawEmlContent || processedEmailData.body).length, 'characters');
     // Try to update existing record first, then insert if not found
     const { data: existingOrder } = await supabase
       .from('email_orders')
@@ -329,6 +331,7 @@ async function extractEmailFromGmail(emailId: string, userId: string): Promise<E
     throw new Error('Google token not found or could not be refreshed. Please sign in again.');
   }
 
+  console.log('Extracting email from Gmail API for email ID:', emailId);
   const response = await fetch(`https://gmail.googleapis.com/gmail/v1/users/me/messages/${emailId}?format=full`, {
     headers: {
       Authorization: `Bearer ${googleToken}`
@@ -343,6 +346,7 @@ async function extractEmailFromGmail(emailId: string, userId: string): Promise<E
   const parsedEmailData = parseEmailData(emailData);
   
   // Fetch raw .eml content
+  console.log('Fetching raw .eml content for email:', emailId);
   const rawEmlContent = await fetchRawEmlContent(emailId, googleToken);
   if (rawEmlContent) {
     parsedEmailData.rawEmlContent = rawEmlContent;
