@@ -39,7 +39,7 @@ interface Attachment {
   size: number;
   attachmentId: string;
   content?: string;
-  raw: string: // The raw data from gmail for display
+  raw: string; // The raw data from gmail for display
 }
 
 interface Customer {
