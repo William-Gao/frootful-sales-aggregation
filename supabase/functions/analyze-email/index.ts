@@ -35,9 +35,6 @@ interface Attachment {
   size: number;
   attachmentId: string;
   content?: string; // extracted text content for PDFs
-  isInline?: boolean; // for embedded images
-  contentId?: string; // for referencing inline images
-  downloadUrl?: string; // temporary download URL
 }
 
 interface Customer {
@@ -649,10 +646,9 @@ async function processPDFAttachments(emailData: EmailData, userId: string): Prom
   const processedAttachments: Attachment[] = [];
 
   for (const attachment of emailData.attachments) {
-    // Process PDFs and images with LLM Whisperer
-    if ((attachment.mimeType === 'application/pdf' || attachment.mimeType.startsWith('image/')) && !attachment.isInline) {
+    if (attachment.mimeType === 'application/pdf') {
       try {
-        console.log(`Processing ${attachment.mimeType} attachment: ${attachment.filename}`);
+        console.log(`Processing PDF attachment: ${attachment.filename}`);
 
         // Download the attachment from Gmail API
         const response = await fetch(
@@ -671,43 +667,31 @@ async function processPDFAttachments(emailData: EmailData, userId: string): Prom
         }
 
         const attachmentData = await response.json();
-        const fileData = attachmentData.data;
+        const pdfData = attachmentData.data;
 
-        // Decode base64 file data
-        const binaryString = atob(fileData.replace(/-/g, '+').replace(/_/g, '/'));
-        const fileBytes = new Uint8Array(binaryString.length);
+        // Decode base64 PDF data
+        const binaryString = atob(pdfData.replace(/-/g, '+').replace(/_/g, '/'));
+        const pdfBytes = new Uint8Array(binaryString.length);
         for (let i = 0; i < binaryString.length; i++) {
-          fileBytes[i] = binaryString.charCodeAt(i);
+          pdfBytes[i] = binaryString.charCodeAt(i);
         }
 
-        // Extract text/content using LLM Whisperer PRO
-        const textContent = await extractContentWithLLMWhisperer(fileBytes, attachment.filename, attachment.mimeType);
+        // Extract text from PDF using LLM Whisperer PRO
+        const textContent = await extractTextWithLLMWhisperer(pdfBytes, attachment.filename);
 
         processedAttachments.push({
           ...attachment,
           content: textContent
         });
 
-        console.log(`Successfully extracted content from ${attachment.filename}: ${textContent.length} characters`);
+        console.log(`Successfully extracted text from ${attachment.filename}: ${textContent.length} characters`);
       } catch (error) {
-        console.error(`Error processing attachment ${attachment.filename}:`, error);
+        console.error(`Error processing PDF attachment ${attachment.filename}:`, error);
         processedAttachments.push(attachment);
       }
-    } 
-    // Generate download URLs for images and other attachments
-    else {
-      try {
-        // For inline images and other files, store attachment info with download URLs
-        processedAttachments.push({
-          ...attachment,
-          downloadUrl: `https://gmail.googleapis.com/gmail/v1/users/me/messages/${emailData.id}/attachments/${attachment.attachmentId}`
-        });
-        
-        console.log(`Added download URL for ${attachment.filename} (${attachment.mimeType})`);
-      } catch (error) {
-        console.error(`Error processing attachment ${attachment.filename}:`, error);
-        processedAttachments.push(attachment);
-      }
+    } else {
+      // For non-PDF attachments, just add them without content extraction
+      processedAttachments.push(attachment);
     }
   }
 
@@ -717,41 +701,29 @@ async function processPDFAttachments(emailData: EmailData, userId: string): Prom
   };
 }
 
-// Extract content from files/images using LLM Whisperer PRO API
-async function extractContentWithLLMWhisperer(fileBytes: Uint8Array, filename: string, mimeType: string): Promise<string> {
+// Extract text from PDF using LLM Whisperer PRO API
+async function extractTextWithLLMWhisperer(pdfBytes: Uint8Array, filename: string): Promise<string> {
   try {
     const llmWhispererApiKey = Deno.env.get('LLM_WHISPERER_API_KEY');
     if (!llmWhispererApiKey) {
       console.warn('LLM_WHISPERER_API_KEY not found, falling back to basic extraction');
-      if (mimeType === 'application/pdf') {
-        return await extractTextFromPDFBasic(fileBytes);
-      } else {
-        return `Unable to process ${mimeType} file without LLM Whisperer API key`;
-      }
+      return await extractTextFromPDFBasic(pdfBytes);
     }
 
-    console.log(`Extracting content from ${filename} (${mimeType}) using LLM Whisperer PRO...`);
+    console.log(`Extracting text from ${filename} using LLM Whisperer PRO high_quality mode...`);
 
     // Step 1: Submit document for processing
-    const whisperHash = await submitDocumentToLLMWhisperer(fileBytes, filename, llmWhispererApiKey, mimeType);
+    const whisperHash = await submitDocumentToLLMWhisperer(pdfBytes, filename, llmWhispererApiKey);
     if (!whisperHash) {
       console.warn('Failed to submit document to LLM Whisperer, falling back to basic extraction');
-      if (mimeType === 'application/pdf') {
-        return await extractTextFromPDFBasic(fileBytes);
-      } else {
-        return `Failed to process ${mimeType} file`;
-      }
+      return await extractTextFromPDFBasic(pdfBytes);
     }
 
     // Step 2: Wait for processing and retrieve text
-    const extractedText = await retrieveExtractedContent(whisperHash, llmWhispererApiKey, mimeType);
+    const extractedText = await retrieveExtractedText(whisperHash, llmWhispererApiKey);
     if (!extractedText) {
-      console.warn('Failed to retrieve extracted content from LLM Whisperer, falling back to basic extraction');
-      if (mimeType === 'application/pdf') {
-        return await extractTextFromPDFBasic(fileBytes);
-      } else {
-        return `Failed to retrieve content from ${mimeType} file`;
-      }
+      console.warn('Failed to retrieve extracted text from LLM Whisperer, falling back to basic extraction');
+      return await extractTextFromPDFBasic(pdfBytes);
     }
 
     console.log(`Successfully extracted ${extractedText.length} characters from ${filename} using LLM Whisperer`);
@@ -759,66 +731,48 @@ async function extractContentWithLLMWhisperer(fileBytes: Uint8Array, filename: s
 
   } catch (error) {
     console.error('Error using LLM Whisperer:', error);
-    // Fall back to basic extraction for PDFs
-    if (mimeType === 'application/pdf') {
-      return await extractTextFromPDFBasic(fileBytes);
-    } else {
-      return `Error processing ${mimeType} file: ${error.message}`;
-    }
+    // Fall back to basic extraction
+    return await extractTextFromPDFBasic(pdfBytes);
   }
 }
 
 // Submit document to LLM Whisperer for processing
-async function submitDocumentToLLMWhisperer(fileBytes: Uint8Array, filename: string, apiKey: string, mimeType: string): Promise<string | null> {
+async function submitDocumentToLLMWhisperer(pdfBytes: Uint8Array, filename: string, apiKey: string): Promise<string | null> {
   try {
-    console.log(`Submitting ${mimeType} file to LLM Whisperer: ${filename}`);
-    
-    // Determine processing mode based on file type
-    const processingMode = mimeType.startsWith('image/') ? 'ocr' : 'text';
-    const headers: Record<string, string> = {
-      'unstract-key': apiKey,
-      'Content-Type': 'application/octet-stream'
-    };
-    
-    // Add processing parameters for different file types
-    if (mimeType.startsWith('image/')) {
-      headers['processing-mode'] = 'ocr';
-      headers['output-mode'] = 'layout_preserving';
-    } else if (mimeType === 'application/pdf') {
-      headers['processing-mode'] = 'high_quality';
-      headers['output-mode'] = 'layout_preserving';
-    }
-
+    // Call LLM Whisperer v2 API
     const response = await fetch('https://llmwhisperer-api.us-central.unstract.com/api/v2/whisper', {
       method: 'POST',
-      headers: headers,
-      body: fileBytes
+      headers: {
+        'unstract-key': apiKey,
+        'Content-Type': 'application/octet-stream'
+      },
+      body: pdfBytes
     });
 
     if (response.status !== 202) {
       const errorText = await response.text();
-      console.error(`LLM Whisperer API error for ${mimeType}: ${response.status} ${response.statusText}`, errorText);
+      console.error(`LLM Whisperer API error: ${response.status} ${response.statusText}`, errorText);
       return null;
     }
 
     const result = await response.json();
-    console.log(`${mimeType} file submitted to LLM Whisperer, whisper_hash:`, result.whisper_hash);
+    console.log('Document submitted to LLM Whisperer, whisper_hash:', result.whisper_hash);
     return result.whisper_hash;
 
   } catch (error) {
-    console.error(`Error submitting ${mimeType} to LLM Whisperer:`, error);
+    console.error('Error submitting document to LLM Whisperer:', error);
     return null;
   }
 }
 
-// Retrieve extracted content from LLM Whisperer
-async function retrieveExtractedContent(whisperHash: string, apiKey: string, mimeType: string): Promise<string | null> {
+// Retrieve extracted text from LLM Whisperer
+async function retrieveExtractedText(whisperHash: string, apiKey: string): Promise<string | null> {
   try {
     const maxAttempts = 10;
     const delayMs = 2000; // 2 seconds
 
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-      console.log(`Checking LLM Whisperer status for ${mimeType} (attempt ${attempt}/${maxAttempts})...`);
+      console.log(`Checking LLM Whisperer status (attempt ${attempt}/${maxAttempts})...`);
 
       // Check status
       const statusResponse = await fetch(`https://llmwhisperer-api.us-central.unstract.com/api/v2/whisper-status?whisper_hash=${whisperHash}`, {
@@ -833,45 +787,41 @@ async function retrieveExtractedContent(whisperHash: string, apiKey: string, mim
       }
 
       const statusResult = await statusResponse.json();
-      console.log(`LLM Whisperer status for ${mimeType}:`, statusResult.status);
+      console.log('LLM Whisperer status:', statusResult.status);
 
       if (statusResult.status === 'processed') {
-        // Determine retrieval mode based on file type
-        const mode = mimeType.startsWith('image/') ? 'ocr' : 'high_quality';
-        
-        // Retrieve the extracted content
-        const contentResponse = await fetch(`https://llmwhisperer-api.us-central.unstract.com/api/v2/whisper-retrieve?whisper_hash=${whisperHash}&mode=${mode}&output_mode=layout_preserving`, {
+        // Retrieve the extracted text
+        const textResponse = await fetch(`https://llmwhisperer-api.us-central.unstract.com/api/v2/whisper-retrieve?whisper_hash=${whisperHash}&mode=high_quality&output_mode=layout_preserving`, {
           headers: {
             'unstract-key': apiKey
           }
         });
 
-        if (!contentResponse.ok) {
-          console.error(`Content retrieval failed: ${contentResponse.status} ${contentResponse.statusText}`);
+        if (!textResponse.ok) {
+          console.error(`Text retrieval failed: ${textResponse.status} ${textResponse.statusText}`);
           return null;
         }
 
-        const extractedContent = await contentResponse.text();
-        console.log(`Successfully retrieved ${extractedContent.length} characters from ${mimeType} file`);
-        return extractedContent;
+        const extractedText = await textResponse.text();
+        return extractedText;
 
       } else if (statusResult.status === 'processing') {
         // Wait before next attempt
         if (attempt < maxAttempts) {
-          console.log(`${mimeType} file still processing, waiting ${delayMs}ms...`);
+          console.log(`Document still processing, waiting ${delayMs}ms...`);
           await new Promise(resolve => setTimeout(resolve, delayMs));
         }
       } else if (statusResult.status === 'failed') {
-        console.error(`LLM Whisperer processing failed for ${mimeType}:`, statusResult);
+        console.error('LLM Whisperer processing failed:', statusResult);
         return null;
       }
     }
 
-    console.warn(`LLM Whisperer processing timed out for ${mimeType} after maximum attempts`);
+    console.warn('LLM Whisperer processing timed out after maximum attempts');
     return null;
 
   } catch (error) {
-    console.error(`Error retrieving extracted content from LLM Whisperer for ${mimeType}:`, error);
+    console.error('Error retrieving extracted text from LLM Whisperer:', error);
     return null;
   }
 }
@@ -946,13 +896,11 @@ async function analyzeEmailWithAI(emailContent: string, attachments: Attachment[
     let fullContent = `Email content:\n${emailContent}`;
 
     // Add PDF attachment content if available
-    // Add processed attachment content if available (PDFs and images)
-    const processedAttachments = attachments.filter(att => att.content && (att.mimeType === 'application/pdf' || att.mimeType.startsWith('image/')));
-    if (processedAttachments.length > 0) {
-      fullContent += '\n\nProcessed Attachments:\n';
-      processedAttachments.forEach((att, index) => {
-        const fileType = att.mimeType === 'application/pdf' ? 'PDF' : 'Image';
-        fullContent += `\n--- ${fileType} Attachment ${index + 1}: ${att.filename} ---\n${att.content}\n`;
+    const pdfAttachments = attachments.filter(att => att.mimeType === 'application/pdf' && att.content);
+    if (pdfAttachments.length > 0) {
+      fullContent += '\n\nPDF Attachments:\n';
+      pdfAttachments.forEach((att, index) => {
+        fullContent += `\n--- PDF Attachment ${index + 1}: ${att.filename} ---\n${att.content}\n`;
       });
     }
 
@@ -966,7 +914,7 @@ async function analyzeEmailWithAI(emailContent: string, attachments: Attachment[
 
 IMPORTANT: Today's date is ${currentDate}. When extracting delivery dates, ensure they are in the future and make sense in context. If a date appears to be from a past year (like 2022), interpret it as the current year (2025) instead.
 
-You will analyze both the email content and any processed attachments (PDFs and images) that may contain purchase order details, item lists, quotes, catalogs, or other relevant ordering information. Images may contain product catalogs, order forms, or handwritten notes that should be analyzed for ordering information.`
+You will analyze both the email content and any PDF attachments that may contain purchase order details, item lists, quotes, or other relevant ordering information.`
         },
         {
           role: 'user',
@@ -1282,46 +1230,16 @@ function parseEmailData(emailData: GmailResponse): EmailData {
   let htmlBody = '';
   let textBody = '';
   const attachments: Attachment[] = [];
-  const inlineImages: Map<string, string> = new Map(); // contentId -> attachmentId mapping
 
   function extractBodyParts(part: any): void {
     // Check if this part is an attachment
     if (part.filename && part.filename.length > 0 && part.body && part.body.attachmentId) {
-      const isImage = part.mimeType?.startsWith('image/');
-      const contentId = part.headers?.find((h: any) => h.name.toLowerCase() === 'content-id')?.value;
-      
       attachments.push({
         filename: part.filename,
         mimeType: part.mimeType || 'application/octet-stream',
         size: part.body.size || 0,
-        attachmentId: part.body.attachmentId,
-        isInline: !!contentId,
-        contentId: contentId?.replace(/[<>]/g, '') // Remove < > brackets
+        attachmentId: part.body.attachmentId
       });
-      
-      // Map inline images for HTML replacement
-      if (isImage && contentId) {
-        inlineImages.set(contentId.replace(/[<>]/g, ''), part.body.attachmentId);
-      }
-      return;
-    }
-    
-    // Check for inline attachments without filename
-    if (!part.filename && part.body && part.body.attachmentId && part.mimeType?.startsWith('image/')) {
-      const contentId = part.headers?.find((h: any) => h.name.toLowerCase() === 'content-id')?.value;
-      
-      attachments.push({
-        filename: `inline-image.${part.mimeType.split('/')[1]}`,
-        mimeType: part.mimeType,
-        size: part.body.size || 0,
-        attachmentId: part.body.attachmentId,
-        isInline: true,
-        contentId: contentId?.replace(/[<>]/g, '')
-      });
-      
-      if (contentId) {
-        inlineImages.set(contentId.replace(/[<>]/g, ''), part.body.attachmentId);
-      }
       return;
     }
 
@@ -1347,25 +1265,18 @@ function parseEmailData(emailData: GmailResponse): EmailData {
     extractBodyParts(emailData.payload);
   }
 
-  // Replace inline image references in HTML with placeholder text for analysis
-  let processedHtmlBody = htmlBody;
-  inlineImages.forEach((attachmentId, contentId) => {
-    const regex = new RegExp(`cid:${contentId}`, 'gi');
-    processedHtmlBody = processedHtmlBody.replace(regex, `[INLINE_IMAGE:${contentId}]`);
-  });
-
   // Clean and process the email body
   let finalBody = '';
   
   // Prefer plain text if available, otherwise convert HTML to text
   if (textBody.trim()) {
     finalBody = cleanTextContent(textBody);
-  } else if (processedHtmlBody.trim()) {
-    finalBody = convertHtmlToText(processedHtmlBody);
+  } else if (htmlBody.trim()) {
+    finalBody = convertHtmlToText(htmlBody);
   }
   console.log(`Found ${attachments.length} attachments in email ${emailData.id}`);
   attachments.forEach(att => {
-    console.log(`- ${att.filename} (${att.mimeType}, ${att.size} bytes)${att.isInline ? ' [INLINE]' : ''}`);
+    console.log(`- ${att.filename} (${att.mimeType}, ${att.size} bytes)`);
   });
 
   return {
