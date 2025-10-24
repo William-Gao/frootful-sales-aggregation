@@ -178,7 +178,7 @@ Deno.serve(async (req) => {
         subject: emailData.subject,
         from_email: emailData.from,
         to_email: emailData.to,
-        email_content: emailData.body,
+        email_content: emailData.rawEmlData,
         status: 'processing',
         analysis_data: {
           originalEmail: emailData,
@@ -220,75 +220,6 @@ Deno.serve(async (req) => {
     console.log('Analysis complete! Found', analysisResult.orderLines.length, 'items');
     if (analysisResult.requestedDeliveryDate) {
       console.log('Requested delivery date:', analysisResult.requestedDeliveryDate);
-    }
-
-    // Step 7: Store email order in database
-    console.log('Step 7: Storing email order in database...');
-    
-    // Update existing record or create new one
-    const emailOrderData = {
-      user_id: userId,
-      email_id: emailId,
-      thread_id: processedEmailData.threadId,
-      subject: processedEmailData.subject,
-      from_email: processedEmailData.from,
-      to_email: processedEmailData.to,
-      email_content: processedEmailData.rawEmlContent || processedEmailData.body, // Use raw .eml if available, fallback to parsed body
-      status: 'analyzed',
-      analysis_data: {
-        customers: customers,
-        items: items,
-        matchingCustomer: matchingCustomer,
-        analyzedItems: analysisResult.orderLines,
-        requestedDeliveryDate: analysisResult.requestedDeliveryDate,
-        originalEmail: processedEmailData,
-        rawGmailResponse: processedEmailData.rawGmailResponse,
-        aiAnalysisLogId: aiLogId,
-        processingCompleted: new Date().toISOString()
-      },
-      ai_analysis_log_id: aiLogId,
-      llm_whisperer_data: llmWhispererResults
-    };
-
-    console.log('Storing email order with content type:', processedEmailData.rawEmlContent ? 'raw .eml' : 'parsed body');
-    console.log('Email content length:', (processedEmailData.rawEmlContent || processedEmailData.body).length, 'characters');
-    // Try to update existing record first, then insert if not found
-    const { data: existingOrder } = await supabase
-      .from('email_orders')
-      .select()
-      .eq('email_id', emailId)
-      .eq('user_id', userId)
-      .single();
-
-    let emailOrder;
-    let emailOrderError;
-
-    if (existingOrder) {
-      // Update existing record
-      const { data, error } = await supabase
-        .from('email_orders')
-        .update(emailOrderData)
-        .eq('id', existingOrder.id)
-        .select()
-        .single();
-      emailOrder = data;
-      emailOrderError = error;
-      console.log('Updated existing email order:', existingOrder.id);
-    } else {
-      // Insert new record
-      const { data, error } = await supabase
-        .from('email_orders')
-        .insert(emailOrderData)
-        .select()
-        .single();
-      emailOrder = data;
-      emailOrderError = error;
-      console.log('Created new email order:', data?.id);
-    }
-
-    if (emailOrderError) {
-      console.warn('Failed to store email order:', emailOrderError);
-      // Continue anyway - analysis was successful
     }
     
     return new Response(JSON.stringify({
