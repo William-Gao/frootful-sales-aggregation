@@ -203,7 +203,7 @@ Deno.serve(async (req) => {
       mimeType: att.mimeType,
       size: att.size,
       attachmentId: att.attachmentId,
-      content: att.content || null, // Extracted text content from LLM Whisperer
+      content: att.raw,
       hasContent: !!att.content,
       extractedTextLength: att.content ? att.content.length : 0
     }));
