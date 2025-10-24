@@ -37,7 +37,7 @@ interface Attachment {
   mimeType: string;
   size: number;
   attachmentId: string;
-  content?: string; // extracted text content for PDFs
+  content?: string;
 }
 
 interface Customer {
@@ -209,9 +209,9 @@ Deno.serve(async (req) => {
     console.log('Step 4: Fetching items...');
     const items = await fetchItemsFromBC(userId);
 
-    // Step 5: Process PDF attachments
-    console.log('Step 5: Processing PDF attachments...');
-    const processedEmailData = await processPDFAttachments(emailData, userId);
+    // Step 5: Process attachments
+    console.log('Step 5: Processing attachments...');
+    const processedEmailData = await processAttachments(emailData, userId);
 
     // Step 6: Analyze email content and match items using AI (now includes delivery date and attachments)
     console.log('Step 6: Analyzing email content with AI...');
@@ -695,8 +695,8 @@ async function refreshBusinessCentralToken(userId: string, tokenData: TokenData)
   }
 }
 
-// Process PDF attachments and extract text content
-async function processPDFAttachments(emailData: EmailData, userId: string): Promise<EmailData> {
+// Process attachments and extract text content
+async function processAttachments(emailData: EmailData, userId: string): Promise<EmailData> {
   if (!emailData.attachments || emailData.attachments.length === 0) {
     return emailData;
   }
@@ -710,9 +710,8 @@ async function processPDFAttachments(emailData: EmailData, userId: string): Prom
   const processedAttachments: Attachment[] = [];
 
   for (const attachment of emailData.attachments) {
-    if (attachment.mimeType === 'application/pdf') {
       try {
-        console.log(`Processing PDF attachment: ${attachment.filename}`);
+        console.log(`Processing attachment: ${attachment.filename}`);
 
         // Download the attachment from Gmail API
         const response = await fetch(
@@ -731,17 +730,17 @@ async function processPDFAttachments(emailData: EmailData, userId: string): Prom
         }
 
         const attachmentData = await response.json();
-        const pdfData = attachmentData.data;
+        const data = attachmentData.data;
 
-        // Decode base64 PDF data
-        const binaryString = atob(pdfData.replace(/-/g, '+').replace(/_/g, '/'));
-        const pdfBytes = new Uint8Array(binaryString.length);
+        // Decode base64 data
+        const binaryString = atob(data.replace(/-/g, '+').replace(/_/g, '/'));
+        const bytes = new Uint8Array(binaryString.length);
         for (let i = 0; i < binaryString.length; i++) {
-          pdfBytes[i] = binaryString.charCodeAt(i);
+          bytes[i] = binaryString.charCodeAt(i);
         }
 
-        // Extract text from PDF using LLM Whisperer PRO
-        const textContent = await extractTextWithLLMWhisperer(pdfBytes, attachment.filename);
+        // Extract text using LLM Whisperer PRO
+        const textContent = await extractTextWithLLMWhisperer(bytes, attachment.filename);
 
         processedAttachments.push({
           ...attachment,
@@ -750,13 +749,9 @@ async function processPDFAttachments(emailData: EmailData, userId: string): Prom
 
         console.log(`Successfully extracted text from ${attachment.filename}: ${textContent.length} characters`);
       } catch (error) {
-        console.error(`Error processing PDF attachment ${attachment.filename}:`, error);
+        console.error(`Error processing attachment ${attachment.filename}:`, error);
         processedAttachments.push(attachment);
       }
-    } else {
-      // For non-PDF attachments, just add them without content extraction
-      processedAttachments.push(attachment);
-    }
   }
 
   return {
@@ -765,43 +760,43 @@ async function processPDFAttachments(emailData: EmailData, userId: string): Prom
   };
 }
 
-// Extract text from PDF using LLM Whisperer PRO API
-async function extractTextWithLLMWhisperer(pdfBytes: Uint8Array, filename: string): Promise<string> {
+// Extract text from files using LLM Whisperer PRO API
+async function extractTextWithLLMWhisperer(bytes: Uint8Array, filename: string): Promise<string> {
   try {
     const llmWhispererApiKey = Deno.env.get('LLM_WHISPERER_API_KEY');
     if (!llmWhispererApiKey) {
-      console.warn('LLM_WHISPERER_API_KEY not found, falling back to basic extraction');
-      return await extractTextFromPDFBasic(pdfBytes);
+      console.warn('LLM_WHISPERER_API_KEY not found, returning empty string');
+      return Promise.resolve("");
     }
 
     console.log(`Extracting text from ${filename} using LLM Whisperer PRO high_quality mode...`);
 
     // Step 1: Submit document for processing
-    const whisperHash = await submitDocumentToLLMWhisperer(pdfBytes, filename, llmWhispererApiKey);
+    const whisperHash = await submitDocumentToLLMWhisperer(bytes, filename, llmWhispererApiKey);
     if (!whisperHash) {
-      console.warn('Failed to submit document to LLM Whisperer, falling back to basic extraction');
-      return await extractTextFromPDFBasic(pdfBytes);
+      console.warn('Failed to submit document to LLM Whisperer, returning empty string');
+      return Promise.resolve("");
     }
 
     // Step 2: Wait for processing and retrieve text
     const extractedText = await retrieveExtractedText(whisperHash, llmWhispererApiKey);
     if (!extractedText) {
-      console.warn('Failed to retrieve extracted text from LLM Whisperer, falling back to basic extraction');
-      return await extractTextFromPDFBasic(pdfBytes);
+      console.warn('Failed to retrieve extracted text from LLM Whisperer, returning empty string');
+      return Promise.resolve("");
     }
 
     console.log(`Successfully extracted ${extractedText.length} characters from ${filename} using LLM Whisperer`);
     return extractedText;
 
   } catch (error) {
-    console.error('Error using LLM Whisperer:', error);
+    console.error('Error using LLM Whisperer, returning empty string:', error);
     // Fall back to basic extraction
-    return await extractTextFromPDFBasic(pdfBytes);
+    return Promise.resolve("");
   }
 }
 
 // Submit document to LLM Whisperer for processing
-async function submitDocumentToLLMWhisperer(pdfBytes: Uint8Array, filename: string, apiKey: string): Promise<string | null> {
+async function submitDocumentToLLMWhisperer(bytes: Uint8Array, filename: string, apiKey: string): Promise<string | null> {
   try {
     // Call LLM Whisperer v2 API
     const response = await fetch('https://llmwhisperer-api.us-central.unstract.com/api/v2/whisper', {
@@ -810,7 +805,7 @@ async function submitDocumentToLLMWhisperer(pdfBytes: Uint8Array, filename: stri
         'unstract-key': apiKey,
         'Content-Type': 'application/octet-stream'
       },
-      body: pdfBytes
+      body: bytes
     });
 
     if (response.status !== 202) {
@@ -890,52 +885,6 @@ async function retrieveExtractedText(whisperHash: string, apiKey: string): Promi
   }
 }
 
-// Fallback basic PDF text extraction (original implementation)
-async function extractTextFromPDFBasic(pdfBytes: Uint8Array): Promise<string> {
-  try {
-    console.log('Using basic PDF text extraction as fallback');
-
-    // Convert to string for basic text extraction
-    const pdfString = new TextDecoder('latin1').decode(pdfBytes);
-
-    // Very basic text extraction - look for text between stream objects
-    const textMatches = pdfString.match(/BT\s+.*?ET/gs) || [];
-    const extractedTexts: string[] = [];
-
-    for (const match of textMatches) {
-      // Extract text from Tj and TJ operators
-      const tjMatches = match.match(/\(([^)]*)\)\s*Tj/g) || [];
-      const tjTextMatches = match.match(/\[([^\]]*)\]\s*TJ/g) || [];
-
-      for (const tjMatch of tjMatches) {
-        const text = tjMatch.match(/\(([^)]*)\)/)?.[1];
-        if (text) {
-          extractedTexts.push(text);
-        }
-      }
-
-      for (const tjTextMatch of tjTextMatches) {
-        const arrayContent = tjTextMatch.match(/\[([^\]]*)\]/)?.[1];
-        if (arrayContent) {
-          const textParts = arrayContent.match(/\(([^)]*)\)/g) || [];
-          for (const part of textParts) {
-            const text = part.match(/\(([^)]*)\)/)?.[1];
-            if (text) {
-              extractedTexts.push(text);
-            }
-          }
-        }
-      }
-    }
-
-    const result = extractedTexts.join(' ').trim();
-    return result || 'Unable to extract text from PDF';
-  } catch (error) {
-    console.error('Error extracting text from PDF:', error);
-    return 'Error extracting text from PDF';
-  }
-}
-
 // Analyze email content with AI - now includes delivery date extraction, current date, and attachments
 async function analyzeEmailWithAI(emailContent: string, attachments: Attachment[], items: Item[], userId: string, emailId: string): Promise<{ analysisResult: AnalysisResult; aiLogId: string }> {
   if (items.length === 0) {
@@ -959,12 +908,12 @@ async function analyzeEmailWithAI(emailContent: string, attachments: Attachment[
     // Prepare content including both email and attachment text
     let fullContent = `Email content:\n${emailContent}`;
 
-    // Add PDF attachment content if available
-    const pdfAttachments = attachments.filter(att => att.mimeType === 'application/pdf' && att.content);
-    if (pdfAttachments.length > 0) {
-      fullContent += '\n\nPDF Attachments:\n';
-      pdfAttachments.forEach((att, index) => {
-        fullContent += `\n--- PDF Attachment ${index + 1}: ${att.filename} ---\n${att.content}\n`;
+    // Add attachment content if available
+    const attachments = attachments.filter(att => att.content);
+    if (attachments.length > 0) {
+      fullContent += '\n\nAttachments:\n';
+      attachments.forEach((att, index) => {
+        fullContent += `\n--- Attachment ${index + 1}: ${att.filename} ---\n${att.content}\n`;
       });
     }
 
@@ -974,15 +923,15 @@ async function analyzeEmailWithAI(emailContent: string, attachments: Attachment[
       messages: [
         {
           role: 'system',
-          content: `You are a helpful assistant that extracts purchase order information from emails and their PDF attachments, then matches them to a list of available items. Here is the list of available items: ${JSON.stringify(itemsList)}
+          content: `You are a helpful assistant that extracts purchase order information from emails and their attachments, then matches them to a list of available items. Here is the list of available items: ${JSON.stringify(itemsList)}
 
 IMPORTANT: Today's date is ${currentDate}. When extracting delivery dates, ensure they are in the future and make sense in context. If a date appears to be from a past year (like 2022), interpret it as the current year (2025) instead.
 
-You will analyze both the email content and any PDF attachments that may contain purchase order details, item lists, quotes, or other relevant ordering information.`
+You will analyze both the email content and any attachments that may contain purchase order details, item lists, quotes, or other relevant ordering information.`
         },
         {
           role: 'user',
-          content: `Extract products with quantities and requested delivery date from this email and its PDF attachments. Match them to the available items list. For each product found, find the best matching item from the available items list.
+          content: `Extract products with quantities and requested delivery date from this email and its attachments. Match them to the available items list. For each product found, find the best matching item from the available items list.
 
 ${fullContent}
 
