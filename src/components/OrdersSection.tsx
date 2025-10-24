@@ -13,9 +13,7 @@ interface Customer {
   id: string;
   number: string;
   displayName: string;
-  FileText,
-  Image as ImageIcon,
-  Download
+  email: string;
 }
 
 interface Item {
@@ -64,6 +62,13 @@ interface Order {
   analysis_data?: AnalysisData;
   phone_number?: string;
   message_content?: string;
+}
+
+interface Attachment {
+  filename: string;
+  mimeType: string;
+  size: number;
+  attachmentId: string;
 }
 
 const OrdersSection: React.FC = () => {
@@ -148,6 +153,141 @@ const OrdersSection: React.FC = () => {
       .replace(/â€¯/g, ' ') // Narrow no-break space
       .trim();
   };
+
+  const formatFileSize = (bytes: number): string => {
+    if (bytes === 0) return '0 Bytes';
+    const k = 1024;
+    const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+  };
+
+  const viewAttachment = async (attachment: Attachment, emailId?: string) => {
+    if (!attachment.mimeType.startsWith('image/') || !emailId) return;
+    
+    try {
+      const { data: { session } } = await supabaseClient.auth.getSession();
+      if (!session) return;
+
+      // Get Google token and download the image
+      const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/token-manager?provider=google`, {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${session.access_token}`,
+          'Content-Type': 'application/json'
+        }
+      });
+
+      if (!response.ok) return;
+
+      const result = await response.json();
+      if (!result.success || !result.tokens?.[0]?.access_token) return;
+
+      const googleToken = result.tokens[0].access_token;
+      
+      // Download the attachment
+      const attachmentResponse = await fetch(
+        `https://gmail.googleapis.com/gmail/v1/users/me/messages/${emailId}/attachments/${attachment.attachmentId}`,
+        {
+          headers: {
+            Authorization: `Bearer ${googleToken}`
+          }
+        }
+      );
+
+      if (!attachmentResponse.ok) return;
+
+      const attachmentData = await attachmentResponse.json();
+      const imageData = attachmentData.data;
+      
+      // Convert base64 to blob and create object URL
+      const binaryString = atob(imageData.replace(/-/g, '+').replace(/_/g, '/'));
+      const bytes = new Uint8Array(binaryString.length);
+      for (let i = 0; i < binaryString.length; i++) {
+        bytes[i] = binaryString.charCodeAt(i);
+      }
+      
+      const blob = new Blob([bytes], { type: attachment.mimeType });
+      const imageUrl = URL.createObjectURL(blob);
+      
+      // Open in new window
+      const newWindow = window.open('', '_blank');
+      if (newWindow) {
+        newWindow.document.write(`
+          <html>
+            <head><title>${attachment.filename}</title></head>
+            <body style="margin:0;padding:20px;background:#f5f5f5;display:flex;justify-content:center;align-items:center;min-height:100vh;">
+              <img src="${imageUrl}" alt="${attachment.filename}" style="max-width:100%;max-height:100%;object-fit:contain;" />
+            </body>
+          </html>
+        `);
+      }
+    } catch (error) {
+      console.error('Error viewing attachment:', error);
+    }
+  };
+
+  const downloadAttachment = async (attachment: Attachment, emailId?: string) => {
+    if (!emailId) return;
+    
+    try {
+      const { data: { session } } = await supabaseClient.auth.getSession();
+      if (!session) return;
+
+      // Get Google token
+      const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/token-manager?provider=google`, {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${session.access_token}`,
+          'Content-Type': 'application/json'
+        }
+      });
+
+      if (!response.ok) return;
+
+      const result = await response.json();
+      if (!result.success || !result.tokens?.[0]?.access_token) return;
+
+      const googleToken = result.tokens[0].access_token;
+      
+      // Download the attachment
+      const attachmentResponse = await fetch(
+        `https://gmail.googleapis.com/gmail/v1/users/me/messages/${emailId}/attachments/${attachment.attachmentId}`,
+        {
+          headers: {
+            Authorization: `Bearer ${googleToken}`
+          }
+        }
+      );
+
+      if (!attachmentResponse.ok) return;
+
+      const attachmentData = await attachmentResponse.json();
+      const fileData = attachmentData.data;
+      
+      // Convert base64 to blob
+      const binaryString = atob(fileData.replace(/-/g, '+').replace(/_/g, '/'));
+      const bytes = new Uint8Array(binaryString.length);
+      for (let i = 0; i < binaryString.length; i++) {
+        bytes[i] = binaryString.charCodeAt(i);
+      }
+      
+      const blob = new Blob([bytes], { type: attachment.mimeType });
+      
+      // Create download link
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = attachment.filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      console.error('Error downloading attachment:', error);
+    }
+  };
+
   useEffect(() => {
     loadOrders();
   }, []);
