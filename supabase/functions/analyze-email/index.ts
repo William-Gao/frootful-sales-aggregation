@@ -39,6 +39,7 @@ interface Attachment {
   size: number;
   attachmentId: string;
   content?: string;
+  raw: string: // The raw data from gmail for display
 }
 
 interface Customer {
@@ -711,7 +712,7 @@ async function processAttachments(emailData: EmailData, userId: string): Promise
 
         const attachmentData = await response.json();
         const data = attachmentData.data;
-
+        console.log('This is the raw attachment data from google: ', data);
         // Decode base64 data
         const binaryString = atob(data.replace(/-/g, '+').replace(/_/g, '/'));
         const bytes = new Uint8Array(binaryString.length);
@@ -735,7 +736,8 @@ async function processAttachments(emailData: EmailData, userId: string): Promise
 
         processedAttachments.push({
           ...attachment,
-          content: textContent
+          content: textContent,
+          raw: data
         });
 
         console.log(`Successfully extracted text from ${attachment.filename}: ${textContent.length} characters`);
