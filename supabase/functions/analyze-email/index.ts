@@ -203,8 +203,10 @@ Deno.serve(async (req) => {
       mimeType: att.mimeType,
       size: att.size,
       attachmentId: att.attachmentId,
-      content: att.raw,
-      hasContent: !!att.content,
+      storageUrl: att.storageUrl,
+      extractedText: att.content, // LLM Whisperer text for analysis
+      hasStorageUrl: !!att.storageUrl,
+      hasExtractedText: !!att.content,
       extractedTextLength: att.content ? att.content.length : 0
     }));
     
@@ -720,6 +722,11 @@ async function processAttachments(emailData: EmailData, userId: string): Promise
           bytes[i] = binaryString.charCodeAt(i);
         }
 
+        // Upload to Supabase Storage
+        const storageUrl = await uploadAttachmentToStorage(bytes, attachment.filename, userId, emailData.id);
+        if (!storageUrl) {
+          console.warn(`Failed to upload ${attachment.filename} to storage`);
+        }
         // Extract text using LLM Whisperer PRO
         const { textContent, whispererData } = await extractTextWithLLMWhisperer(bytes, attachment.filename);
 
@@ -737,7 +744,7 @@ async function processAttachments(emailData: EmailData, userId: string): Promise
         processedAttachments.push({
           ...attachment,
           content: textContent,
-          raw: data
+          storageUrl: storageUrl // Supabase Storage URL
         });
 
         console.log(`Successfully extracted text from ${attachment.filename}: ${textContent.length} characters`);
@@ -1021,7 +1028,9 @@ async function analyzeEmailWithAI(emailContent: string, attachments: Attachment[
     if (attachments.length > 0) {
       fullContent += '\n\nAttachments:\n';
       attachments.forEach((att, index) => {
-        fullContent += `\n--- Attachment ${index + 1}: ${att.filename} ---\n${att.content}\n`;
+        if (att.content) {
+          fullContent += `\n--- Attachment ${index + 1}: ${att.filename} ---\n${att.content}\n`;
+        }
       });
     }
 
@@ -1262,6 +1271,68 @@ async function decrypt(encryptedText: string): Promise<string> {
   );
   
   return decoder.decode(decrypted);
+}
+
+// Upload attachment to Supabase Storage
+async function uploadAttachmentToStorage(bytes: Uint8Array, filename: string, userId: string, emailId: string): Promise<string | null> {
+  try {
+    console.log(`Uploading ${filename} to Supabase Storage...`);
+    
+    // Create a unique path for the attachment
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+    const sanitizedFilename = filename.replace(/[^a-zA-Z0-9.-]/g, '_');
+    const storagePath = `attachments/${userId}/${emailId}/${timestamp}_${sanitizedFilename}`;
+    
+    // Upload to Supabase Storage
+    const { data, error } = await supabase.storage
+      .from('email-attachments')
+      .upload(storagePath, bytes, {
+        contentType: getMimeTypeFromFilename(filename),
+        upsert: false
+      });
+
+    if (error) {
+      console.error('Error uploading to Supabase Storage:', error);
+      return null;
+    }
+
+    console.log('Successfully uploaded to storage:', data.path);
+
+    // Create a signed URL valid for 30 days
+    const { data: signedUrlData, error: signedUrlError } = await supabase.storage
+      .from('email-attachments')
+      .createSignedUrl(data.path, 30 * 24 * 60 * 60); // 30 days in seconds
+
+    if (signedUrlError) {
+      console.error('Error creating signed URL:', signedUrlError);
+      return null;
+    }
+
+    console.log('Created signed URL for:', filename);
+    return signedUrlData.signedUrl;
+
+  } catch (error) {
+    console.error('Error in uploadAttachmentToStorage:', error);
+    return null;
+  }
+}
+
+// Helper function to get MIME type from filename
+function getMimeTypeFromFilename(filename: string): string {
+  const ext = filename.toLowerCase().split('.').pop();
+  const mimeTypes: Record<string, string> = {
+    'pdf': 'application/pdf',
+    'jpg': 'image/jpeg',
+    'jpeg': 'image/jpeg',
+    'png': 'image/png',
+    'gif': 'image/gif',
+    'txt': 'text/plain',
+    'doc': 'application/msword',
+    'docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    'xls': 'application/vnd.ms-excel',
+    'xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+  };
+  return mimeTypes[ext || ''] || 'application/octet-stream';
 }
 
 // Clean text content and fix encoding issues
