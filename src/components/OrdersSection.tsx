@@ -13,7 +13,9 @@ interface Customer {
   id: string;
   number: string;
   displayName: string;
-  email: string;
+  FileText,
+  Image as ImageIcon,
+  Download
 }
 
 interface Item {
