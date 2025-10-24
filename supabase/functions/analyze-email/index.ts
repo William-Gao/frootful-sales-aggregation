@@ -340,7 +340,18 @@ async function extractEmailFromGmail(emailId: string, userId: string): Promise<E
   }
   
   const emailData: GmailResponse = await response.json();
-  return parseEmailData(emailData);
+  const parsedEmailData = parseEmailData(emailData);
+  
+  // Fetch raw .eml content
+  const rawEmlContent = await fetchRawEmlContent(emailId, googleToken);
+  if (rawEmlContent) {
+    parsedEmailData.rawEmlContent = rawEmlContent;
+    console.log('Successfully retrieved raw .eml content:', rawEmlContent.length, 'characters');
+  } else {
+    console.warn('Failed to retrieve raw .eml content for email:', emailId);
+  }
+  
+  return parsedEmailData;
 }
 
 // Fetch customers from Business Central directly
@@ -1292,6 +1303,38 @@ function cleanTextContent(text: string): string {
   return text
     // Fix common encoding issues
     .replace(/â¦/g, '...')
+      headers: {
+        Authorization: `Bearer ${googleToken}`
+      }
+    });
+    
+    if (!response.ok) {
+      console.error(`Failed to fetch raw email: ${response.status} ${response.statusText}`);
+      return null;
+    }
+    
+    const rawData = await response.json();
+    
+    if (!rawData.raw) {
+      console.error('No raw content found in Gmail API response');
+      return null;
+    }
+    
+    // Decode base64url encoded content
+    const base64Data = rawData.raw.replace(/-/g, '+').replace(/_/g, '/');
+    const paddedBase64 = base64Data + '='.repeat((4 - base64Data.length % 4) % 4);
+    const emlContent = atob(paddedBase64);
+    
+    console.log('Successfully decoded raw .eml content:', emlContent.length, 'characters');
+    return emlContent;
+    
+  } catch (error) {
+    console.error('Error fetching raw .eml content:', error);
+    return null;
+  }
+}
+
+  rawEmlContent?: string; // Store raw .eml content
     .replace(/â€™/g, "'")
     .replace(/â€˜/g, "'")
     .replace(/â€œ/g, '"')
