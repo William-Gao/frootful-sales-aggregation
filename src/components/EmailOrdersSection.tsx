@@ -530,6 +530,116 @@ const EmailOrdersSection: React.FC = () => {
                   </div>
                 </div>
 
+                {/* Attachments Section */}
+                {selectedOrder.attachments && selectedOrder.attachments.length > 0 && (
+                  <div>
+                    <h4 className="text-sm font-medium text-gray-900 mb-3">
+                      Attachments ({selectedOrder.attachments.length})
+                    </h4>
+                    <div className="bg-gray-50 rounded-lg p-4">
+                      <div className="space-y-4">
+                        {selectedOrder.attachments.map((attachment, index) => (
+                          <div key={index} className="bg-white rounded-lg border p-4">
+                            <div className="flex items-start justify-between mb-3">
+                              <div className="flex items-center space-x-3">
+                                {getAttachmentIcon(attachment.mimeType)}
+                                <div>
+                                  <div className="text-sm font-medium text-gray-900">
+                                    {attachment.filename}
+                                  </div>
+                                  <div className="text-xs text-gray-500">
+                                    {attachment.mimeType} • {formatFileSize(attachment.size)}
+                                    {attachment.hasExtractedText && (
+                                      <span className="ml-2 text-green-600">
+                                        • Text extracted ({attachment.extractedTextLength} chars)
+                                      </span>
+                                    )}
+                                  </div>
+                                </div>
+                              </div>
+                              <div className="flex items-center space-x-2">
+                                {attachment.hasExtractedText && attachment.extractedText && (
+                                  <button
+                                    onClick={() => {
+                                      // Show extracted text in a modal or alert
+                                      const textPreview = attachment.extractedText!.substring(0, 1000);
+                                      const fullText = attachment.extractedText!;
+                                      if (fullText.length > 1000) {
+                                        alert(`Extracted text from ${attachment.filename}:\n\n${textPreview}...\n\n[Text truncated - ${fullText.length} total characters]`);
+                                      } else {
+                                        alert(`Extracted text from ${attachment.filename}:\n\n${fullText}`);
+                                      }
+                                    }}
+                                    className="text-blue-600 hover:text-blue-800 text-xs px-2 py-1 rounded border border-blue-200 hover:bg-blue-50"
+                                    title="View extracted text"
+                                  >
+                                    <FileText className="w-4 h-4 inline mr-1" />
+                                    View Text
+                                  </button>
+                                )}
+                                {attachment.storageUrl && (
+                                  <button
+                                    onClick={() => {
+                                      window.open(attachment.storageUrl, '_blank');
+                                    }}
+                                    className="text-green-600 hover:text-green-800 text-xs px-2 py-1 rounded border border-green-200 hover:bg-green-50"
+                                    title="View/Download file"
+                                  >
+                                    <Download className="w-4 h-4 inline mr-1" />
+                                    Download
+                                  </button>
+                                )}
+                              </div>
+                            </div>
+                            
+                            {/* Image Preview */}
+                            {attachment.mimeType.startsWith('image/') && attachment.storageUrl && (
+                              <div className="mt-3">
+                                <img
+                                  src={attachment.storageUrl}
+                                  alt={attachment.filename}
+                                  className="max-w-full max-h-96 rounded-lg border border-gray-200 shadow-sm"
+                                  onError={(e) => {
+                                    // Hide image if it fails to load (e.g., expired URL)
+                                    e.currentTarget.style.display = 'none';
+                                  }}
+                                />
+                              </div>
+                            )}
+                            
+                            {/* PDF Preview Placeholder */}
+                            {attachment.mimeType === 'application/pdf' && attachment.storageUrl && (
+                              <div className="mt-3 p-4 bg-red-50 rounded-lg border border-red-200">
+                                <div className="flex items-center space-x-2 text-red-700">
+                                  <FileText className="w-5 h-5" />
+                                  <span className="text-sm font-medium">PDF Document</span>
+                                </div>
+                                <p className="text-xs text-red-600 mt-1">
+                                  Click "Download" above to view the PDF file
+                                </p>
+                              </div>
+                            )}
+                            
+                            {/* Other File Types */}
+                            {!attachment.mimeType.startsWith('image/') && attachment.mimeType !== 'application/pdf' && attachment.storageUrl && (
+                              <div className="mt-3 p-4 bg-gray-100 rounded-lg border border-gray-200">
+                                <div className="flex items-center space-x-2 text-gray-700">
+                                  <File className="w-5 h-5" />
+                                  <span className="text-sm font-medium">
+                                    {attachment.mimeType.split('/')[1].toUpperCase()} File
+                                  </span>
+                                </div>
+                                <p className="text-xs text-gray-600 mt-1">
+                                  Click "Download" above to view the file
+                                </p>
+                              </div>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                )}
                 {/* Email Content */}
                 <div>
                   <h4 className="text-sm font-medium text-gray-900 mb-3">Email Content</h4>
