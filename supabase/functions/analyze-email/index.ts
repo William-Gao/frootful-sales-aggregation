@@ -167,35 +167,6 @@ Deno.serve(async (req) => {
     console.log('Step 1: Extracting email from Gmail...');
     const emailData = await extractEmailFromGmail(emailId, userId);
     
-    // Step 1.5: Store complete email data immediately for backup/debugging
-    console.log('Step 1.5: Storing complete email data...');
-    const { data: storedEmail, error: storeError } = await supabase
-      .from('email_orders')
-      .insert({
-        user_id: userId,
-        email_id: emailId,
-        thread_id: emailData.threadId,
-        subject: emailData.subject,
-        from_email: emailData.from,
-        to_email: emailData.to,
-        email_content: emailData.rawEmlData,
-        status: 'processing',
-        analysis_data: {
-          originalEmail: emailData,
-          rawGmailResponse: emailData.rawGmailResponse,
-          processingStarted: new Date().toISOString()
-        }
-      })
-      .select()
-      .single();
-
-    if (storeError) {
-      console.warn('Failed to store initial email data:', storeError);
-      // Continue anyway - this is for backup purposes
-    } else {
-      console.log('Initial email data stored with ID:', storedEmail.id);
-    }
-
     // Step 2: Get Business Central data (customers) - call BC directly
     console.log('Step 2: Fetching Business Central customers...');
     const customers = await fetchCustomersFromBC(userId);
@@ -216,6 +187,47 @@ Deno.serve(async (req) => {
     // Step 6: Analyze email content and match items using AI (now includes delivery date and attachments)
     console.log('Step 6: Analyzing email content with AI...');
     const { analysisResult, aiLogId } = await analyzeEmailWithAI(processedEmailData.body, processedEmailData.attachments, items, userId, emailId);
+
+    // Step 7: Store complete email data in database
+    console.log('Step 7: Storing complete email data in database...');
+    const emailContentToStore = processedEmailData.rawEmlContent || processedEmailData.body;
+    console.log('Storing email content type:', processedEmailData.rawEmlContent ? 'Raw .eml content' : 'Parsed body content');
+    console.log('Email content length:', emailContentToStore.length, 'characters');
+    
+    const { data: storedEmail, error: storeError } = await supabase
+      .from('email_orders')
+      .insert({
+        user_id: userId,
+        email_id: emailId,
+        thread_id: processedEmailData.threadId,
+        subject: processedEmailData.subject,
+        from_email: processedEmailData.from,
+        to_email: processedEmailData.to,
+        email_content: emailContentToStore,
+        status: 'analyzed',
+        analysis_data: {
+          originalEmail: processedEmailData,
+          customers: customers,
+          items: items,
+          matchingCustomer: matchingCustomer,
+          analyzedItems: analysisResult.orderLines,
+          requestedDeliveryDate: analysisResult.requestedDeliveryDate,
+          aiAnalysisLogId: aiLogId,
+          llmWhispererResults: llmWhispererResults,
+          processingCompleted: new Date().toISOString()
+        },
+        ai_analysis_log_id: aiLogId,
+        llm_whisperer_data: llmWhispererResults
+      })
+      .select()
+      .single();
+
+    if (storeError) {
+      console.warn('Failed to store email data:', storeError);
+      // Continue anyway - this doesn't affect the response
+    } else {
+      console.log('Email data stored successfully with ID:', storedEmail.id);
+    }
 
     console.log('Analysis complete! Found', analysisResult.orderLines.length, 'items');
     if (analysisResult.requestedDeliveryDate) {
