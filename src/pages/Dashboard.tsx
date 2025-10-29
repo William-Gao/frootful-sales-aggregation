@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { CheckCircle, ExternalLink, Settings, Building2, Database, ArrowRight, Loader2, Package, Home, Smartphone, MessageSquare, Upload } from 'lucide-react';
 import { supabaseClient } from '../supabaseClient';
 import OrdersSection from '../components/OrdersSection';
+import EDIOrdersSection from '../components/EDIOrdersSection';
 
 interface User {
   id: string;
@@ -60,7 +61,7 @@ const Dashboard: React.FC = () => {
   const [extensionLogoutInProgress, setExtensionLogoutInProgress] = useState(false);
   const [companies, setCompanies] = useState<Company[]>([]);
   const [selectedCompanyId, setSelectedCompanyId] = useState<string>('');
-  const [activeTab, setActiveTab] = useState<'overview' | 'orders' | 'upload'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'orders' | 'upload' | 'edi'>('overview');
   const [installPrompt, setInstallPrompt] = useState<any>(null);
   const [isInstallable, setIsInstallable] = useState(false);
   const [orderCounts, setOrderCounts] = useState<OrderCounts>({
@@ -714,6 +715,20 @@ const Dashboard: React.FC = () => {
                   <span>Upload Orders</span>
                 </div>
               </button>
+              <button
+                onClick={() => setActiveTab('edi')}
+                className={`py-2 px-1 border-b-2 font-medium text-sm ${
+                  activeTab === 'edi'
+                    ? 'text-gray-900'
+                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                }`}
+                style={activeTab === 'edi' ? { borderBottomColor: '#53AD6D', color: '#53AD6D' } : {}}
+              >
+                <div className="flex items-center space-x-2">
+                  <FileText className="w-4 h-4" />
+                  <span>EDI Orders</span>
+                </div>
+              </button>
             </nav>
           </div>
         </div>
@@ -952,6 +967,8 @@ const Dashboard: React.FC = () => {
         {activeTab === 'orders' && <OrdersSection />}
 
         {activeTab === 'upload' && <UploadOrdersSection />}
+
+        {activeTab === 'edi' && <EDIOrdersSection />}
       </main>
     </div>
   );
