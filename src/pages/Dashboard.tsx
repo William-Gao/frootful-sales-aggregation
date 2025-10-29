@@ -60,7 +60,6 @@ const Dashboard: React.FC = () => {
   const [extensionLogoutInProgress, setExtensionLogoutInProgress] = useState(false);
   const [companies, setCompanies] = useState<Company[]>([]);
   const [selectedCompanyId, setSelectedCompanyId] = useState<string>('');
-  const [activeTab, setActiveTab] = useState<'overview' | 'orders'>('overview');
   const [activeTab, setActiveTab] = useState<'overview' | 'orders' | 'upload'>('overview');
   const [installPrompt, setInstallPrompt] = useState<any>(null);
   const [isInstallable, setIsInstallable] = useState(false);
