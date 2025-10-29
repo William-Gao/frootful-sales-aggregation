@@ -891,6 +891,18 @@ const EmailOrdersSection: React.FC = () => {
                         </div>
                       </div>
                     )}
+
+                    {/* Ship Date */}
+                    <div>
+                      <h4 className="text-sm font-medium text-gray-900 mb-3">Ship Date</h4>
+                      <div className="bg-gray-50 rounded-lg p-4">
+                        <input
+                          type="date"
+                          className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                          placeholder="Select ship date"
+                        />
+                      </div>
+                    </div>
                   </>
                 )}
 
