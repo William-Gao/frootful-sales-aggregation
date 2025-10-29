@@ -1112,23 +1112,6 @@ const UploadOrdersSection: React.FC = () => {
             </p>
           </div>
           
-          {/* Ship Date Field */}
-          <div className="px-6 py-4 border-b border-gray-200">
-            <div className="max-w-md">
-              <label htmlFor="ship-date" className="block text-sm font-medium text-gray-700 mb-2">
-                Ship Date
-              </label>
-              <input
-                type="date"
-                id="ship-date"
-                value={shipDate}
-                onChange={(e) => setShipDate(e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500"
-                placeholder="Select ship date"
-              />
-            </div>
-          </div>
-          
           <div className="divide-y divide-gray-200">
             {uploadedFiles.map((file, index) => (
               <div key={index} className="px-6 py-4 flex items-center justify-between">
