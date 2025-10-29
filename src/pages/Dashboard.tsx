@@ -962,6 +962,7 @@ const UploadOrdersSection: React.FC = () => {
   const [isDragging, setIsDragging] = useState(false);
   const [uploadedFiles, setUploadedFiles] = useState<File[]>([]);
   const [isUploading, setIsUploading] = useState(false);
+  const [shipDate, setShipDate] = useState<string>('');
 
   const handleDragOver = (e: React.DragEvent) => {
     e.preventDefault();
@@ -1109,6 +1110,23 @@ const UploadOrdersSection: React.FC = () => {
             <p className="text-sm text-gray-500">
               Files have been uploaded and marked as ready for processing
             </p>
+          </div>
+          
+          {/* Ship Date Field */}
+          <div className="px-6 py-4 border-b border-gray-200">
+            <div className="max-w-md">
+              <label htmlFor="ship-date" className="block text-sm font-medium text-gray-700 mb-2">
+                Ship Date
+              </label>
+              <input
+                type="date"
+                id="ship-date"
+                value={shipDate}
+                onChange={(e) => setShipDate(e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500"
+                placeholder="Select ship date"
+              />
+            </div>
           </div>
           
           <div className="divide-y divide-gray-200">
