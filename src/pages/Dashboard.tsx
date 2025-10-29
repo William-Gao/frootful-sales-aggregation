@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { CheckCircle, ExternalLink, Settings, Building2, Database, ArrowRight, Loader2, Package, Home, Smartphone, MessageSquare, Upload } from 'lucide-react';
+import { CheckCircle, ExternalLink, Settings, Building2, Database, ArrowRight, Loader2, Package, Home, Smartphone, MessageSquare, Upload, FileText } from 'lucide-react';
 import { supabaseClient } from '../supabaseClient';
 import OrdersSection from '../components/OrdersSection';
 import EDIOrdersSection from '../components/EDIOrdersSection';
