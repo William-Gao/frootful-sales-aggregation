@@ -194,12 +194,23 @@ const AuthCallback: React.FC = () => {
       }, "*");
 
       setStatus('success');
-      setMessage('Authentication successful! Redirecting to dashboard...');
+      setMessage('Authentication successful! Redirecting...');
 
+      // Check if user needs onboarding (first time user)
+      // User has completed onboarding if they have either:
+      // 1. onboarding_completed flag in user_metadata, OR
+      // 2. A phone number set (from completing onboarding)
+      const hasOnboardingFlag = session.user.user_metadata?.onboarding_completed;
+      const hasPhoneNumber = !!session.user.phone;
+      const needsOnboarding = !hasOnboardingFlag && !hasPhoneNumber;
 
-      // Redirect to dashboard after a short delay
+      // Redirect after a short delay
       setTimeout(() => {
-        window.location.href = '/dashboard';
+        if (needsOnboarding) {
+          window.location.href = '/onboarding';
+        } else {
+          window.location.href = '/dashboard';
+        }
       }, 1500);
 
     } catch (error) {

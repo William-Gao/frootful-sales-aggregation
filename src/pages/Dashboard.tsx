@@ -1,14 +1,20 @@
 import React, { useEffect, useState } from 'react';
-import { CheckCircle, ExternalLink, Settings, Building2, Database, ArrowRight, Loader2, Package, Home, Smartphone, MessageSquare, Upload, FileText } from 'lucide-react';
+import { AlertCircle, CheckCircle, ExternalLink, Settings, Building2, Database, ArrowRight, Loader2, Package, Smartphone, MessageSquare, Upload, GitCompare, TestTube2 } from 'lucide-react';
 import { supabaseClient } from '../supabaseClient';
 import OrdersSection from '../components/OrdersSection';
-import EDIOrdersSection from '../components/EDIOrdersSection';
+import DiffPreviewSection from '../components/DiffPreviewSection';
+import TestOrdersSection from '../components/TestOrdersSection';
 
 interface User {
   id: string;
   email: string;
   name?: string;
   picture?: string;
+}
+
+interface Organization {
+  id: string;
+  name: string;
 }
 
 interface ERPConnection {
@@ -37,6 +43,7 @@ interface OrderCounts {
 
 const Dashboard: React.FC = () => {
   const [user, setUser] = useState<User | null>(null);
+  const [organization, setOrganization] = useState<Organization | null>(null);
   const [erpConnections, setErpConnections] = useState<ERPConnection[]>([
     {
       id: 'business-central',
@@ -61,7 +68,7 @@ const Dashboard: React.FC = () => {
   const [extensionLogoutInProgress, setExtensionLogoutInProgress] = useState(false);
   const [companies, setCompanies] = useState<Company[]>([]);
   const [selectedCompanyId, setSelectedCompanyId] = useState<string>('');
-  const [activeTab, setActiveTab] = useState<'overview' | 'orders' | 'upload' | 'edi'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'orders' | 'upload' | 'diff' | 'test'>('orders');
   const [installPrompt, setInstallPrompt] = useState<any>(null);
   const [isInstallable, setIsInstallable] = useState(false);
   const [orderCounts, setOrderCounts] = useState<OrderCounts>({
@@ -106,58 +113,93 @@ const Dashboard: React.FC = () => {
     };
   }, []);
 
+  // Reload order counts when organization changes
+  useEffect(() => {
+    if (organization) {
+      loadOrderCounts();
+    }
+  }, [organization]);
+
   // Load order counts
   const loadOrderCounts = async () => {
     try {
       const { data: { session } } = await supabaseClient.auth.getSession();
       if (!session) return;
 
-      // Get email orders count
-      const { count: emailCount } = await supabaseClient
-        .from('email_orders')
+      // Check if supabaseClient has the from method
+      if (!('from' in supabaseClient)) {
+        console.error('Supabase client not properly initialized');
+        return;
+      }
+
+      // Build orders count query with organization filter
+      let ordersCountQuery = supabaseClient
+        .from('orders')
         .select('*', { count: 'exact', head: true });
 
-      // Get text orders count  
-      const { count: textCount } = await supabaseClient
-        .from('text_orders')
-        .select('*', { count: 'exact', head: true });
+      if (organization?.id) {
+        ordersCountQuery = ordersCountQuery.eq('organization_id', organization.id);
+      }
 
-      // Get exported orders for cost calculation
-      const { data: exportedEmailOrders } = await supabaseClient
-        .from('email_orders')
-        .select('analysis_data')
-        .eq('status', 'exported');
+      const { count: totalOrdersCount } = await ordersCountQuery;
 
-      const { data: exportedTextOrders } = await supabaseClient
-        .from('text_orders')
-        .select('analysis_data')
-        .eq('status', 'exported');
+      // Build email orders count (orders from email channel)
+      let emailOrdersQuery = supabaseClient
+        .from('orders')
+        .select('*', { count: 'exact', head: true })
+        .eq('source_channel', 'email');
 
-      // Calculate total cost
+      if (organization?.id) {
+        emailOrdersQuery = emailOrdersQuery.eq('organization_id', organization.id);
+      }
+
+      const { count: emailCount } = await emailOrdersQuery;
+
+      // Build text orders count (orders from sms channel)
+      let textOrdersQuery = supabaseClient
+        .from('orders')
+        .select('*', { count: 'exact', head: true })
+        .eq('source_channel', 'sms');
+
+      if (organization?.id) {
+        textOrdersQuery = textOrdersQuery.eq('organization_id', organization.id);
+      }
+
+      const { count: textCount } = await textOrdersQuery;
+
+      // Build exported orders query with organization filter
+      let exportedOrdersQuery = supabaseClient
+        .from('orders')
+        .select(`
+          id,
+          order_lines (
+            quantity,
+            items (
+              base_price
+            )
+          )
+        `)
+        .eq('status', 'pushed_to_erp');
+
+      if (organization?.id) {
+        exportedOrdersQuery = exportedOrdersQuery.eq('organization_id', organization.id);
+      }
+
+      const { data: exportedOrders } = await exportedOrdersQuery;
+
+      // Calculate total cost from order lines
       let totalCost = 0;
-      
-      exportedEmailOrders?.forEach(order => {
-        if (order.analysis_data?.analyzedItems) {
-          order.analysis_data.analyzedItems.forEach((item: any) => {
-            if (item.matchedItem?.unitPrice && item.quantity) {
-              totalCost += item.matchedItem.unitPrice * item.quantity;
-            }
-          });
-        }
-      });
 
-      exportedTextOrders?.forEach(order => {
-        if (order.analysis_data?.analyzedItems) {
-          order.analysis_data.analyzedItems.forEach((item: any) => {
-            if (item.matchedItem?.unitPrice && item.quantity) {
-              totalCost += item.matchedItem.unitPrice * item.quantity;
-            }
-          });
-        }
+      exportedOrders?.forEach((order: any) => {
+        order.order_lines?.forEach((line: any) => {
+          const basePrice = line.items?.base_price || 0;
+          const quantity = line.quantity || 0;
+          totalCost += basePrice * quantity;
+        });
       });
 
       setOrderCounts({
-        totalOrders: (emailCount || 0) + (textCount || 0),
+        totalOrders: totalOrdersCount || 0,
         emailOrders: emailCount || 0,
         textOrders: textCount || 0,
         totalCost: totalCost
@@ -198,6 +240,38 @@ const Dashboard: React.FC = () => {
     }
   };
 
+  const fetchUserOrganization = async (userId: string) => {
+    try {
+      // Check if supabaseClient has the from method
+      if (!('from' in supabaseClient)) {
+        console.error('Supabase client not properly initialized');
+        return;
+      }
+
+      const { data, error } = await supabaseClient
+        .from('user_organizations')
+        .select('organization_id, organizations(id, name)')
+        .eq('user_id', userId)
+        .single();
+
+      if (error) {
+        console.error('Error fetching user organization:', error);
+        return;
+      }
+
+      if (data && data.organizations) {
+        const org = Array.isArray(data.organizations) ? data.organizations[0] : data.organizations;
+        setOrganization({
+          id: org.id,
+          name: org.name
+        });
+        console.log('User organization:', org.name);
+      }
+    } catch (error) {
+      console.error('Error fetching organization:', error);
+    }
+  };
+
   const checkAuthState = async () => {
     try {
       // If extension logout is in progress, skip auth check
@@ -208,41 +282,49 @@ const Dashboard: React.FC = () => {
       }
 
       // Check Supabase session - this is our single source of truth
-      let { data: { session }, error } = await supabaseClient.auth.getSession();
-      
+      const { data: { session: authSession }, error: authError } = await supabaseClient.auth.getSession();
+      let session = authSession;
+      let error = authError;
+
       // If no session found, check if we have tokens in the URL hash (direct navigation)
       if (!session && window.location.hash) {
         console.log('No session found, checking URL hash for tokens...');
         const hashParams = new URLSearchParams(window.location.hash.substring(1));
         const accessToken = hashParams.get('access_token');
         const refreshToken = hashParams.get('refresh_token');
-        
+
         if (accessToken) {
           console.log('Found tokens in URL hash, setting session...');
           const { data, error: setError } = await supabaseClient.auth.setSession({
             access_token: accessToken,
             refresh_token: refreshToken || ''
           });
-          
+
           if (!setError && data.session) {
             session = data.session;
             error = null;
-            
+
             // Clear hash from URL
             window.history.replaceState(null, '', window.location.pathname);
           }
         }
       }
-      
+
       if (session && !error) {
         console.log('Found Supabase session for user:', session.user.email);
         setUser(session.user);
-        
+
+        // Fetch user's organization
+        await fetchUserOrganization(session.user.id);
+
         // Store Google provider tokens if we have them and they're not already stored
         await storeGoogleTokensIfNeeded(session);
-        
+
         // Notify extension about the session if needed
         notifyExtensionOfAuthState(session);
+
+        // Load order counts after successful auth
+        loadOrderCounts();
       } else {
         // No valid session, redirect to login
         console.log('No valid session found, redirecting to login');
@@ -254,11 +336,6 @@ const Dashboard: React.FC = () => {
       window.location.href = '/login';
     } finally {
       setIsLoading(false);
-    }
-
-    // Load order counts after auth check
-    if (session && !error) {
-      loadOrderCounts();
     }
   };
 
@@ -612,6 +689,17 @@ const Dashboard: React.FC = () => {
               <h1 className="text-2xl font-bold" style={{ color: '#53AD6D' }}>
                 Frootful
               </h1>
+              {organization ? (
+                <div className="flex items-center space-x-2 px-3 py-1 bg-green-50 rounded-lg border border-green-200">
+                  <Building2 className="w-4 h-4 text-green-600" />
+                  <span className="text-sm font-medium text-green-900">{organization.name}</span>
+                </div>
+              ) : (
+                <div className="flex items-center space-x-2 px-3 py-1 bg-red-50 rounded-lg border border-red-200">
+                  <AlertCircle className="w-4 h-4 text-red-600" />
+                  <span className="text-sm font-medium text-red-900">No Organization - Contact Support</span>
+                </div>
+              )}
             </div>
             
             <div className="flex items-center space-x-4">
@@ -625,7 +713,7 @@ const Dashboard: React.FC = () => {
                   <span>Install App</span>
                 </button>
               )}
-              
+
               {user && (
                 <div className="flex items-center space-x-3">
                   <div className="text-right">
@@ -673,7 +761,7 @@ const Dashboard: React.FC = () => {
         <div className="mb-8">
           <div className="border-b border-gray-200">
             <nav className="-mb-px flex space-x-8">
-              <button
+              {/* <button
                 onClick={() => setActiveTab('overview')}
                 className={`py-2 px-1 border-b-2 font-medium text-sm ${
                   activeTab === 'overview'
@@ -686,7 +774,7 @@ const Dashboard: React.FC = () => {
                   <Home className="w-4 h-4" />
                   <span>Overview</span>
                 </div>
-              </button>
+              </button> */}
               <button
                 onClick={() => setActiveTab('orders')}
                 className={`py-2 px-1 border-b-2 font-medium text-sm ${
@@ -716,17 +804,31 @@ const Dashboard: React.FC = () => {
                 </div>
               </button>
               <button
-                onClick={() => setActiveTab('edi')}
+                onClick={() => setActiveTab('diff')}
                 className={`py-2 px-1 border-b-2 font-medium text-sm ${
-                  activeTab === 'edi'
+                  activeTab === 'diff'
                     ? 'text-gray-900'
                     : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
                 }`}
-                style={activeTab === 'edi' ? { borderBottomColor: '#53AD6D', color: '#53AD6D' } : {}}
+                style={activeTab === 'diff' ? { borderBottomColor: '#53AD6D', color: '#53AD6D' } : {}}
               >
                 <div className="flex items-center space-x-2">
-                  <FileText className="w-4 h-4" />
-                  <span>EDI Orders</span>
+                  <GitCompare className="w-4 h-4" />
+                  <span>Diff Preview</span>
+                </div>
+              </button>
+              <button
+                onClick={() => setActiveTab('test')}
+                className={`py-2 px-1 border-b-2 font-medium text-sm ${
+                  activeTab === 'test'
+                    ? 'text-gray-900'
+                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                }`}
+                style={activeTab === 'test' ? { borderBottomColor: '#53AD6D', color: '#53AD6D' } : {}}
+              >
+                <div className="flex items-center space-x-2">
+                  <TestTube2 className="w-4 h-4" />
+                  <span>Test Orders</span>
                 </div>
               </button>
             </nav>
@@ -746,56 +848,6 @@ const Dashboard: React.FC = () => {
               </p>
             </div>
 
-            {/* Stats Cards */}
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-              <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-                <div className="flex items-center">
-                  <div className="p-2 bg-blue-100 rounded-lg">
-                    <Package className="w-6 h-6 text-blue-600" />
-                  </div>
-                  <div className="ml-4">
-                    <p className="text-sm font-medium text-gray-600">Total Orders</p>
-                    <p className="text-2xl font-bold text-gray-900">{orderCounts.totalOrders}</p>
-                  </div>
-                </div>
-              </div>
-              
-              <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-                <div className="flex items-center">
-                  <div className="p-2 bg-green-100 rounded-lg">
-                    <MessageSquare className="w-6 h-6 text-green-600" />
-                  </div>
-                  <div className="ml-4">
-                    <p className="text-sm font-medium text-gray-600">Email Orders</p>
-                    <p className="text-2xl font-bold text-gray-900">{orderCounts.emailOrders}</p>
-                  </div>
-                </div>
-              </div>
-              
-              <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-                <div className="flex items-center">
-                  <div className="p-2 bg-purple-100 rounded-lg">
-                    <Smartphone className="w-6 h-6 text-purple-600" />
-                  </div>
-                  <div className="ml-4">
-                    <p className="text-sm font-medium text-gray-600">Text Orders</p>
-                    <p className="text-2xl font-bold text-gray-900">{orderCounts.textOrders}</p>
-                  </div>
-                </div>
-              </div>
-              
-              <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-                <div className="flex items-center">
-                  <div className="p-2 bg-yellow-100 rounded-lg">
-                    <span className="text-yellow-600 font-bold text-lg">$</span>
-                  </div>
-                  <div className="ml-4">
-                    <p className="text-sm font-medium text-gray-600">Total Cost</p>
-                    <p className="text-2xl font-bold text-gray-900">${orderCounts.totalCost.toLocaleString()}</p>
-                  </div>
-                </div>
-              </div>
-            </div>
             {/* Gmail Connection Status */}
             <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
               <div className="flex items-center justify-between">
@@ -964,11 +1016,13 @@ const Dashboard: React.FC = () => {
           </div>
         )}
 
-        {activeTab === 'orders' && <OrdersSection />}
+        {activeTab === 'orders' && <OrdersSection organizationId={organization?.id || null} />}
 
         {activeTab === 'upload' && <UploadOrdersSection />}
 
-        {activeTab === 'edi' && <EDIOrdersSection />}
+        {activeTab === 'diff' && <DiffPreviewSection />}
+
+        {activeTab === 'test' && <TestOrdersSection />}
       </main>
     </div>
   );

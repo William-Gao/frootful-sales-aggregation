@@ -258,6 +258,18 @@ inspector_port = 8083
 # Supported file extensions are: .ts, .js, .mjs, .jsx, .tsx
 # entrypoint = "./functions/MY_FUNCTION_NAME/index.ts"
 
+# Gmail Pub/Sub webhook - needs to accept unauthenticated requests from Google
+[functions.process-gmail-notification]
+verify_jwt = false
+
+# Twilio SMS webhook - needs to accept unauthenticated requests from Twilio
+[functions.process-twilio-webhook]
+verify_jwt = false
+
+# Process intake events - called by database trigger
+[functions.process-intake-event]
+verify_jwt = false
+
 [analytics]
 enabled = true
 port = 54327

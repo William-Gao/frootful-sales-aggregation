@@ -1,8 +1,8 @@
 import React, { useEffect, useState } from 'react';
-import { LogIn, Shield } from 'lucide-react';
+import { Shield, Lock } from 'lucide-react';
 import { supabaseClient } from '../supabaseClient';
 
-const Login: React.FC = () => {
+const AdminLogin: React.FC = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -13,7 +13,6 @@ const Login: React.FC = () => {
 
   const checkAuthState = async () => {
     try {
-      // Check if user is already signed in using Supabase - single source of truth
       const { data: { session }, error } = await supabaseClient.auth.getSession();
       if (session && !error) {
         console.log('User already authenticated, redirecting to dashboard');
@@ -25,36 +24,29 @@ const Login: React.FC = () => {
     }
   };
 
-  const handleGoogleSignIn = async () => {
+  const handleAdminSignIn = async () => {
     try {
       setIsLoading(true);
       setError(null);
 
-      // Get extension ID from URL params if available
-      const urlParams = new URLSearchParams(window.location.search);
-
-      // Redirect to Supabase OAuth with proper callback
       const SUPA_URL = 'https://zkglvdfppodwlgzhfgqs.supabase.co';
       const callback = `${window.location.origin}/auth/callback`;
       const encoded = encodeURIComponent(callback);
-      console.log('This is the callback url: ', callback);
-      // Regular user login - only request basic profile permissions
-      // Users will forward emails to orders.frootful@gmail.com instead of using Gmail API
+
+      // Admin login with full Gmail permissions for orders.frootful@gmail.com
       const authUrl =
         `${SUPA_URL}/auth/v1/authorize` +
         `?provider=google` +
         `&redirect_to=${encoded}` +
         `&access_type=offline` +
         `&prompt=consent` +
-        `&scopes=email profile`;
+        `&scopes=email profile https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/gmail.labels https://www.googleapis.com/auth/gmail.modify`;
 
-      console.log('Redirecting to Google OAuth:', authUrl);
-
-      // Redirect to Google OAuth
+      console.log('Admin login - redirecting to Google OAuth with full Gmail permissions');
       window.location.href = authUrl;
     } catch (error) {
-      console.error('Sign in error:', error);
-      setError('Failed to initiate sign in. Please try again.');
+      console.error('Admin sign in error:', error);
+      setError('Failed to initiate admin sign in. Please try again.');
       setIsLoading(false);
     }
   };
@@ -63,7 +55,7 @@ const Login: React.FC = () => {
   const storeSupabaseSession = async (session: any) => {
     try {
       console.log('Storing Supabase session for Workspace Add-on access...');
-      
+
       const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/token-manager`, {
         method: 'POST',
         headers: {
@@ -90,11 +82,10 @@ const Login: React.FC = () => {
     }
   };
 
-  // Listen for auth state changes to store session
   React.useEffect(() => {
     const { data: { subscription } } = supabaseClient.auth.onAuthStateChange(async (event, session) => {
       if (event === 'SIGNED_IN' && session) {
-        console.log('User signed in, storing session for Workspace Add-on...');
+        console.log('Admin user signed in, storing session...');
         await storeSupabaseSession(session);
       }
     });
@@ -103,65 +94,43 @@ const Login: React.FC = () => {
   }, []);
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-indigo-50 via-white to-cyan-50">
+    <div className="min-h-screen bg-gradient-to-br from-purple-50 via-white to-indigo-50">
       <div className="flex flex-col justify-center py-12 sm:px-6 lg:px-8">
         <div className="sm:mx-auto sm:w-full sm:max-w-md">
           {/* Logo and Header */}
           <div className="flex justify-center">
             <div className="flex items-center space-x-3">
-              <h1 className="text-3xl font-bold" style={{ color: '#53AD6D' }}>
-                Frootful
+              <div className="w-12 h-12 bg-purple-600 rounded-full flex items-center justify-center">
+                <Shield className="w-7 h-7 text-white" />
+              </div>
+              <h1 className="text-3xl font-bold text-purple-600">
+                Frootful Admin
               </h1>
             </div>
           </div>
-          
+
           <h2 className="mt-6 text-center text-3xl font-bold tracking-tight text-gray-900">
-            Welcome to Frootful
+            Admin Login
           </h2>
           <p className="mt-2 text-center text-sm text-gray-600">
-            Transform your email orders into ERP entries in seconds
+            Sign in as orders.frootful@gmail.com to manage email processing
           </p>
         </div>
 
         <div className="mt-8 sm:mx-auto sm:w-full sm:max-w-md">
-          <div className="bg-white py-8 px-4 shadow-xl sm:rounded-lg sm:px-10 border border-gray-100">
-            {/* Features */}
-            <div className="mb-8">
-              <div className="space-y-4">
-                <div className="flex items-start space-x-3">
-                  <div className="flex-shrink-0">
-                    <div className="w-8 h-8 bg-green-100 rounded-full flex items-center justify-center">
-                      <Shield className="w-4 h-4 text-green-600" />
-                    </div>
-                  </div>
-                  <div>
-                    <h3 className="text-sm font-medium text-gray-900">Secure Gmail Integration</h3>
-                    <p className="text-sm text-gray-500">AI-powered email analysis with enterprise security</p>
-                  </div>
-                </div>
-                
-                <div className="flex items-start space-x-3">
-                  <div className="flex-shrink-0">
-                    <div className="w-8 h-8 bg-green-100 rounded-full flex items-center justify-center">
-                      <Shield className="w-4 h-4" style={{ color: '#53AD6D' }} />
-                    </div>
-                  </div>
-                  <div>
-                    <h3 className="text-sm font-medium text-gray-900">One-Click Processing</h3>
-                    <p className="text-sm text-gray-500">Transform emails into orders instantly</p>
-                  </div>
-                </div>
-                
-                <div className="flex items-start space-x-3">
-                  <div className="flex-shrink-0">
-                    <div className="w-8 h-8 bg-green-100 rounded-full flex items-center justify-center">
-                      <LogIn className="w-4 h-4" style={{ color: '#53AD6D' }} />
-                    </div>
-                  </div>
-                  <div>
-                    <h3 className="text-sm font-medium text-gray-900">One-Click Processing</h3>
-                    <p className="text-sm text-gray-500">Transform emails into orders instantly</p>
-                  </div>
+          <div className="bg-white py-8 px-4 shadow-xl sm:rounded-lg sm:px-10 border border-purple-100">
+            {/* Admin Notice */}
+            <div className="mb-8 bg-purple-50 border border-purple-200 rounded-lg p-4">
+              <div className="flex items-start space-x-3">
+                <Lock className="w-5 h-5 text-purple-600 mt-0.5" />
+                <div>
+                  <h3 className="text-sm font-medium text-purple-900">Admin Access Required</h3>
+                  <p className="text-sm text-purple-700 mt-1">
+                    This login grants full Gmail permissions for the orders.frootful@gmail.com intake account.
+                  </p>
+                  <p className="text-sm text-purple-700 mt-2">
+                    Regular users should use the <a href="/login" className="underline font-medium">standard login</a>.
+                  </p>
                 </div>
               </div>
             </div>
@@ -176,19 +145,9 @@ const Login: React.FC = () => {
             {/* Sign In Button */}
             <div>
               <button
-                onClick={handleGoogleSignIn}
+                onClick={handleAdminSignIn}
                 disabled={isLoading}
-                className="group relative w-full flex justify-center py-3 px-4 border border-transparent text-sm font-medium rounded-md text-white disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200 transform hover:scale-[1.02] active:scale-[0.98]"
-                style={{ 
-                  backgroundColor: '#53AD6D',
-                  boxShadow: '0 4px 6px -1px rgba(83, 173, 109, 0.1), 0 2px 4px -1px rgba(83, 173, 109, 0.06)'
-                }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.backgroundColor = '#4a9c63';
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.backgroundColor = '#53AD6D';
-                }}
+                className="group relative w-full flex justify-center py-3 px-4 border border-transparent text-sm font-medium rounded-md text-white bg-purple-600 hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200 transform hover:scale-[1.02] active:scale-[0.98] shadow-lg"
               >
                 {isLoading ? (
                   <div className="flex items-center space-x-2">
@@ -203,22 +162,20 @@ const Login: React.FC = () => {
                       <path fill="currentColor" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/>
                       <path fill="currentColor" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
                     </svg>
-                    <span>Continue with Google</span>
+                    <span>Sign in as Admin</span>
                   </div>
                 )}
               </button>
             </div>
 
-            {/* Privacy Notice */}
+            {/* Back to Regular Login */}
             <div className="mt-6">
-              <div className="text-xs text-gray-500 text-center">
-                By signing in, you agree to our{' '}
-                <a href="/privacy" style={{ color: '#53AD6D' }} className="hover:opacity-80">
-                  Privacy Policy
-                </a>{' '}
-                and{' '}
-                <a href="/terms" style={{ color: '#53AD6D' }} className="hover:opacity-80">
-                  Terms of Service
+              <div className="text-center">
+                <a
+                  href="/login"
+                  className="text-sm text-purple-600 hover:text-purple-700 font-medium"
+                >
+                  Back to regular login
                 </a>
               </div>
             </div>
@@ -229,4 +186,4 @@ const Login: React.FC = () => {
   );
 };
 
-export default Login;
+export default AdminLogin;
