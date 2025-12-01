@@ -1,12 +1,20 @@
 import React, { useEffect, useState } from 'react';
-import { CheckCircle, ExternalLink, Settings, Zap, Building2, Database, ArrowRight, Loader2 } from 'lucide-react';
+import { AlertCircle, CheckCircle, ExternalLink, Settings, Building2, Database, ArrowRight, Loader2, Package, Smartphone, MessageSquare, Upload, GitCompare, TestTube2 } from 'lucide-react';
 import { supabaseClient } from '../supabaseClient';
+import OrdersSection from '../components/OrdersSection';
+import DiffPreviewSection from '../components/DiffPreviewSection';
+import TestOrdersSection from '../components/TestOrdersSection';
 
 interface User {
   id: string;
   email: string;
   name?: string;
   picture?: string;
+}
+
+interface Organization {
+  id: string;
+  name: string;
 }
 
 interface ERPConnection {
@@ -26,8 +34,16 @@ interface Company {
   businessProfileId: string;
 }
 
+interface OrderCounts {
+  totalOrders: number;
+  emailOrders: number;
+  textOrders: number;
+  totalCost: number;
+}
+
 const Dashboard: React.FC = () => {
   const [user, setUser] = useState<User | null>(null);
+  const [organization, setOrganization] = useState<Organization | null>(null);
   const [erpConnections, setErpConnections] = useState<ERPConnection[]>([
     {
       id: 'business-central',
@@ -52,6 +68,15 @@ const Dashboard: React.FC = () => {
   const [extensionLogoutInProgress, setExtensionLogoutInProgress] = useState(false);
   const [companies, setCompanies] = useState<Company[]>([]);
   const [selectedCompanyId, setSelectedCompanyId] = useState<string>('');
+  const [activeTab, setActiveTab] = useState<'overview' | 'orders' | 'upload' | 'diff' | 'test'>('orders');
+  const [installPrompt, setInstallPrompt] = useState<any>(null);
+  const [isInstallable, setIsInstallable] = useState(false);
+  const [orderCounts, setOrderCounts] = useState<OrderCounts>({
+    totalOrders: 0,
+    emailOrders: 0,
+    textOrders: 0,
+    totalCost: 0
+  });
 
   useEffect(() => {
     checkAuthState();
@@ -72,6 +97,127 @@ const Dashboard: React.FC = () => {
       window.removeEventListener('message', handleExtensionLogout);
     };
   }, []);
+
+  // PWA Install Prompt
+  useEffect(() => {
+    const handleBeforeInstallPrompt = (e: any) => {
+      e.preventDefault();
+      setInstallPrompt(e);
+      setIsInstallable(true);
+    };
+
+    window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+
+    return () => {
+      window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+    };
+  }, []);
+
+  // Reload order counts when organization changes
+  useEffect(() => {
+    if (organization) {
+      loadOrderCounts();
+    }
+  }, [organization]);
+
+  // Load order counts
+  const loadOrderCounts = async () => {
+    try {
+      const { data: { session } } = await supabaseClient.auth.getSession();
+      if (!session) return;
+
+      // Check if supabaseClient has the from method
+      if (!('from' in supabaseClient)) {
+        console.error('Supabase client not properly initialized');
+        return;
+      }
+
+      // Build orders count query with organization filter
+      let ordersCountQuery = supabaseClient
+        .from('orders')
+        .select('*', { count: 'exact', head: true });
+
+      if (organization?.id) {
+        ordersCountQuery = ordersCountQuery.eq('organization_id', organization.id);
+      }
+
+      const { count: totalOrdersCount } = await ordersCountQuery;
+
+      // Build email orders count (orders from email channel)
+      let emailOrdersQuery = supabaseClient
+        .from('orders')
+        .select('*', { count: 'exact', head: true })
+        .eq('source_channel', 'email');
+
+      if (organization?.id) {
+        emailOrdersQuery = emailOrdersQuery.eq('organization_id', organization.id);
+      }
+
+      const { count: emailCount } = await emailOrdersQuery;
+
+      // Build text orders count (orders from sms channel)
+      let textOrdersQuery = supabaseClient
+        .from('orders')
+        .select('*', { count: 'exact', head: true })
+        .eq('source_channel', 'sms');
+
+      if (organization?.id) {
+        textOrdersQuery = textOrdersQuery.eq('organization_id', organization.id);
+      }
+
+      const { count: textCount } = await textOrdersQuery;
+
+      // Build exported orders query with organization filter
+      let exportedOrdersQuery = supabaseClient
+        .from('orders')
+        .select(`
+          id,
+          order_lines (
+            quantity,
+            items (
+              base_price
+            )
+          )
+        `)
+        .eq('status', 'pushed_to_erp');
+
+      if (organization?.id) {
+        exportedOrdersQuery = exportedOrdersQuery.eq('organization_id', organization.id);
+      }
+
+      const { data: exportedOrders } = await exportedOrdersQuery;
+
+      // Calculate total cost from order lines
+      let totalCost = 0;
+
+      exportedOrders?.forEach((order: any) => {
+        order.order_lines?.forEach((line: any) => {
+          const basePrice = line.items?.base_price || 0;
+          const quantity = line.quantity || 0;
+          totalCost += basePrice * quantity;
+        });
+      });
+
+      setOrderCounts({
+        totalOrders: totalOrdersCount || 0,
+        emailOrders: emailCount || 0,
+        textOrders: textCount || 0,
+        totalCost: totalCost
+      });
+    } catch (error) {
+      console.error('Error loading order counts:', error);
+    }
+  };
+
+  const handleInstallPWA = async () => {
+    if (!installPrompt) return;
+
+    const result = await installPrompt.prompt();
+    console.log('PWA install result:', result);
+    
+    setInstallPrompt(null);
+    setIsInstallable(false);
+  };
 
   // Handle sign out initiated by extension
   const handleExtensionSignOut = async () => {
@@ -94,6 +240,38 @@ const Dashboard: React.FC = () => {
     }
   };
 
+  const fetchUserOrganization = async (userId: string) => {
+    try {
+      // Check if supabaseClient has the from method
+      if (!('from' in supabaseClient)) {
+        console.error('Supabase client not properly initialized');
+        return;
+      }
+
+      const { data, error } = await supabaseClient
+        .from('user_organizations')
+        .select('organization_id, organizations(id, name)')
+        .eq('user_id', userId)
+        .single();
+
+      if (error) {
+        console.error('Error fetching user organization:', error);
+        return;
+      }
+
+      if (data && data.organizations) {
+        const org = Array.isArray(data.organizations) ? data.organizations[0] : data.organizations;
+        setOrganization({
+          id: org.id,
+          name: org.name
+        });
+        console.log('User organization:', org.name);
+      }
+    } catch (error) {
+      console.error('Error fetching organization:', error);
+    }
+  };
+
   const checkAuthState = async () => {
     try {
       // If extension logout is in progress, skip auth check
@@ -104,41 +282,49 @@ const Dashboard: React.FC = () => {
       }
 
       // Check Supabase session - this is our single source of truth
-      let { data: { session }, error } = await supabaseClient.auth.getSession();
-      
+      const { data: { session: authSession }, error: authError } = await supabaseClient.auth.getSession();
+      let session = authSession;
+      let error = authError;
+
       // If no session found, check if we have tokens in the URL hash (direct navigation)
       if (!session && window.location.hash) {
         console.log('No session found, checking URL hash for tokens...');
         const hashParams = new URLSearchParams(window.location.hash.substring(1));
         const accessToken = hashParams.get('access_token');
         const refreshToken = hashParams.get('refresh_token');
-        
+
         if (accessToken) {
           console.log('Found tokens in URL hash, setting session...');
           const { data, error: setError } = await supabaseClient.auth.setSession({
             access_token: accessToken,
             refresh_token: refreshToken || ''
           });
-          
+
           if (!setError && data.session) {
             session = data.session;
             error = null;
-            
+
             // Clear hash from URL
             window.history.replaceState(null, '', window.location.pathname);
           }
         }
       }
-      
+
       if (session && !error) {
         console.log('Found Supabase session for user:', session.user.email);
         setUser(session.user);
-        
+
+        // Fetch user's organization
+        await fetchUserOrganization(session.user.id);
+
         // Store Google provider tokens if we have them and they're not already stored
         await storeGoogleTokensIfNeeded(session);
-        
+
         // Notify extension about the session if needed
         notifyExtensionOfAuthState(session);
+
+        // Load order counts after successful auth
+        loadOrderCounts();
       } else {
         // No valid session, redirect to login
         console.log('No valid session found, redirecting to login');
@@ -296,41 +482,43 @@ const Dashboard: React.FC = () => {
       
       console.log('Starting Business Central OAuth flow...');
       
-      // Business Central OAuth configuration
-      const CLIENT_ID = '4c92a998-6af5-4c2a-b16e-80ba1c6b9b3b';
-      const TENANT_ID = 'common';
-      const REDIRECT_URI = `https://use.frootful.ai/auth/callback`;
-      const SCOPE = 'https://api.businesscentral.dynamics.com/user_impersonation offline_access';
-      
-      // Generate random state and code verifier for PKCE
-      const state = generateRandomString(32);
-      const codeVerifier = generateRandomString(64);
-      const codeChallenge = await generateCodeChallenge(codeVerifier);
-      
-      // Store PKCE values for later verification
-      sessionStorage.setItem('bc_state', state);
-      sessionStorage.setItem('bc_code_verifier', codeVerifier);
-      
-      // Construct auth URL
-      const authUrl = `https://login.microsoftonline.com/${TENANT_ID}/oauth2/v2.0/authorize?` +
-        `client_id=${CLIENT_ID}` +
-        `&response_type=code` +
-        `&redirect_uri=${encodeURIComponent(REDIRECT_URI)}` +
-        `&scope=${encodeURIComponent(SCOPE)}` +
-        `&state=${state}` +
-        `&code_challenge=${codeChallenge}` +
-        `&code_challenge_method=S256` +
-        `&prompt=select_account` +
-        `&response_mode=query`;
+      // Get current session for authentication
+      const { data: { session } } = await supabaseClient.auth.getSession();
+      if (!session) {
+        throw new Error('No active session. Please sign in again.');
+      }
 
-      console.log('Redirecting to Business Central OAuth:', authUrl);
+      // Call auth-login endpoint to initiate OAuth flow
+      const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/auth-login`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${session.access_token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          provider: 'business_central'
+        })
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({ error: 'Unknown error' }));
+        throw new Error(errorData.error || `HTTP ${response.status}: ${response.statusText}`);
+      }
+
+      const result = await response.json();
       
-      // Redirect to Microsoft OAuth
-      window.location.href = authUrl;
+      if (!result.success || !result.authUrl) {
+        throw new Error(result.error || 'Failed to get OAuth URL');
+      }
+
+      console.log('Received OAuth URL from auth-login, redirecting...');
+      
+      // Redirect to Microsoft OAuth using the URL from auth-login
+      window.location.href = result.authUrl;
       
     } catch (error) {
       console.error('Error connecting ERP:', error);
-      alert('Failed to connect to ERP. Please try again.');
+      alert(`Failed to connect to Business Central: ${error instanceof Error ? error.message : 'Unknown error'}. Please try again.`);
       setConnectingProvider(null);
     }
   };
@@ -498,15 +686,34 @@ const Dashboard: React.FC = () => {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between items-center py-4">
             <div className="flex items-center space-x-3">
-              <div className="w-10 h-10 bg-gradient-to-br from-indigo-600 to-purple-600 rounded-xl flex items-center justify-center">
-                <Zap className="w-6 h-6 text-white" />
-              </div>
-              <h1 className="text-2xl font-bold bg-gradient-to-r from-indigo-600 to-purple-600 bg-clip-text text-transparent">
+              <h1 className="text-2xl font-bold" style={{ color: '#53AD6D' }}>
                 Frootful
               </h1>
+              {organization ? (
+                <div className="flex items-center space-x-2 px-3 py-1 bg-green-50 rounded-lg border border-green-200">
+                  <Building2 className="w-4 h-4 text-green-600" />
+                  <span className="text-sm font-medium text-green-900">{organization.name}</span>
+                </div>
+              ) : (
+                <div className="flex items-center space-x-2 px-3 py-1 bg-red-50 rounded-lg border border-red-200">
+                  <AlertCircle className="w-4 h-4 text-red-600" />
+                  <span className="text-sm font-medium text-red-900">No Organization - Contact Support</span>
+                </div>
+              )}
             </div>
             
             <div className="flex items-center space-x-4">
+              {/* PWA Install Button */}
+              {isInstallable && (
+                <button
+                  onClick={handleInstallPWA}
+                  className="flex items-center space-x-2 px-3 py-2 text-sm bg-green-100 text-green-700 rounded-lg hover:bg-green-200 transition-colors"
+                >
+                  <Smartphone className="w-4 h-4" />
+                  <span>Install App</span>
+                </button>
+              )}
+
               {user && (
                 <div className="flex items-center space-x-3">
                   <div className="text-right">
@@ -550,164 +757,483 @@ const Dashboard: React.FC = () => {
 
       {/* Main Content */}
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {/* Welcome Section */}
+        {/* Navigation Tabs */}
         <div className="mb-8">
-          <h2 className="text-3xl font-bold text-gray-900 mb-2">
-            Welcome to Frootful! 👋
-          </h2>
-          <p className="text-lg text-gray-600">
-            Connect your ERP system to start transforming email orders into sales orders automatically.
-          </p>
-        </div>
-
-        {/* Gmail Connection Status */}
-        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 mb-8">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center space-x-4">
-              <div className="w-12 h-12 bg-green-100 rounded-xl flex items-center justify-center">
-                <CheckCircle className="w-6 h-6 text-green-600" />
-              </div>
-              <div>
-                <h3 className="text-lg font-semibold text-gray-900">Gmail Connected</h3>
-                <p className="text-gray-600">Ready to extract orders from your emails</p>
-              </div>
-            </div>
-            <button
-              onClick={openGmail}
-              className="flex items-center space-x-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors"
-            >
-              <span>Open Gmail</span>
-              <ExternalLink className="w-4 h-4" />
-            </button>
+          <div className="border-b border-gray-200">
+            <nav className="-mb-px flex space-x-8">
+              {/* <button
+                onClick={() => setActiveTab('overview')}
+                className={`py-2 px-1 border-b-2 font-medium text-sm ${
+                  activeTab === 'overview'
+                    ? 'text-gray-900'
+                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                }`}
+                style={activeTab === 'overview' ? { borderBottomColor: '#53AD6D', color: '#53AD6D' } : {}}
+              >
+                <div className="flex items-center space-x-2">
+                  <Home className="w-4 h-4" />
+                  <span>Overview</span>
+                </div>
+              </button> */}
+              <button
+                onClick={() => setActiveTab('orders')}
+                className={`py-2 px-1 border-b-2 font-medium text-sm ${
+                  activeTab === 'orders'
+                    ? 'text-gray-900'
+                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                }`}
+                style={activeTab === 'orders' ? { borderBottomColor: '#53AD6D', color: '#53AD6D' } : {}}
+              >
+                <div className="flex items-center space-x-2">
+                  <Package className="w-4 h-4" />
+                  <span>All Orders</span>
+                </div>
+              </button>
+              <button
+                onClick={() => setActiveTab('upload')}
+                className={`py-2 px-1 border-b-2 font-medium text-sm ${
+                  activeTab === 'upload'
+                    ? 'text-gray-900'
+                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                }`}
+                style={activeTab === 'upload' ? { borderBottomColor: '#53AD6D', color: '#53AD6D' } : {}}
+              >
+                <div className="flex items-center space-x-2">
+                  <Upload className="w-4 h-4" />
+                  <span>Upload Orders</span>
+                </div>
+              </button>
+              <button
+                onClick={() => setActiveTab('diff')}
+                className={`py-2 px-1 border-b-2 font-medium text-sm ${
+                  activeTab === 'diff'
+                    ? 'text-gray-900'
+                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                }`}
+                style={activeTab === 'diff' ? { borderBottomColor: '#53AD6D', color: '#53AD6D' } : {}}
+              >
+                <div className="flex items-center space-x-2">
+                  <GitCompare className="w-4 h-4" />
+                  <span>Diff Preview</span>
+                </div>
+              </button>
+              <button
+                onClick={() => setActiveTab('test')}
+                className={`py-2 px-1 border-b-2 font-medium text-sm ${
+                  activeTab === 'test'
+                    ? 'text-gray-900'
+                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                }`}
+                style={activeTab === 'test' ? { borderBottomColor: '#53AD6D', color: '#53AD6D' } : {}}
+              >
+                <div className="flex items-center space-x-2">
+                  <TestTube2 className="w-4 h-4" />
+                  <span>Test Orders</span>
+                </div>
+              </button>
+            </nav>
           </div>
         </div>
 
-        {/* ERP Connections */}
-        <div className="mb-8">
-          <h3 className="text-2xl font-bold text-gray-900 mb-6">Connect Your ERP</h3>
-          <div className="grid gap-6 md:grid-cols-2">
-            {erpConnections.map((erp) => {
-              const Icon = erp.icon;
-              const isConnecting = connectingProvider === erp.provider;
-              
-              return (
-                <div
-                  key={erp.id}
-                  className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 hover:shadow-md transition-shadow"
+        {/* Tab Content */}
+        {activeTab === 'overview' && (
+          <div className="space-y-8">
+            {/* Welcome Section */}
+            <div>
+              <h2 className="text-3xl font-bold text-gray-900 mb-2">
+                Welcome to Frootful! 👋
+              </h2>
+              <p className="text-lg text-gray-600">
+                Connect your ERP system to start transforming email orders into sales orders automatically.
+              </p>
+            </div>
+
+            {/* Gmail Connection Status */}
+            <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center space-x-4">
+                  <div className="w-12 h-12 bg-green-100 rounded-xl flex items-center justify-center">
+                    <CheckCircle className="w-6 h-6 text-green-600" />
+                  </div>
+                  <div>
+                    <h3 className="text-lg font-semibold text-gray-900">Gmail Connected</h3>
+                    <p className="text-gray-600">Ready to extract orders from your emails</p>
+                  </div>
+                </div>
+                <button
+                  onClick={openGmail}
+                  className="flex items-center space-x-2 px-4 py-2 text-white rounded-lg transition-colors"
+                  style={{ backgroundColor: '#53AD6D' }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.backgroundColor = '#4a9c63';
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.backgroundColor = '#53AD6D';
+                  }}
                 >
-                  <div className="flex items-start justify-between mb-4">
-                    <div className="flex items-center space-x-3">
-                      <div className={`w-12 h-12 rounded-xl flex items-center justify-center ${
-                        erp.status === 'connected' 
-                          ? 'bg-green-100' 
-                          : 'bg-gray-100'
-                      }`}>
-                        <Icon className={`w-6 h-6 ${
-                          erp.status === 'connected' 
-                            ? 'text-green-600' 
-                            : 'text-gray-600'
-                        }`} />
-                      </div>
-                      <div>
-                        <h4 className="text-lg font-semibold text-gray-900">{erp.name}</h4>
-                        {erp.status === 'connected' && erp.companyName && (
-                          <p className="text-sm text-green-600">Connected to {erp.companyName}</p>
+                  <span>Open Gmail</span>
+                  <ExternalLink className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+
+            {/* ERP Connections */}
+            <div>
+              <h3 className="text-2xl font-bold text-gray-900 mb-6">Connect Your ERP</h3>
+              <div className="grid gap-6 md:grid-cols-2">
+                {erpConnections.map((erp) => {
+                  const Icon = erp.icon;
+                  const isConnecting = connectingProvider === erp.provider;
+                  
+                  return (
+                    <div
+                      key={erp.id}
+                      className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 hover:shadow-md transition-shadow"
+                    >
+                      <div className="flex items-start justify-between mb-4">
+                        <div className="flex items-center space-x-3">
+                          <div className={`w-12 h-12 rounded-xl flex items-center justify-center ${
+                            erp.status === 'connected' 
+                              ? 'bg-green-100' 
+                              : 'bg-gray-100'
+                          }`}>
+                            <Icon className={`w-6 h-6 ${
+                              erp.status === 'connected' 
+                                ? 'text-green-600' 
+                                : 'text-gray-600'
+                            }`} />
+                          </div>
+                          <div>
+                            <h4 className="text-lg font-semibold text-gray-900">{erp.name}</h4>
+                            {erp.status === 'connected' && erp.companyName && (
+                              <p className="text-sm text-green-600">Connected to {erp.companyName}</p>
+                            )}
+                          </div>
+                        </div>
+                        
+                        {erp.status === 'connected' && (
+                          <CheckCircle className="w-6 h-6 text-green-600" />
                         )}
                       </div>
-                    </div>
-                    
-                    {erp.status === 'connected' && (
-                      <CheckCircle className="w-6 h-6 text-green-600" />
-                    )}
-                  </div>
-                  
-                  <p className="text-gray-600 mb-4">{erp.description}</p>
-                  
-                  {/* Company Selection for Business Central */}
-                  {erp.provider === 'business_central' && erp.status === 'connected' && companies.length > 0 && (
-                    <div className="mb-4">
-                      <label htmlFor="company-select" className="block text-sm font-medium text-gray-700 mb-2">
-                        Select Company:
-                      </label>
-                      <select
-                        id="company-select"
-                        value={selectedCompanyId}
-                        onChange={(e) => handleCompanySelection(e.target.value)}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
+                      
+                      <p className="text-gray-600 mb-4">{erp.description}</p>
+                      
+                      {/* Company Selection for Business Central */}
+                      {erp.provider === 'business_central' && erp.status === 'connected' && companies.length > 0 && (
+                        <div className="mb-4">
+                          <label htmlFor="company-select" className="block text-sm font-medium text-gray-700 mb-2">
+                            Select Company:
+                          </label>
+                          <select
+                            id="company-select"
+                            value={selectedCompanyId}
+                            onChange={(e) => handleCompanySelection(e.target.value)}
+                            className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
+                          >
+                            <option value="">Select a company...</option>
+                            {companies.map((company) => (
+                              <option key={company.id} value={company.id}>
+                                {company.displayName || company.name}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                      )}
+                      
+                      <button
+                        onClick={() => connectERP(erp.provider)}
+                        disabled={isConnecting || erp.status === 'connected'}
+                        className={`w-full flex items-center justify-center space-x-2 px-4 py-3 rounded-lg font-medium transition-colors ${
+                          erp.status === 'connected'
+                            ? 'bg-green-50 text-green-700 cursor-default'
+                            : 'text-white'
+                        } disabled:opacity-50 disabled:cursor-not-allowed`}
+                        style={erp.status !== 'connected' ? { backgroundColor: '#53AD6D' } : {}}
+                        onMouseEnter={(e) => {
+                          if (erp.status !== 'connected') {
+                            e.currentTarget.style.backgroundColor = '#4a9c63';
+                          }
+                        }}
+                        onMouseLeave={(e) => {
+                          if (erp.status !== 'connected') {
+                            e.currentTarget.style.backgroundColor = '#53AD6D';
+                          }
+                        }}
                       >
-                        <option value="">Select a company...</option>
-                        {companies.map((company) => (
-                          <option key={company.id} value={company.id}>
-                            {company.displayName || company.name}
-                          </option>
-                        ))}
-                      </select>
+                        {isConnecting ? (
+                          <>
+                            <Loader2 className="w-4 h-4 animate-spin" />
+                            <span>Connecting...</span>
+                          </>
+                        ) : erp.status === 'connected' ? (
+                          <>
+                            <CheckCircle className="w-4 h-4" />
+                            <span>Connected</span>
+                          </>
+                        ) : (
+                          <>
+                            <span>Connect</span>
+                            <ArrowRight className="w-4 h-4" />
+                          </>
+                        )}
+                      </button>
                     </div>
-                  )}
-                  
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Next Steps */}
+            <div className="bg-gradient-to-r from-indigo-50 to-purple-50 rounded-xl p-6 border border-indigo-100">
+              <h3 className="text-xl font-semibold text-gray-900 mb-4">Next Steps</h3>
+              <div className="space-y-3">
+                <div className="flex items-center space-x-3">
+                  <div className="w-6 h-6 text-white rounded-full flex items-center justify-center text-sm font-medium" style={{ backgroundColor: '#53AD6D' }}>
+                    1
+                  </div>
+                  <span className="text-gray-700">Connect your ERP system above</span>
+                </div>
+                <div className="flex items-center space-x-3">
+                  <div className="w-6 h-6 text-white rounded-full flex items-center justify-center text-sm font-medium" style={{ backgroundColor: '#53AD6D' }}>
+                    2
+                  </div>
+                  <span className="text-gray-700">Open Gmail and find an email with order information</span>
+                </div>
+                <div className="flex items-center space-x-3">
+                  <div className="w-6 h-6 text-white rounded-full flex items-center justify-center text-sm font-medium" style={{ backgroundColor: '#53AD6D' }}>
+                    3
+                  </div>
+                  <span className="text-gray-700">Click the "Extract" button in the email toolbar</span>
+                </div>
+                <div className="flex items-center space-x-3">
+                  <div className="w-6 h-6 text-white rounded-full flex items-center justify-center text-sm font-medium" style={{ backgroundColor: '#53AD6D' }}>
+                    4
+                  </div>
+                  <span className="text-gray-700">Review and export the order to your ERP system</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {activeTab === 'orders' && <OrdersSection organizationId={organization?.id || null} />}
+
+        {activeTab === 'upload' && <UploadOrdersSection />}
+
+        {activeTab === 'diff' && <DiffPreviewSection />}
+
+        {activeTab === 'test' && <TestOrdersSection />}
+      </main>
+    </div>
+  );
+};
+
+// Upload Orders Section Component
+const UploadOrdersSection: React.FC = () => {
+  const [isDragging, setIsDragging] = useState(false);
+  const [uploadedFiles, setUploadedFiles] = useState<File[]>([]);
+  const [isUploading, setIsUploading] = useState(false);
+  const [shipDate, setShipDate] = useState<string>('');
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragging(true);
+  };
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragging(false);
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragging(false);
+    
+    const files = Array.from(e.dataTransfer.files);
+    handleFiles(files);
+  };
+
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files) {
+      const files = Array.from(e.target.files);
+      handleFiles(files);
+    }
+  };
+
+  const handleFiles = async (files: File[]) => {
+    setIsUploading(true);
+    
+    // Simulate upload process
+    await new Promise(resolve => setTimeout(resolve, 1000));
+    
+    setUploadedFiles(prev => [...prev, ...files]);
+    setIsUploading(false);
+  };
+
+  const removeFile = (index: number) => {
+    setUploadedFiles(prev => prev.filter((_, i) => i !== index));
+  };
+
+  const clearAll = () => {
+    setUploadedFiles([]);
+  };
+
+  const getFileIcon = (file: File) => {
+    if (file.type.startsWith('image/')) {
+      return '🖼️';
+    } else if (file.type === 'application/pdf') {
+      return '📄';
+    } else if (file.type.includes('document') || file.type.includes('word')) {
+      return '📝';
+    } else if (file.type.includes('spreadsheet') || file.type.includes('excel')) {
+      return '📊';
+    } else {
+      return '📎';
+    }
+  };
+
+  const formatFileSize = (bytes: number) => {
+    if (bytes === 0) return '0 Bytes';
+    const k = 1024;
+    const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+  };
+
+  return (
+    <div className="space-y-6">
+      {/* Header */}
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+        <div>
+          <h2 className="text-2xl font-bold text-gray-900">Upload Orders</h2>
+          <p className="text-gray-600">Upload email files, PDFs, or documents to process as orders</p>
+        </div>
+        {uploadedFiles.length > 0 && (
+          <button
+            onClick={clearAll}
+            className="px-4 py-2 text-red-600 border border-red-300 rounded-lg hover:bg-red-50 transition-colors"
+          >
+            Clear All
+          </button>
+        )}
+      </div>
+
+      {/* Upload Area */}
+      <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+        <div
+          className={`border-2 border-dashed rounded-lg p-8 text-center transition-colors ${
+            isDragging
+              ? 'border-green-400 bg-green-50'
+              : 'border-gray-300 hover:border-gray-400'
+          }`}
+          onDragOver={handleDragOver}
+          onDragLeave={handleDragLeave}
+          onDrop={handleDrop}
+        >
+          {isUploading ? (
+            <div className="flex flex-col items-center">
+              <Loader2 className="w-12 h-12 animate-spin text-green-600 mb-4" />
+              <p className="text-lg font-medium text-gray-900">Uploading files...</p>
+              <p className="text-gray-500">Please wait while we process your files</p>
+            </div>
+          ) : (
+            <div className="flex flex-col items-center">
+              <Upload className="w-12 h-12 text-gray-400 mb-4" />
+              <p className="text-lg font-medium text-gray-900 mb-2">
+                Drop files here or click to upload
+              </p>
+              <p className="text-gray-500 mb-4">
+                Support for emails (.eml), PDFs, images, and documents
+              </p>
+              <input
+                type="file"
+                multiple
+                onChange={handleFileSelect}
+                className="hidden"
+                id="file-upload"
+                accept=".eml,.pdf,.doc,.docx,.jpg,.jpeg,.png,.gif,.txt"
+              />
+              <label
+                htmlFor="file-upload"
+                className="px-6 py-3 text-white rounded-lg cursor-pointer transition-colors"
+                style={{ backgroundColor: '#53AD6D' }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.backgroundColor = '#4a9c63';
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.backgroundColor = '#53AD6D';
+                }}
+              >
+                Choose Files
+              </label>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Uploaded Files List */}
+      {uploadedFiles.length > 0 && (
+        <div className="bg-white rounded-lg shadow-sm border border-gray-200">
+          <div className="px-6 py-4 border-b border-gray-200">
+            <h3 className="text-lg font-medium text-gray-900">
+              Uploaded Files ({uploadedFiles.length})
+            </h3>
+            <p className="text-sm text-gray-500">
+              Files have been uploaded and marked as ready for processing
+            </p>
+          </div>
+          
+          <div className="divide-y divide-gray-200">
+            {uploadedFiles.map((file, index) => (
+              <div key={index} className="px-6 py-4 flex items-center justify-between">
+                <div className="flex items-center space-x-3">
+                  <span className="text-2xl">{getFileIcon(file)}</span>
+                  <div>
+                    <p className="text-sm font-medium text-gray-900">{file.name}</p>
+                    <p className="text-xs text-gray-500">
+                      {file.type || 'Unknown type'} • {formatFileSize(file.size)}
+                    </p>
+                  </div>
+                </div>
+                
+                <div className="flex items-center space-x-3">
+                  <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
+                    ✓ Uploaded
+                  </span>
                   <button
-                    onClick={() => connectERP(erp.provider)}
-                    disabled={isConnecting || erp.status === 'connected'}
-                    className={`w-full flex items-center justify-center space-x-2 px-4 py-3 rounded-lg font-medium transition-colors ${
-                      erp.status === 'connected'
-                        ? 'bg-green-50 text-green-700 cursor-default'
-                        : 'bg-indigo-600 text-white hover:bg-indigo-700'
-                    } disabled:opacity-50 disabled:cursor-not-allowed`}
+                    onClick={() => removeFile(index)}
+                    className="text-red-600 hover:text-red-800 text-sm"
                   >
-                    {isConnecting ? (
-                      <>
-                        <Loader2 className="w-4 h-4 animate-spin" />
-                        <span>Connecting...</span>
-                      </>
-                    ) : erp.status === 'connected' ? (
-                      <>
-                        <CheckCircle className="w-4 h-4" />
-                        <span>Connected</span>
-                      </>
-                    ) : (
-                      <>
-                        <span>Connect</span>
-                        <ArrowRight className="w-4 h-4" />
-                      </>
-                    )}
+                    Remove
                   </button>
                 </div>
-              );
-            })}
+              </div>
+            ))}
           </div>
         </div>
+      )}
 
-        {/* Next Steps */}
-        <div className="bg-gradient-to-r from-indigo-50 to-purple-50 rounded-xl p-6 border border-indigo-100">
-          <h3 className="text-xl font-semibold text-gray-900 mb-4">Next Steps</h3>
-          <div className="space-y-3">
-            <div className="flex items-center space-x-3">
-              <div className="w-6 h-6 bg-indigo-600 text-white rounded-full flex items-center justify-center text-sm font-medium">
-                1
-              </div>
-              <span className="text-gray-700">Connect your ERP system above</span>
-            </div>
-            <div className="flex items-center space-x-3">
-              <div className="w-6 h-6 bg-indigo-600 text-white rounded-full flex items-center justify-center text-sm font-medium">
-                2
-              </div>
-              <span className="text-gray-700">Open Gmail and find an email with order information</span>
-            </div>
-            <div className="flex items-center space-x-3">
-              <div className="w-6 h-6 bg-indigo-600 text-white rounded-full flex items-center justify-center text-sm font-medium">
-                3
-              </div>
-              <span className="text-gray-700">Click the "Extract" button in the email toolbar</span>
-            </div>
-            <div className="flex items-center space-x-3">
-              <div className="w-6 h-6 bg-indigo-600 text-white rounded-full flex items-center justify-center text-sm font-medium">
-                4
-              </div>
-              <span className="text-gray-700">Review and export the order to your ERP system</span>
-            </div>
+      {/* Instructions */}
+      <div className="bg-blue-50 rounded-lg p-6 border border-blue-200">
+        <h4 className="text-sm font-medium text-blue-900 mb-3">📋 Supported File Types</h4>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm text-blue-800">
+          <div>
+            <p className="font-medium mb-2">Email Files:</p>
+            <ul className="space-y-1 text-blue-700">
+              <li>• .eml files (exported emails)</li>
+              <li>• Email attachments</li>
+            </ul>
+          </div>
+          <div>
+            <p className="font-medium mb-2">Documents:</p>
+            <ul className="space-y-1 text-blue-700">
+              <li>• PDF files (.pdf)</li>
+              <li>• Word documents (.doc, .docx)</li>
+              <li>• Images (.jpg, .png, .gif)</li>
+            </ul>
           </div>
         </div>
-      </main>
+      </div>
     </div>
   );
 };

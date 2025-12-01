@@ -241,14 +241,14 @@ async function decrypt(encryptedText: string): Promise<string> {
 async function storeTokens(userId: string, tokenData: TokenData): Promise<Response> {
   const encryptedAccessToken = await encrypt(tokenData.accessToken);
   const encryptedRefreshToken = tokenData.refreshToken ? await encrypt(tokenData.refreshToken) : null;
-  
+
   // For supabase_session provider, also store email for lookup
   const additionalFields: any = {};
   if (tokenData.provider === 'supabase_session' && tokenData.email) {
     // We don't need to store email separately since we can look up by user_id
     // But we could add it for debugging purposes
   }
-  
+
   const { data, error } = await supabase
     .from('user_tokens')
     .upsert({
@@ -270,6 +270,28 @@ async function storeTokens(userId: string, tokenData: TokenData): Promise<Respon
     throw new Error(`Failed to store tokens: ${error.message}`);
   }
 
+  // Only set up Gmail watch for orders.frootful@gmail.com
+  // Other users will forward emails to this address instead
+  if (tokenData.provider === 'google' && tokenData.accessToken) {
+    // Get user's email to check if it's orders.frootful@gmail.com
+    const { data: userData } = await supabase.auth.admin.getUserById(userId);
+    const userEmail = userData?.user?.email || '';
+
+    if (userEmail === 'orders.frootful@gmail.com') {
+      console.log('Setting up Gmail watch for orders.frootful@gmail.com');
+      try {
+        await setupGmailWatch(tokenData.accessToken, userId);
+        console.log('Gmail watch created successfully');
+      } catch (watchError) {
+        console.error('Failed to create Gmail watch:', watchError);
+        // Don't fail the token storage if watch setup fails
+        // Watch can be retried later
+      }
+    } else {
+      console.log(`Skipping Gmail watch setup for ${userEmail} - only orders.frootful@gmail.com has watch enabled`);
+    }
+  }
+
   return new Response(
     JSON.stringify({ success: true, data }),
     {
@@ -279,6 +301,63 @@ async function storeTokens(userId: string, tokenData: TokenData): Promise<Respon
       }
     }
   );
+}
+
+// Setup Gmail watch for Pub/Sub notifications
+// This is only called for orders.frootful@gmail.com
+async function setupGmailWatch(accessToken: string, userId: string): Promise<void> {
+  const GCP_PROJECT_ID = Deno.env.get('GCP_PROJECT_ID') || 'frootful-workspace-add-on';
+  const PUBSUB_TOPIC = Deno.env.get('GMAIL_PUBSUB_TOPIC') || 'gmail-events';
+
+  const watchUrl = 'https://gmail.googleapis.com/gmail/v1/users/me/watch';
+
+  // Watch ALL emails (no label filter) for orders.frootful@gmail.com
+  console.log('Setting up watch for ALL emails (no label filter)');
+
+  const response = await fetch(watchUrl, {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${accessToken}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      topicName: `projects/${GCP_PROJECT_ID}/topics/${PUBSUB_TOPIC}`,
+    }),
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`Gmail watch API returned ${response.status}: ${errorText}`);
+  }
+
+  const watchData = await response.json();
+  const historyId = watchData.historyId;
+  const expiration = watchData.expiration ? new Date(parseInt(watchData.expiration)) : null;
+
+  console.log('Gmail watch created:', {
+    historyId,
+    expiration: expiration?.toISOString() || 'unknown'
+  });
+
+  // Store the initial history ID and watch state in database
+  console.log('Storing watch state in database...');
+  const { error: storeError } = await supabase
+    .from('gmail_watch_state')
+    .upsert({
+      user_id: userId,
+      last_history_id: historyId,
+      watch_expiration: expiration?.toISOString() || null,
+      updated_at: new Date().toISOString()
+    }, {
+      onConflict: 'user_id'
+    });
+
+  if (storeError) {
+    console.error('Failed to store watch state:', storeError);
+    throw new Error(`Failed to store watch state: ${storeError.message}`);
+  }
+
+  console.log('Watch state stored successfully');
 }
 
 // Retrieve and decrypt tokens

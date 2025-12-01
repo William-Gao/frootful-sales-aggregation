@@ -194,12 +194,28 @@ const AuthCallback: React.FC = () => {
       }, "*");
 
       setStatus('success');
-      setMessage('Authentication successful! Redirecting to dashboard...');
+      setMessage('Authentication successful! Redirecting...');
 
+      // Check if this is an admin user
+      const isAdminUser = session.user.email === 'orders.frootful@gmail.com';
 
-      // Redirect to dashboard after a short delay
+      // Check if user needs onboarding (first time user)
+      // User has completed onboarding if they have either:
+      // 1. onboarding_completed flag in user_metadata, OR
+      // 2. A phone number set (from completing onboarding)
+      const hasOnboardingFlag = session.user.user_metadata?.onboarding_completed;
+      const hasPhoneNumber = !!session.user.phone;
+      const needsOnboarding = !hasOnboardingFlag && !hasPhoneNumber;
+
+      // Redirect after a short delay
       setTimeout(() => {
-        window.location.href = '/dashboard';
+        if (isAdminUser) {
+          window.location.href = '/admin';
+        } else if (needsOnboarding) {
+          window.location.href = '/onboarding';
+        } else {
+          window.location.href = '/dashboard';
+        }
       }, 1500);
 
     } catch (error) {
@@ -369,7 +385,14 @@ const AuthCallback: React.FC = () => {
           {status === 'error' && (
             <button
               onClick={() => window.location.href = '/dashboard'}
-              className="mt-4 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors"
+              className="mt-4 px-4 py-2 text-white rounded-lg transition-colors"
+              style={{ backgroundColor: '#53AD6D' }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.backgroundColor = '#4a9c63';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.backgroundColor = '#53AD6D';
+              }}
             >
               Return to Dashboard
             </button>
