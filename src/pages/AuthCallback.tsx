@@ -199,22 +199,25 @@ const AuthCallback: React.FC = () => {
       // Check if this is an admin user
       const isAdminUser = session.user.email === 'orders.frootful@gmail.com';
 
-      // Check if user needs onboarding (first time user)
-      // User has completed onboarding if they have either:
-      // 1. onboarding_completed flag in user_metadata, OR
-      // 2. A phone number set (from completing onboarding)
-      const hasOnboardingFlag = session.user.user_metadata?.onboarding_completed;
-      const hasPhoneNumber = !!session.user.phone;
-      const needsOnboarding = !hasOnboardingFlag && !hasPhoneNumber;
-
       // Redirect after a short delay
       setTimeout(() => {
         if (isAdminUser) {
+          // Admin always goes to admin dashboard, skip onboarding check
           window.location.href = '/admin';
-        } else if (needsOnboarding) {
-          window.location.href = '/onboarding';
         } else {
-          window.location.href = '/dashboard';
+          // Check if regular user needs onboarding (first time user)
+          // User has completed onboarding if they have either:
+          // 1. onboarding_completed flag in user_metadata, OR
+          // 2. A phone number set (from completing onboarding)
+          const hasOnboardingFlag = session.user.user_metadata?.onboarding_completed;
+          const hasPhoneNumber = !!session.user.phone;
+          const needsOnboarding = !hasOnboardingFlag && !hasPhoneNumber;
+
+          if (needsOnboarding) {
+            window.location.href = '/onboarding';
+          } else {
+            window.location.href = '/dashboard';
+          }
         }
       }, 1500);
 
