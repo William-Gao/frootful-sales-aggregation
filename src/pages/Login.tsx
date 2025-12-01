@@ -159,8 +159,8 @@ const Login: React.FC = () => {
                     </div>
                   </div>
                   <div>
-                    <h3 className="text-sm font-medium text-gray-900">One-Click Processing</h3>
-                    <p className="text-sm text-gray-500">Transform emails into orders instantly</p>
+                    <h3 className="text-sm font-medium text-gray-900">Seamless ERP Integration</h3>
+                    <p className="text-sm text-gray-500">Direct connection to your business systems</p>
                   </div>
                 </div>
               </div>
@@ -209,19 +209,6 @@ const Login: React.FC = () => {
               </button>
             </div>
 
-            {/* Privacy Notice */}
-            <div className="mt-6">
-              <div className="text-xs text-gray-500 text-center">
-                By signing in, you agree to our{' '}
-                <a href="/privacy" style={{ color: '#53AD6D' }} className="hover:opacity-80">
-                  Privacy Policy
-                </a>{' '}
-                and{' '}
-                <a href="/terms" style={{ color: '#53AD6D' }} className="hover:opacity-80">
-                  Terms of Service
-                </a>
-              </div>
-            </div>
           </div>
         </div>
       </div>
