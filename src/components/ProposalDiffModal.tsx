@@ -1,6 +1,13 @@
 import { useState, useEffect } from 'react';
 import { supabaseClient } from '../supabaseClient';
 
+// Helper function to format date strings (YYYY-MM-DD) without timezone issues
+const formatDateString = (dateStr: string): string => {
+  // Parse YYYY-MM-DD format and display in local format without timezone shift
+  const [year, month, day] = dateStr.split('-').map(Number);
+  return new Date(year, month - 1, day).toLocaleDateString();
+};
+
 interface OrderLine {
   id: string;
   line_number: number;
@@ -41,6 +48,21 @@ interface IntakeEvent {
   };
 }
 
+interface IntakeFile {
+  id: string;
+  filename: string;
+  extension: string | null;
+  mime_type: string | null;
+  size_bytes: number | null;
+  storage_path: string;
+  processing_status: string;
+  processed_content: {
+    llm_whisperer?: {
+      text?: string;
+    };
+  } | null;
+}
+
 interface OrderEvent {
   id: string;
   type: string;
@@ -74,6 +96,8 @@ export default function ProposalDiffModal({ proposalId, orderId, onClose, onReso
   const [timeline, setTimeline] = useState<TimelineItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [processing, setProcessing] = useState(false);
+  const [reanalyzing, setReanalyzing] = useState(false);
+  const [intakeEventId, setIntakeEventId] = useState<string | null>(null);
   const [expandedItems, setExpandedItems] = useState<Set<string>>(new Set());
   const [timelineWidth, setTimelineWidth] = useState(384); // 96 * 4 = 384px (w-96)
   const [isDragging, setIsDragging] = useState(false);
@@ -101,6 +125,11 @@ export default function ProposalDiffModal({ proposalId, orderId, onClose, onReso
   const [orderSearchTerm, setOrderSearchTerm] = useState('');
   const [showOrderDropdown, setShowOrderDropdown] = useState(false);
   const [hoveredOrderId, setHoveredOrderId] = useState<string | null>(null);
+
+  // Attachment state
+  const [intakeFiles, setIntakeFiles] = useState<IntakeFile[]>([]);
+  const [fileUrls, setFileUrls] = useState<{[fileId: string]: string}>({});
+  const [expandedFile, setExpandedFile] = useState<string | null>(null);
 
   useEffect(() => {
     fetchData();
@@ -200,6 +229,9 @@ export default function ProposalDiffModal({ proposalId, orderId, onClose, onReso
         .single();
 
       if (proposalInfoError) throw proposalInfoError;
+
+      // Store intake event ID for re-analysis
+      setIntakeEventId(proposalInfo.intake_event_id);
 
       // Fetch order with lines (only if this is a change proposal, not a new order)
       let orderData = null;
@@ -321,6 +353,40 @@ export default function ProposalDiffModal({ proposalId, orderId, onClose, onReso
 
       // Sort by timestamp (earliest first)
       timelineItems.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+
+      // Fetch intake_files for this proposal's intake event
+      let filesData: IntakeFile[] = [];
+      if (proposalInfo.intake_event_id) {
+        const { data: files, error: filesError } = await supabaseClient
+          .from('intake_files')
+          .select('id, filename, extension, mime_type, size_bytes, storage_path, processing_status, processed_content')
+          .eq('intake_event_id', proposalInfo.intake_event_id);
+
+        if (filesError) {
+          console.error('Error fetching intake files:', filesError);
+        } else {
+          filesData = files || [];
+        }
+      }
+
+      // Generate signed URLs for viewable files (images and PDFs)
+      const urls: {[fileId: string]: string} = {};
+      for (const file of filesData) {
+        const viewableExtensions = ['pdf', 'png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp'];
+        if (file.extension && viewableExtensions.includes(file.extension.toLowerCase())) {
+          const { data: signedUrlData } = await supabaseClient
+            .storage
+            .from('intake-files')
+            .createSignedUrl(file.storage_path, 3600); // 1 hour expiry
+
+          if (signedUrlData?.signedUrl) {
+            urls[file.id] = signedUrlData.signedUrl;
+          }
+        }
+      }
+
+      setIntakeFiles(filesData);
+      setFileUrls(urls);
 
       setOrder(orderData);
       setProposalLines(proposalData || []);
@@ -557,6 +623,86 @@ export default function ProposalDiffModal({ proposalId, orderId, onClose, onReso
       }
 
       console.log('✅ All operations completed successfully!');
+
+      // Send notification email via edge function
+      try {
+        console.log('📧 Sending notification email...');
+        const session = await supabaseClient.auth.getSession();
+        const { data: { user } } = await (supabaseClient as any).auth.getUser();
+
+        // Get the organization name for the notification
+        let organizationName = 'Unknown Organization';
+        const linesToUse = isEditing ? editedLines : proposalLines;
+        const proposedValues = linesToUse[0]?.proposed_values as any;
+        const organizationId = proposedValues?.organization_id;
+
+        if (organizationId) {
+          const { data: orgData } = await (supabaseClient as any)
+            .from('organizations')
+            .select('name')
+            .eq('id', organizationId)
+            .single();
+          if (orgData?.name) {
+            organizationName = orgData.name;
+          }
+        } else if (user) {
+          // Fallback: get org from user's organization
+          const { data: userOrgData } = await (supabaseClient as any)
+            .from('user_organizations')
+            .select('organizations(name)')
+            .eq('user_id', user.id)
+            .single();
+          if ((userOrgData as any)?.organizations?.name) {
+            organizationName = (userOrgData as any).organizations.name;
+          }
+        }
+
+        const customerName = isEditing ? editedCustomerName : (order?.customer_name || proposedValues?.customer_name || 'Unknown Customer');
+        const deliveryDate = isEditing ? editedDeliveryDate : (order?.delivery_date || proposedValues?.delivery_date || null);
+
+        const notificationPayload = {
+          proposalId,
+          orderId: finalOrderId,
+          customerName,
+          deliveryDate,
+          isNewOrder: isNewOrderProposal,
+          lines: linesToUse.map(line => ({
+            id: line.id,
+            change_type: line.change_type,
+            item_name: line.item_name,
+            proposed_values: line.proposed_values || {}
+          })),
+          acceptedBy: user?.email || 'Unknown User',
+          organizationName
+        };
+
+        const response = await fetch(
+          `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/process-accept-proposal`,
+          {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${session.data.session?.access_token}`,
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(notificationPayload)
+          }
+        );
+
+        if (response.ok) {
+          console.log('✅ Notification email sent');
+        } else {
+          const errorData = await response.json();
+          console.error('⚠️ Failed to send notification email:', errorData);
+          // Don't fail the whole operation if notification fails
+        }
+      } catch (notificationError) {
+        console.error('⚠️ Error sending notification (non-blocking):', notificationError);
+        // Don't fail the whole operation if notification fails
+      }
+
+      // Show success message
+      alert('Order accepted successfully! The order will be reflected in your ERP momentarily.');
+
       onResolved();
     } catch (error) {
       console.error('Error accepting proposal:', error);
@@ -683,6 +829,53 @@ export default function ProposalDiffModal({ proposalId, orderId, onClose, onReso
       alert(`Error reclassifying: ${error instanceof Error ? error.message : 'Unknown error'}`);
     } finally {
       setProcessing(false);
+    }
+  }
+
+  async function handleReanalyze() {
+    if (!intakeEventId) return;
+
+    try {
+      setReanalyzing(true);
+
+      // Step 1: Reject the current proposal with note
+      await supabaseClient
+        .from('order_change_proposals')
+        .update({
+          status: 'rejected',
+          reviewed_at: new Date().toISOString(),
+          notes: 'Rejected for re-analysis'
+        })
+        .eq('id', proposalId);
+
+      // Step 2: Call process-intake-event to create new proposal
+      const session = await supabaseClient.auth.getSession();
+      const response = await fetch(
+        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/process-intake-event`,
+        {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${session.data.session?.access_token}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({ intakeEventId })
+        }
+      );
+
+      const result = await response.json();
+
+      if (!response.ok || !result.success) {
+        throw new Error(result.error || 'Re-analysis failed');
+      }
+
+      // Close modal and refresh - new proposal will appear
+      onResolved();
+
+    } catch (error) {
+      console.error('Error re-analyzing:', error);
+      alert(`Re-analysis failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    } finally {
+      setReanalyzing(false);
     }
   }
 
@@ -844,7 +1037,7 @@ export default function ProposalDiffModal({ proposalId, orderId, onClose, onReso
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
                       </svg>
                       <span className="text-sm">
-                        {deliveryDate ? new Date(deliveryDate).toLocaleDateString() : 'Not specified'}
+                        {deliveryDate ? formatDateString(deliveryDate) : 'Not specified'}
                       </span>
                     </div>
                   )}
@@ -984,6 +1177,131 @@ export default function ProposalDiffModal({ proposalId, orderId, onClose, onReso
                 </div>
               </div>
             </div>
+
+            {/* Attachments */}
+            {intakeFiles.length > 0 && (
+              <div>
+                <h4 className="text-sm font-medium text-gray-900 mb-3">
+                  Attachments ({intakeFiles.length})
+                </h4>
+                <div className="space-y-3">
+                  {intakeFiles.map((file) => {
+                    const isImage = file.extension && ['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp'].includes(file.extension.toLowerCase());
+                    const isPdf = file.extension?.toLowerCase() === 'pdf';
+                    const fileUrl = fileUrls[file.id];
+                    const isExpanded = expandedFile === file.id;
+
+                    return (
+                      <div key={file.id} className="bg-gray-50 border border-gray-200 rounded-lg overflow-hidden">
+                        {/* File Header */}
+                        <div
+                          className="flex items-center justify-between p-3 cursor-pointer hover:bg-gray-100"
+                          onClick={() => setExpandedFile(isExpanded ? null : file.id)}
+                        >
+                          <div className="flex items-center space-x-3">
+                            {/* File icon */}
+                            {isImage ? (
+                              <svg className="w-5 h-5 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                              </svg>
+                            ) : isPdf ? (
+                              <svg className="w-5 h-5 text-red-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
+                              </svg>
+                            ) : (
+                              <svg className="w-5 h-5 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                              </svg>
+                            )}
+                            <div>
+                              <div className="text-sm font-medium text-gray-900">{file.filename}</div>
+                              <div className="text-xs text-gray-500">
+                                {file.size_bytes ? `${(file.size_bytes / 1024).toFixed(1)} KB` : 'Size unknown'}
+                                {file.processing_status === 'completed' && (
+                                  <span className="ml-2 text-green-600">• Processed</span>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                          <div className="flex items-center space-x-2">
+                            {fileUrl && (
+                              <a
+                                href={fileUrl}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                onClick={(e) => e.stopPropagation()}
+                                className="p-1 text-gray-500 hover:text-indigo-600"
+                                title="Open in new tab"
+                              >
+                                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                                </svg>
+                              </a>
+                            )}
+                            <svg
+                              className={`w-4 h-4 text-gray-500 transition-transform ${isExpanded ? 'rotate-180' : ''}`}
+                              fill="none"
+                              viewBox="0 0 24 24"
+                              stroke="currentColor"
+                            >
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                            </svg>
+                          </div>
+                        </div>
+
+                        {/* Expanded Content */}
+                        {isExpanded && (
+                          <div className="border-t border-gray-200">
+                            {/* Image Preview */}
+                            {isImage && fileUrl && (
+                              <div className="p-4 bg-white">
+                                <img
+                                  src={fileUrl}
+                                  alt={file.filename}
+                                  className="max-w-full h-auto rounded-lg shadow-sm mx-auto"
+                                  style={{ maxHeight: '400px' }}
+                                />
+                              </div>
+                            )}
+
+                            {/* PDF Preview */}
+                            {isPdf && fileUrl && (
+                              <div className="p-4 bg-white">
+                                <iframe
+                                  src={fileUrl}
+                                  title={file.filename}
+                                  className="w-full rounded-lg border border-gray-200"
+                                  style={{ height: '500px' }}
+                                />
+                              </div>
+                            )}
+
+                            {/* Extracted Text */}
+                            {file.processed_content?.llm_whisperer?.text && (
+                              <div className="p-4 bg-gray-50 border-t border-gray-200">
+                                <div className="flex items-center justify-between mb-2">
+                                  <span className="text-xs font-medium text-gray-500 uppercase">Extracted Text</span>
+                                </div>
+                                <div className="text-sm text-gray-700 whitespace-pre-wrap bg-white p-3 rounded border border-gray-200 max-h-48 overflow-y-auto">
+                                  {file.processed_content.llm_whisperer.text}
+                                </div>
+                              </div>
+                            )}
+
+                            {/* No preview available */}
+                            {!isImage && !isPdf && !file.processed_content?.llm_whisperer?.text && (
+                              <div className="p-4 text-center text-sm text-gray-500">
+                                Preview not available for this file type
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
           </div>
           {/* END RIGHT COLUMN */}
         </div>
@@ -1186,7 +1504,7 @@ export default function ProposalDiffModal({ proposalId, orderId, onClose, onReso
               <p className="text-gray-600">Customer: {customerName}</p>
               {deliveryDate && (
                 <p className="text-gray-600">
-                  Delivery: {new Date(deliveryDate).toLocaleDateString()}
+                  Delivery: {formatDateString(deliveryDate)}
                 </p>
               )}
             </div>
@@ -1371,8 +1689,9 @@ export default function ProposalDiffModal({ proposalId, orderId, onClose, onReso
 
         {/* Footer */}
         <div className="border-t p-6 flex justify-between items-center">
-          {/* Left side - Reclassify dropdown */}
+          {/* Left side - Reclassify dropdown and Re-analyze button */}
           {!isEditing && (
+            <div className="flex items-center gap-2">
             <div className="relative">
               <button
                 onClick={() => {
@@ -1490,6 +1809,21 @@ export default function ProposalDiffModal({ proposalId, orderId, onClose, onReso
                   </div>
                 </div>
               )}
+            </div>
+
+            {/* Re-analyze button */}
+            {intakeEventId && (
+              <button
+                onClick={handleReanalyze}
+                disabled={processing || reanalyzing}
+                className="px-4 py-2 border border-blue-300 text-blue-700 rounded-lg hover:bg-blue-50 disabled:opacity-50 flex items-center gap-2"
+              >
+                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                </svg>
+                {reanalyzing ? 'Re-analyzing...' : 'Re-analyze'}
+              </button>
+            )}
             </div>
           )}
 

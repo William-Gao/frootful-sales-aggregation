@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { createLogger, type Logger } from '../_shared/logger.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -15,8 +16,7 @@ function base64urlDecode(str: string): string {
 
   try {
     return atob(padded);
-  } catch (error) {
-    console.error('Failed to decode base64url:', error);
+  } catch (_error) {
     throw new Error('Invalid base64url string');
   }
 }
@@ -34,7 +34,6 @@ async function fetchGmailMessage(messageId: string, accessToken: string) {
 
   if (!response.ok) {
     const error = await response.text();
-    console.error('Gmail API error:', error);
     throw new Error(`Gmail API returned ${response.status}: ${error}`);
   }
 
@@ -52,8 +51,7 @@ function decodeEmailBody(data: string): string {
   if (!data) return '';
   try {
     return base64urlDecode(data);
-  } catch (error) {
-    console.error('Failed to decode email body:', error);
+  } catch (_error) {
     return '';
   }
 }
@@ -117,6 +115,103 @@ function extractAttachments(payload: any): any[] {
   }
 
   return attachments;
+}
+
+// Helper function to download Gmail attachment
+async function downloadGmailAttachment(messageId: string, attachmentId: string, accessToken: string): Promise<Uint8Array> {
+  const url = `https://gmail.googleapis.com/gmail/v1/users/me/messages/${messageId}/attachments/${attachmentId}`;
+
+  const response = await fetch(url, {
+    headers: {
+      'Authorization': `Bearer ${accessToken}`,
+    },
+  });
+
+  if (!response.ok) {
+    const error = await response.text();
+    throw new Error(`Failed to download attachment: ${response.status} - ${error}`);
+  }
+
+  const data = await response.json();
+
+  // Gmail returns base64url encoded data
+  const base64Data = data.data.replace(/-/g, '+').replace(/_/g, '/');
+  const binaryString = atob(base64Data);
+  const bytes = new Uint8Array(binaryString.length);
+  for (let i = 0; i < binaryString.length; i++) {
+    bytes[i] = binaryString.charCodeAt(i);
+  }
+
+  return bytes;
+}
+
+// Helper function to get file extension from filename
+function getFileExtension(filename: string): string {
+  const parts = filename.split('.');
+  return parts.length > 1 ? parts.pop()!.toLowerCase() : '';
+}
+
+// Helper function to store attachment in Supabase Storage and create intake_files record
+async function storeAttachment(
+  supabaseClient: any,
+  attachment: any,
+  messageId: string,
+  accessToken: string,
+  intakeEventId: string,
+  organizationId: string
+): Promise<{ success: boolean; fileId?: string; error?: string }> {
+  try {
+    // Download the attachment from Gmail
+    const fileBytes = await downloadGmailAttachment(messageId, attachment.attachmentId, accessToken);
+
+    // Generate file ID and storage path
+    const fileId = crypto.randomUUID();
+    const extension = getFileExtension(attachment.filename);
+    const storagePath = `${organizationId}/${intakeEventId}/${fileId}${extension ? '.' + extension : ''}`;
+
+    // Upload to Supabase Storage
+    const { error: uploadError } = await supabaseClient.storage
+      .from('intake-files')
+      .upload(storagePath, fileBytes, {
+        contentType: attachment.mimeType || 'application/octet-stream',
+        upsert: false,
+      });
+
+    if (uploadError) {
+      return { success: false, error: uploadError.message };
+    }
+
+    // Create intake_files record
+    const { error: insertError } = await supabaseClient
+      .from('intake_files')
+      .insert({
+        id: fileId,
+        organization_id: organizationId,
+        intake_event_id: intakeEventId,
+        filename: attachment.filename,
+        extension: extension || null,
+        mime_type: attachment.mimeType,
+        size_bytes: attachment.size || fileBytes.length,
+        source: 'email',
+        source_metadata: {
+          gmail_attachment_id: attachment.attachmentId,
+          gmail_message_id: messageId,
+        },
+        storage_path: storagePath,
+        processing_status: 'pending',
+      });
+
+    if (insertError) {
+      // Try to clean up the uploaded file
+      await supabaseClient.storage.from('intake-files').remove([storagePath]);
+      return { success: false, error: insertError.message };
+    }
+
+    return { success: true, fileId };
+
+  } catch (error) {
+    return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
+  }
 }
 
 // Encryption key from environment - must match token-manager and auth-callback
@@ -232,13 +327,7 @@ async function getUserAccessToken(userId: string, supabaseClient: any): Promise<
     .eq('provider', 'google')
     .single();
 
-  if (error) {
-    console.error('Error fetching user tokens:', error);
-    return null;
-  }
-
-  if (!data) {
-    console.error('No Google token found for user');
+  if (error || !data) {
     return null;
   }
 
@@ -247,8 +336,6 @@ async function getUserAccessToken(userId: string, supabaseClient: any): Promise<
   const expiresAt = data.token_expires_at ? new Date(data.token_expires_at).getTime() : 0;
 
   if (now >= expiresAt && data.encrypted_refresh_token) {
-    console.log('Token expired, refreshing...');
-
     try {
       const refreshToken = await decrypt(data.encrypted_refresh_token);
       const newTokens = await refreshGoogleToken(refreshToken);
@@ -268,10 +355,8 @@ async function getUserAccessToken(userId: string, supabaseClient: any): Promise<
         .eq('user_id', userId)
         .eq('provider', 'google');
 
-      console.log('✅ Token refreshed successfully');
       return newTokens.access_token;
-    } catch (refreshError) {
-      console.error('❌ Failed to refresh token:', refreshError);
+    } catch (_refreshError) {
       // Fall through to try existing token anyway
     }
   }
@@ -286,14 +371,20 @@ serve(async (req) => {
     return new Response('ok', { headers: corsHeaders });
   }
 
+  const requestId = crypto.randomUUID();
+  const logger = createLogger({
+    requestId,
+    functionName: 'process-gmail-notification'
+  });
+
   try {
-    console.log('=== Gmail Pub/Sub Notification Received ===');
+    logger.info('Gmail Pub/Sub notification received');
 
     // Parse request body from Pub/Sub
     const body = await req.json();
 
     if (!body.message || !body.message.data) {
-      console.error('Invalid Pub/Sub message format');
+      logger.error('Invalid Pub/Sub message format');
       return new Response(
         JSON.stringify({
           success: false,
@@ -310,18 +401,16 @@ serve(async (req) => {
     const decodedData = base64urlDecode(body.message.data);
     const gmailNotification = JSON.parse(decodedData);
 
-    console.log('=== Gmail Notification ===');
-    console.log('Email address:', gmailNotification.emailAddress);
-    console.log('History ID:', gmailNotification.historyId);
-
     // Extract email and history ID
     const userEmail = gmailNotification.emailAddress;
     const historyId = gmailNotification.historyId;
 
+    logger.info('Gmail notification parsed', { userEmail, historyId });
+
     // IMPORTANT: Acknowledge the Pub/Sub message immediately by returning 200
     // Process the email asynchronously without blocking the response
-    processEmailAsync(userEmail, historyId).catch(error => {
-      console.error('Error in async processing:', error);
+    processEmailAsync(userEmail, historyId, logger).catch(error => {
+      logger.error('Error in async processing', error);
     });
 
     // Return success immediately to acknowledge Pub/Sub message
@@ -342,13 +431,12 @@ serve(async (req) => {
     );
 
   } catch (error) {
-    console.error('=== Error processing request ===');
-    console.error('Error:', error);
+    logger.error('Error processing request', error);
 
     return new Response(
       JSON.stringify({
         success: false,
-        error: error.message || 'Unknown error occurred',
+        error: error instanceof Error ? error.message : 'Unknown error occurred',
       }),
       {
         status: 500,
@@ -359,11 +447,9 @@ serve(async (req) => {
 });
 
 // Process email asynchronously after acknowledging Pub/Sub
-async function processEmailAsync(userEmail: string, historyId: string) {
+async function processEmailAsync(userEmail: string, historyId: string, logger: Logger) {
   try {
-    console.log('=== Starting Async Email Processing ===');
-    console.log('User email:', userEmail);
-    console.log('History ID:', historyId);
+    logger.info('Starting async email processing', { userEmail, historyId });
 
     // Initialize Supabase client
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
@@ -371,27 +457,28 @@ async function processEmailAsync(userEmail: string, historyId: string) {
     const supabaseClient = createClient(supabaseUrl, supabaseServiceKey);
 
     // Get user_id from email using RPC function
-    console.log('Looking up user by email:', userEmail);
     const { data: userId, error: userError } = await supabaseClient
       .rpc('get_user_id_by_email', { user_email: userEmail });
 
     if (userError || !userId) {
-      console.error('User not found:', userEmail, userError);
+      logger.error('User not found', userError, { userEmail });
       throw new Error('User not found');
     }
 
-    console.log('User ID:', userId);
+    logger.info('User found', { userId });
+
+    // NOTE: We don't look up organization here - the organization is determined per email
+    // based on the SENDER's email (the sales associate), not the recipient (orders.frootful@gmail.com)
 
     // Get user's Gmail access token
     const accessToken = await getUserAccessToken(userId, supabaseClient);
 
     if (!accessToken) {
-      console.error('No access token found for user:', userEmail);
+      logger.error('No access token found for user', undefined, { userEmail });
       throw new Error('User access token not found');
     }
 
     // Get stored watch state (including last processed historyId)
-    console.log('=== Getting stored watch state ===');
     const { data: watchState, error: watchStateError } = await supabaseClient
       .from('gmail_watch_state')
       .select('last_history_id')
@@ -399,22 +486,20 @@ async function processEmailAsync(userEmail: string, historyId: string) {
       .single();
 
     if (watchStateError) {
-      console.error('Error fetching watch state:', watchStateError);
+      logger.error('Error fetching watch state', watchStateError);
       throw new Error('Failed to fetch watch state');
     }
 
     if (!watchState) {
-      console.error('No watch state found for user - watch may not be set up yet');
+      logger.error('No watch state found for user - watch may not be set up yet');
       throw new Error('Watch state not found');
     }
 
     const lastHistoryId = watchState.last_history_id;
 
-    console.log('Last processed historyId:', lastHistoryId);
-    console.log('Current notification historyId:', historyId);
+    logger.info('Watch state retrieved', { lastHistoryId, currentHistoryId: historyId });
 
     // Use History API to get changes since last processed historyId
-    console.log('=== Fetching history changes ===');
     const historyUrl = `https://gmail.googleapis.com/gmail/v1/users/me/history?startHistoryId=${lastHistoryId}`;
 
     const historyResponse = await fetch(historyUrl, {
@@ -426,26 +511,25 @@ async function processEmailAsync(userEmail: string, historyId: string) {
 
     if (!historyResponse.ok) {
       const error = await historyResponse.text();
-      console.error('Gmail History API error:', error);
+      logger.error('Gmail History API error', undefined, { status: historyResponse.status, error });
       throw new Error(`Gmail History API returned ${historyResponse.status}: ${error}`);
     }
 
     const historyData = await historyResponse.json();
-    console.log('=== Gmail History Data ===');
-    console.log('History records:', historyData.history?.length || 0);
+    const historyRecordCount = historyData.history?.length || 0;
+
+    logger.info('Gmail history fetched', { historyRecordCount });
 
     // Extract ALL message IDs from history records
     const newMessageIds: string[] = [];
 
     if (historyData.history) {
-      console.log('Processing history records...');
       for (const record of historyData.history) {
         // Process ALL messagesAdded events
         if (record.messagesAdded) {
           for (const messageChange of record.messagesAdded) {
             const messageId = messageChange.message.id;
             newMessageIds.push(messageId);
-            console.log('✅ Adding message to process:', messageId);
           }
         }
 
@@ -455,24 +539,22 @@ async function processEmailAsync(userEmail: string, historyId: string) {
             const messageId = labelChange.message.id;
             if (!newMessageIds.includes(messageId)) {
               newMessageIds.push(messageId);
-              console.log('✅ Adding message with label change:', messageId);
             }
           }
         }
       }
-    } else {
-      console.log('⚠️ No history data returned - no changes since historyId:', historyId);
     }
 
-    console.log('=== Message IDs to Process ===');
-    console.log('Count:', newMessageIds.length);
-    console.log('IDs:', newMessageIds);
+    logger.info('Messages to process', { count: newMessageIds.length, messageIds: newMessageIds });
 
     // Process each new message - create intake_events
     for (const messageId of newMessageIds) {
-      console.log(`=== Processing Message ${messageId} ===`);
+      // Create a child logger with messageId context
+      const msgLogger = logger.child({ messageId });
 
       try {
+        msgLogger.info('Processing message');
+
         // Fetch full message from Gmail API
         const gmailMessage = await fetchGmailMessage(messageId, accessToken);
 
@@ -484,7 +566,7 @@ async function processEmailAsync(userEmail: string, historyId: string) {
         const dateStr = getHeader(headers, 'Date');
         const threadId = gmailMessage.threadId;
 
-        console.log('Email Metadata:', { from, to, subject, date: dateStr });
+        msgLogger.info('Email metadata extracted', { from, to, subject, date: dateStr });
 
         // Extract body content
         const { plainText, htmlBody } = extractBody(gmailMessage.payload);
@@ -492,7 +574,7 @@ async function processEmailAsync(userEmail: string, historyId: string) {
         // Extract attachments metadata
         const attachments = extractAttachments(gmailMessage.payload);
 
-        console.log('Attachments:', attachments.length);
+        msgLogger.info('Email content extracted', { attachmentCount: attachments.length, hasPlainText: !!plainText, hasHtml: !!htmlBody });
 
         // Convert all headers to object format
         const headersJson = headers.reduce((acc: any, h: any) => {
@@ -500,11 +582,47 @@ async function processEmailAsync(userEmail: string, historyId: string) {
           return acc;
         }, {});
 
-        // Create intake_event WITHOUT organization_id
-        // The database trigger will call process-intake-event which will determine the organization
+        // Determine organization_id from the SENDER's email (sales associate)
+        // Extract email address from "Name <email@domain.com>" format
+        const emailMatch = from ? from.match(/<([^>]+)>/) || [null, from] : [null, null];
+        const senderEmail = emailMatch[1]?.trim();
+
+        if (!senderEmail) {
+          msgLogger.warn('Unrecognized sender - could not extract email', { from });
+          continue;
+        }
+
+        // Get user ID by sender email
+        const { data: senderUserId, error: senderUserError } = await supabaseClient
+          .rpc('get_user_id_by_email', { user_email: senderEmail });
+
+        if (senderUserError || !senderUserId) {
+          msgLogger.warn('Unrecognized sender - no user found', { senderEmail, subject, from });
+          continue;
+        }
+
+        // Get sender's organization
+        const { data: senderOrg, error: senderOrgError } = await supabaseClient
+          .from('user_organizations')
+          .select('organization_id')
+          .eq('user_id', senderUserId)
+          .single();
+
+        if (senderOrgError || !senderOrg) {
+          msgLogger.warn('Unrecognized sender - user has no organization', { senderEmail, senderUserId, subject, from });
+          continue;
+        }
+
+        const organizationId = senderOrg.organization_id;
+        const orgLogger = msgLogger.child({ organizationId });
+
+        orgLogger.info('Organization resolved for sender', { senderEmail });
+
+        // Create intake_event
         const { data: intakeEvent, error: intakeError } = await supabaseClient
           .from('intake_events')
           .insert({
+            organization_id: organizationId,
             channel: 'email',
             provider: 'gmail',
             provider_message_id: messageId,
@@ -527,27 +645,44 @@ async function processEmailAsync(userEmail: string, historyId: string) {
         if (intakeError) {
           // Check if duplicate
           if (intakeError.code === '23505') {
-            console.log(`⏭️  Intake event already exists for message: ${messageId}`);
+            orgLogger.info('Intake event already exists for message (duplicate)');
           } else {
-            console.error('Failed to create intake_event:', intakeError);
+            orgLogger.error('Failed to create intake_event', intakeError);
           }
         } else {
-          console.log(`✅ Created intake_event: ${intakeEvent.id}`);
+          const intakeLogger = orgLogger.child({ intakeEventId: intakeEvent.id });
+          intakeLogger.info('Created intake_event');
+
+          // Store attachments in Supabase Storage
+          if (attachments.length > 0) {
+            intakeLogger.info('Storing attachments', { count: attachments.length });
+            for (const attachment of attachments) {
+              const result = await storeAttachment(
+                supabaseClient,
+                attachment,
+                messageId,
+                accessToken,
+                intakeEvent.id,
+                organizationId
+              );
+              if (!result.success) {
+                intakeLogger.warn('Failed to store attachment', { filename: attachment.filename, error: result.error });
+              } else {
+                intakeLogger.info('Attachment stored', { filename: attachment.filename, fileId: result.fileId });
+              }
+            }
+          }
         }
 
       } catch (msgError) {
-        console.error(`Error processing message ${messageId}:`, msgError);
+        msgLogger.error('Error processing message', msgError);
         // Continue with other messages
       }
     }
 
-    console.log('=== Async Processing Complete ===');
-    console.log('Processed messages:', newMessageIds.length);
+    logger.info('Async processing complete', { processedCount: newMessageIds.length });
 
     // Update stored historyId to the current notification's historyId
-    console.log('=== Updating stored historyId ===');
-    console.log(`Updating from ${lastHistoryId} to ${historyId}`);
-
     const { error: updateError } = await supabaseClient
       .from('gmail_watch_state')
       .update({
@@ -557,13 +692,12 @@ async function processEmailAsync(userEmail: string, historyId: string) {
       .eq('user_id', userId);
 
     if (updateError) {
-      console.error('Failed to update stored historyId:', updateError);
+      logger.error('Failed to update stored historyId', updateError);
     } else {
-      console.log('✅ Successfully updated stored historyId');
+      logger.info('Updated stored historyId', { from: lastHistoryId, to: historyId });
     }
 
   } catch (error) {
-    console.error('=== Error in Async Email Processing ===');
-    console.error('Error:', error);
+    logger.error('Error in async email processing', error);
   }
 }

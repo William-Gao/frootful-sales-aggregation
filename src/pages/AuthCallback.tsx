@@ -196,6 +196,9 @@ const AuthCallback: React.FC = () => {
       setStatus('success');
       setMessage('Authentication successful! Redirecting...');
 
+      // Check if this is an admin user
+      const isAdminUser = session.user.email === 'orders.frootful@gmail.com';
+
       // Check if user needs onboarding (first time user)
       // User has completed onboarding if they have either:
       // 1. onboarding_completed flag in user_metadata, OR
@@ -206,7 +209,9 @@ const AuthCallback: React.FC = () => {
 
       // Redirect after a short delay
       setTimeout(() => {
-        if (needsOnboarding) {
+        if (isAdminUser) {
+          window.location.href = '/admin';
+        } else if (needsOnboarding) {
           window.location.href = '/onboarding';
         } else {
           window.location.href = '/dashboard';

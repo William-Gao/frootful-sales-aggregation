@@ -15,8 +15,8 @@ const AdminLogin: React.FC = () => {
     try {
       const { data: { session }, error } = await supabaseClient.auth.getSession();
       if (session && !error) {
-        console.log('User already authenticated, redirecting to dashboard');
-        window.location.href = '/dashboard';
+        console.log('User already authenticated, redirecting to admin dashboard');
+        window.location.href = '/admin';
         return;
       }
     } catch (error) {

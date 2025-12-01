@@ -117,7 +117,7 @@ Deno.serve(async (req) => {
       // Fetch items from our database
       const { data: items, error } = await supabase
         .from('items')
-        .select('id, sku, name, description, base_price, active')
+        .select('id, sku, name, description, base_price, category, notes, active')
         .eq('organization_id', organizationId)
         .eq('active', true)
         .order('name');
@@ -133,7 +133,9 @@ Deno.serve(async (req) => {
         number: i.sku,
         displayName: i.name,
         description: i.description,
-        unitPrice: i.base_price
+        unitPrice: i.base_price,
+        category: i.category,
+        notes: i.notes
       })) || [];
     }
 

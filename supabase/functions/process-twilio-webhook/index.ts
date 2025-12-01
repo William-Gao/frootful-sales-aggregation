@@ -1,4 +1,5 @@
 import { createClient } from 'npm:@supabase/supabase-js@2.39.7';
+import { Resend } from 'npm:resend@2.0.0';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -10,6 +11,10 @@ const corsHeaders = {
 const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
 const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
 const supabase = createClient(supabaseUrl, supabaseServiceKey);
+
+// Initialize Resend client
+const resendApiKey = Deno.env.get('RESEND_API_KEY');
+const resend = resendApiKey ? new Resend(resendApiKey) : null;
 
 interface TwilioWebhookData {
   From: string;
@@ -90,6 +95,43 @@ Deno.serve(async (req) => {
 
     if (intakeError) throw intakeError;
     console.log(`✅ Created intake_event: ${intakeEvent.id}`);
+
+    // Send email notification via Resend
+    if (resend) {
+      try {
+        const timestamp = new Date().toLocaleString('en-US', {
+          timeZone: 'America/New_York',
+          dateStyle: 'medium',
+          timeStyle: 'short'
+        });
+
+        await resend.emails.send({
+          from: 'Frootful Orders <orders@notifications.frootful.ai>',
+          to: ['william@frootful.ai'],
+          subject: `New SMS Order from ${webhookData.From}`,
+          html: `
+            <h2>New SMS Order Received</h2>
+            <p><strong>From:</strong> ${webhookData.From}</p>
+            <p><strong>To:</strong> ${webhookData.To}</p>
+            <p><strong>Time:</strong> ${timestamp}</p>
+            <p><strong>Location:</strong> ${webhookData.FromCity || 'Unknown'}, ${webhookData.FromState || 'Unknown'}</p>
+            <hr/>
+            <p><strong>Message:</strong></p>
+            <blockquote style="background: #f5f5f5; padding: 15px; border-left: 4px solid #333;">
+              ${webhookData.Body}
+            </blockquote>
+            <hr/>
+            <p><small>Intake Event ID: ${intakeEvent.id}</small></p>
+          `,
+        });
+        console.log('📧 Email notification sent to william@frootful.ai');
+      } catch (emailError) {
+        console.error('Failed to send email notification:', emailError);
+        // Don't throw - email failure shouldn't break the webhook
+      }
+    } else {
+      console.warn('⚠️ RESEND_API_KEY not configured, skipping email notification');
+    }
 
     // Return TwiML response
     return new Response(

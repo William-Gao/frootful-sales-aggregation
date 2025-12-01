@@ -341,7 +341,7 @@ async function analyzeTextWithAI(items: Item[], customers: Customer[], webhookDa
 
     // Prepare request data for logging
     const requestData = {
-      model: 'gpt-4o',
+      model: 'gpt-5.1',
       messages: [
         {
           role: 'system',
@@ -401,7 +401,7 @@ qty 1 for M9423
         analysis_type: 'text_message',
         source_id: webhookData.MessageSid,
         raw_request: requestData,
-        model_used: 'gpt-4o',
+        model_used: 'gpt-5.1',
         created_at: new Date().toISOString()
       })
       .select('id')
@@ -412,7 +412,7 @@ qty 1 for M9423
       console.warn('Failed to create initial AI analysis log:', initialLogError);
     }
     const completion = await openai.chat.completions.create({
-      model: 'gpt-4o',
+      model: 'gpt-5.1',
       messages: requestData.messages,
       temperature: requestData.temperature,
       max_tokens: requestData.max_tokens,
@@ -469,7 +469,7 @@ qty 1 for M9423
 
     // Customer analysis
     const customerCompletion = await openai.chat.completions.create({
-      model: 'gpt-4o',
+      model: 'gpt-5.1',
       messages: [
         {
           role: 'system',
