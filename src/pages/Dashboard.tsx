@@ -66,7 +66,7 @@ const Dashboard: React.FC = () => {
   const [extensionLogoutInProgress, setExtensionLogoutInProgress] = useState(false);
   const [companies, setCompanies] = useState<Company[]>([]);
   const [selectedCompanyId, setSelectedCompanyId] = useState<string>('');
-  const [activeTab, setActiveTab] = useState<'overview' | 'orders' | 'upload'>('orders');
+  const [activeTab, setActiveTab] = useState<'overview' | 'orders'>('orders');
   const [installPrompt, setInstallPrompt] = useState<any>(null);
   const [isInstallable, setIsInstallable] = useState(false);
   const [orderCounts, setOrderCounts] = useState<OrderCounts>({
@@ -787,7 +787,7 @@ const Dashboard: React.FC = () => {
                   <span>All Orders</span>
                 </div>
               </button>
-              <button
+              {/* <button
                 onClick={() => setActiveTab('upload')}
                 className={`py-2 px-1 border-b-2 font-medium text-sm ${
                   activeTab === 'upload'
@@ -800,7 +800,7 @@ const Dashboard: React.FC = () => {
                   <Upload className="w-4 h-4" />
                   <span>Upload Orders</span>
                 </div>
-              </button>
+              </button> */}
             </nav>
           </div>
         </div>
@@ -988,7 +988,7 @@ const Dashboard: React.FC = () => {
 
         {activeTab === 'orders' && <OrdersSection organizationId={organization?.id || null} />}
 
-        {activeTab === 'upload' && <UploadOrdersSection />}
+        {/* {activeTab === 'upload' && <UploadOrdersSection />} */}
       </main>
     </div>
   );
