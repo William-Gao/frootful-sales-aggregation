@@ -1,9 +1,7 @@
 import React, { useEffect, useState } from 'react';
-import { AlertCircle, CheckCircle, ExternalLink, Settings, Building2, Database, ArrowRight, Loader2, Package, Smartphone, MessageSquare, Upload, GitCompare, TestTube2 } from 'lucide-react';
+import { AlertCircle, CheckCircle, ExternalLink, Settings, Building2, Database, ArrowRight, Loader2, Package, Smartphone, MessageSquare, Upload } from 'lucide-react';
 import { supabaseClient } from '../supabaseClient';
 import OrdersSection from '../components/OrdersSection';
-import DiffPreviewSection from '../components/DiffPreviewSection';
-import TestOrdersSection from '../components/TestOrdersSection';
 
 interface User {
   id: string;
@@ -68,7 +66,7 @@ const Dashboard: React.FC = () => {
   const [extensionLogoutInProgress, setExtensionLogoutInProgress] = useState(false);
   const [companies, setCompanies] = useState<Company[]>([]);
   const [selectedCompanyId, setSelectedCompanyId] = useState<string>('');
-  const [activeTab, setActiveTab] = useState<'overview' | 'orders' | 'upload' | 'diff' | 'test'>('orders');
+  const [activeTab, setActiveTab] = useState<'overview' | 'orders' | 'upload'>('orders');
   const [installPrompt, setInstallPrompt] = useState<any>(null);
   const [isInstallable, setIsInstallable] = useState(false);
   const [orderCounts, setOrderCounts] = useState<OrderCounts>({
@@ -803,34 +801,6 @@ const Dashboard: React.FC = () => {
                   <span>Upload Orders</span>
                 </div>
               </button>
-              <button
-                onClick={() => setActiveTab('diff')}
-                className={`py-2 px-1 border-b-2 font-medium text-sm ${
-                  activeTab === 'diff'
-                    ? 'text-gray-900'
-                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-                }`}
-                style={activeTab === 'diff' ? { borderBottomColor: '#53AD6D', color: '#53AD6D' } : {}}
-              >
-                <div className="flex items-center space-x-2">
-                  <GitCompare className="w-4 h-4" />
-                  <span>Diff Preview</span>
-                </div>
-              </button>
-              <button
-                onClick={() => setActiveTab('test')}
-                className={`py-2 px-1 border-b-2 font-medium text-sm ${
-                  activeTab === 'test'
-                    ? 'text-gray-900'
-                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-                }`}
-                style={activeTab === 'test' ? { borderBottomColor: '#53AD6D', color: '#53AD6D' } : {}}
-              >
-                <div className="flex items-center space-x-2">
-                  <TestTube2 className="w-4 h-4" />
-                  <span>Test Orders</span>
-                </div>
-              </button>
             </nav>
           </div>
         </div>
@@ -1019,10 +989,6 @@ const Dashboard: React.FC = () => {
         {activeTab === 'orders' && <OrdersSection organizationId={organization?.id || null} />}
 
         {activeTab === 'upload' && <UploadOrdersSection />}
-
-        {activeTab === 'diff' && <DiffPreviewSection />}
-
-        {activeTab === 'test' && <TestOrdersSection />}
       </main>
     </div>
   );
