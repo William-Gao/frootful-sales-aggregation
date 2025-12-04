@@ -561,7 +561,7 @@ const AdminDashboard: React.FC = () => {
           customer_id: selectedCustomer.id,
           customer_name: selectedCustomer.name,
           delivery_date: deliveryDate || null,
-          source_channel: 'admin',
+          source_channel: sourceChannel,
           created_by_user_id: user?.id || null,
           received_by_user_id: selectedReceivedBy?.user_id || null,
           received_by_email: selectedReceivedBy?.email || null
