@@ -20,7 +20,11 @@ const openai = new OpenAI({
 });
 
 // Debug mode - set to false to enable normal processing
-const DEBUG_MODE = true;
+const DEBUG_MODE = false;
+
+// Demo organization constants for fallback
+const DEMO_ORGANIZATION_ID = '00000000-0000-0000-0000-000000000001';
+const DEMO_USER_ID = '00000000-0000-0000-0000-000000000002';
 
 interface Customer {
   id: string;
@@ -247,14 +251,46 @@ Deno.serve(async (req) => {
       }
     }
 
-    // Error if organization still not found
+    // Fallback to demo organization if organization not found
     if (!organizationId) {
-      const errorMsg = intakeEvent.channel === 'sms'
-        ? `Could not determine organization for SMS from ${intakeEvent.raw_content?.from}. No user found with this phone number.`
-        : `Could not determine organization for email from ${intakeEvent.raw_content?.from}. No user found with this email address.`;
+      organizationId = DEMO_ORGANIZATION_ID;
+      createdByUserId = DEMO_USER_ID;
 
-      eventLogger.error('Could not determine organization', undefined, { channel: intakeEvent.channel, from: intakeEvent.raw_content?.from });
-      throw new Error(errorMsg);
+      eventLogger.info('Falling back to demo organization', {
+        channel: intakeEvent.channel,
+        from: intakeEvent.raw_content?.from,
+        reason: 'org_not_found'
+      });
+
+      // Log demo fallback for transparency
+      try {
+        await supabase
+          .from('demo_fallback_logs')
+          .insert({
+            original_email: intakeEvent.channel === 'email' ? intakeEvent.raw_content?.from : null,
+            original_phone: intakeEvent.channel === 'sms' ? intakeEvent.raw_content?.from : null,
+            intake_event_id: intakeEvent.id,
+            reason: 'org_not_found',
+            metadata: {
+              channel: intakeEvent.channel,
+              from: intakeEvent.raw_content?.from,
+              subject: intakeEvent.raw_content?.subject,
+              timestamp: new Date().toISOString()
+            }
+          });
+      } catch (logError) {
+        eventLogger.warn('Failed to log demo fallback', { error: logError });
+      }
+    }
+
+    // Fallback to demo user if user not found (but org was found)
+    // This ensures ai_analysis_logs always has a valid user_id
+    if (!createdByUserId) {
+      createdByUserId = DEMO_USER_ID;
+      eventLogger.info('Falling back to demo user for AI logging', {
+        organizationId,
+        reason: 'user_not_found'
+      });
     }
 
     // Update the intake_event with the determined organization if it wasn't set

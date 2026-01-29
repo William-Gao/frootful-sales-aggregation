@@ -91,7 +91,7 @@ interface Order {
   items: OrderItem[];
   total_amount?: number;
   status: 'received' | 'processing' | 'analyzed' | 'exported' | 'failed' | 'pending' | 'completed' | 'cancelled' | 'needs_review';
-  source: 'email' | 'text' | 'manual' | 'edi';
+  source: 'email' | 'text' | 'manual' | 'edi' | 'erp';
   original_content: string;
   trading_partner?: string;
   requested_delivery_date?: string;
@@ -118,6 +118,322 @@ type ViewMode = 'current' | 'diff-side-by-side' | 'diff-unified';
 interface OrdersSectionProps {
   organizationId: string | null;
 }
+
+// ============================================================================
+// HARDCODED DEMO ORDERS - For gaotioncapital@gmail.com demonstration
+// Timestamps are recent (minutes ago) to appear freshly uploaded
+// ============================================================================
+const DEMO_ORDERS: Order[] = [
+  // EDI Order - Publix (FIRST - most recent, 2 minutes ago)
+  {
+    id: 'demo-edi-001',
+    order_number: 'G120419-01',
+    customer_name: 'Publix Super Markets, Inc.',
+    customer_email: 'orders@publix.com',
+    items: [
+      { name: 'ORG GW Romaine Hearts 12oz', quantity: 56, description: '56 cases' },
+      { name: 'Swiss Chard Red', quantity: 42, description: '42 cases' },
+      { name: 'Organic Parsley Italian', quantity: 70, description: '70 bunches' },
+      { name: 'Organic Kale Lacinato', quantity: 49, description: '49 bunches' },
+      { name: 'Organic Kale Green', quantity: 28, description: '28 bunches' },
+      { name: 'Organic Green Onions', quantity: 40, description: '40 bunches' },
+      { name: 'Organic Dandelion Greens', quantity: 35, description: '35 bunches' },
+      { name: 'Romaine', quantity: 49, description: '49 heads' },
+      { name: 'Escarole', quantity: 35, description: '35 heads' },
+      { name: 'Organic Cilantro', quantity: 120, description: '120 bunches' },
+      { name: 'Radishes Bunched', quantity: 40, description: '40 bunches' },
+      { name: 'Organic Chard Rainbow', quantity: 35, description: '35 bunches' },
+      { name: 'Organic Beets Red', quantity: 49, description: '49 bunches' },
+      { name: 'Lettuce Green Leaf', quantity: 98, description: '98 heads' },
+    ],
+    total_amount: 0,
+    status: 'pending',
+    source: 'edi',
+    original_content: 'EDI 850 Purchase Order\nPO#: G120419-01\nShip Date: 10/30/2025\nArrival Date: 10/31/2025',
+    trading_partner: 'Publix Super Markets',
+    requested_delivery_date: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+    created_at: new Date(Date.now() - 2 * 60 * 1000).toISOString(), // 2 minutes ago
+    created_by: {
+      id: 'demo-user-3',
+      name: 'James Wilson',
+      email: 'james@frootful.ai',
+      profile_picture: 'https://ui-avatars.com/api/?name=James+Wilson&background=F59E0B&color=fff'
+    },
+    attachments: [
+      {
+        filename: 'Publix-Order-G120419-01.pdf',
+        mimeType: 'application/pdf',
+        size: 635283,
+        attachmentId: 'demo-attach-edi',
+        hasContent: true,
+        extractedTextLength: 0,
+        storageUrl: '/sample-order.pdf'
+      }
+    ],
+    analysis_data: {
+      customers: [],
+      items: [],
+      matchingCustomer: {
+        id: 'demo-cust-3',
+        number: 'PUBLIX-001',
+        displayName: 'Publix Super Markets, Inc.',
+        email: 'orders@publix.com'
+      },
+      analyzedItems: [
+        { itemName: 'ORG GW Romaine Hearts 12oz', quantity: 56 },
+        { itemName: 'Swiss Chard Red', quantity: 42 },
+        { itemName: 'Organic Parsley Italian', quantity: 70 },
+        { itemName: 'Organic Kale Lacinato', quantity: 49 },
+        { itemName: 'Organic Kale Green', quantity: 28 },
+        { itemName: 'Organic Green Onions', quantity: 40 },
+        { itemName: 'Organic Dandelion Greens', quantity: 35 },
+        { itemName: 'Romaine', quantity: 49 },
+        { itemName: 'Escarole', quantity: 35 },
+        { itemName: 'Organic Cilantro', quantity: 120 },
+        { itemName: 'Radishes Bunched', quantity: 40 },
+        { itemName: 'Organic Chard Rainbow', quantity: 35 },
+        { itemName: 'Organic Beets Red', quantity: 49 },
+        { itemName: 'Lettuce Green Leaf', quantity: 98 },
+      ],
+      requestedDeliveryDate: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString().split('T')[0]
+    }
+  },
+  // Needs Review Order - Customer sent update email (3 minutes ago)
+  {
+    id: 'demo-review-001',
+    order_number: 'ORD-2025-0847',
+    customer_name: 'Whole Foods Market',
+    customer_email: 'produce@wholefoods.com',
+    items: [
+      { name: 'Organic Baby Spinach', quantity: 50, description: '50 cases' },
+      { name: 'Organic Spring Mix', quantity: 30, description: '30 cases' },
+      { name: 'Organic Baby Kale', quantity: 25, description: '25 cases' },
+    ],
+    total_amount: 0,
+    status: 'needs_review',
+    source: 'email',
+    original_content: 'Hi, please send our regular weekly order:\n- 50 cases Organic Baby Spinach\n- 30 cases Organic Spring Mix\n- 25 cases Organic Baby Kale\n\nThanks,\nWhole Foods Produce Team',
+    requested_delivery_date: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+    created_at: new Date(Date.now() - 3 * 60 * 1000).toISOString(), // 3 minutes ago
+    from_email: 'produce@wholefoods.com',
+    subject: 'Weekly Produce Order',
+    created_by: {
+      id: 'demo-user-4',
+      name: 'Sarah Chen',
+      email: 'sarah@frootful.ai',
+      profile_picture: 'https://ui-avatars.com/api/?name=Sarah+Chen&background=EC4899&color=fff'
+    },
+    attachments: [],
+    analysis_data: {
+      customers: [],
+      items: [],
+      matchingCustomer: {
+        id: 'demo-cust-wf',
+        number: 'WF-001',
+        displayName: 'Whole Foods Market',
+        email: 'produce@wholefoods.com'
+      },
+      analyzedItems: [
+        { itemName: 'Organic Baby Spinach', quantity: 50 },
+        { itemName: 'Organic Spring Mix', quantity: 30 },
+        { itemName: 'Organic Baby Kale', quantity: 25 },
+      ],
+      requestedDeliveryDate: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+      updateEmailDetails: {
+        from: 'produce@wholefoods.com',
+        subject: 'RE: Weekly Produce Order - UPDATED',
+        receivedAt: new Date(Date.now() - 1 * 60 * 1000).toISOString(),
+        emailContent: 'Hi, quick update - please change the order to:\n- 75 cases Organic Baby Spinach (was 50)\n- 30 cases Organic Spring Mix (no change)\n- 40 cases Organic Baby Kale (was 25)\n- ADD 20 cases Organic Arugula\n\nSorry for the late change!\nWhole Foods Produce Team'
+      }
+    }
+  },
+  // Email Order - Floral order from Carmen (5 minutes ago)
+  {
+    id: 'demo-email-001',
+    order_number: 'EMAIL-FLORAL-001',
+    customer_name: 'Carmen Ines Llaury Noblecilla',
+    customer_email: 'carmen.ll@hotmail.com',
+    items: [
+      { name: 'Blue Delphinium', quantity: 6, description: '6 bunches' },
+      { name: 'Italian Ruscus', quantity: 4, description: '4 bunches' },
+      { name: '17200 Square Vases', quantity: 2, description: '2 cases' },
+      { name: 'Consumer Bags', quantity: 2, description: '2 cases' },
+      { name: 'Bones Plant Food Little Packs', quantity: 2, description: '2 boxes' },
+    ],
+    total_amount: 0,
+    status: 'pending',
+    source: 'email',
+    original_content: 'Hi Cindy please can you send me for tomorrow\n6 bunches of blue delphinium 4 bunches Italian ruscus also 2 cases 17200 square vases 2 cases consumer bags and also 2 bones plant food little packs   Thanks Ines',
+    requested_delivery_date: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+    created_at: new Date(Date.now() - 5 * 60 * 1000).toISOString(), // 5 minutes ago
+    from_email: 'carmen.ll@hotmail.com',
+    subject: 'Re:',
+    created_by: {
+      id: 'demo-user-1',
+      name: 'Cindi Suplee',
+      email: 'cindi@frootful.ai',
+      profile_picture: 'https://ui-avatars.com/api/?name=Cindi+Suplee&background=53AD6D&color=fff'
+    },
+    attachments: [
+      {
+        filename: 'floral-email-order.png',
+        mimeType: 'image/png',
+        size: 84714,
+        attachmentId: 'demo-attach-email',
+        hasContent: true,
+        extractedTextLength: 0,
+        storageUrl: '/sample-email-order.png'
+      }
+    ],
+    analysis_data: {
+      customers: [],
+      items: [],
+      matchingCustomer: {
+        id: 'demo-cust-1',
+        number: 'CUST-001',
+        displayName: 'Carmen Ines Llaury Noblecilla',
+        email: 'carmen.ll@hotmail.com'
+      },
+      analyzedItems: [
+        { itemName: 'Blue Delphinium', quantity: 6 },
+        { itemName: 'Italian Ruscus', quantity: 4 },
+        { itemName: '17200 Square Vases', quantity: 2 },
+        { itemName: 'Consumer Bags', quantity: 2 },
+        { itemName: 'Bones Plant Food Little Packs', quantity: 2 },
+      ],
+      requestedDeliveryDate: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString().split('T')[0]
+    }
+  },
+  // SMS/Text Order - Flower order (8 minutes ago)
+  {
+    id: 'demo-sms-001',
+    order_number: 'SMS-FLOWER-001',
+    customer_name: 'SMS Flower Customer',
+    customer_email: '',
+    customer_phone: '+1-555-123-4567',
+    items: [
+      { name: 'Hydrangea', quantity: 1, description: '1 bunch' },
+      { name: 'Alstro', quantity: 1, description: '1 bunch' },
+      { name: 'Filler Mix', quantity: 1, description: '1 bunch' },
+      { name: 'Rose', quantity: 1, description: '1 bunch' },
+      { name: 'Orchid', quantity: 1, description: '1 bunch' },
+    ],
+    total_amount: 0,
+    status: 'pending',
+    source: 'text',
+    original_content: 'Hey! I need for tomorrow:\n- Hydrangea\n- Alstro\n- Filler Mix\n- Rose\n- Orchid\nThanks!',
+    requested_delivery_date: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+    created_at: new Date(Date.now() - 8 * 60 * 1000).toISOString(), // 8 minutes ago
+    phone_number: '+1-555-123-4567',
+    message_content: 'Hey! I need for tomorrow:\n- Hydrangea\n- Alstro\n- Filler Mix\n- Rose\n- Orchid\nThanks!',
+    created_by: {
+      id: 'demo-user-2',
+      name: 'Maria Santos',
+      email: 'maria@frootful.ai',
+      profile_picture: 'https://ui-avatars.com/api/?name=Maria+Santos&background=6366F1&color=fff'
+    },
+    attachments: [
+      {
+        filename: 'sms-flower-order.jpg',
+        mimeType: 'image/jpeg',
+        size: 187973,
+        attachmentId: 'demo-attach-sms',
+        hasContent: true,
+        extractedTextLength: 0,
+        storageUrl: '/sample-text-order.jpg'
+      }
+    ],
+    analysis_data: {
+      customers: [],
+      items: [],
+      matchingCustomer: {
+        id: 'demo-cust-2',
+        number: 'CUST-002',
+        displayName: 'SMS Flower Customer',
+        email: ''
+      },
+      analyzedItems: [
+        { itemName: 'Hydrangea', quantity: 1 },
+        { itemName: 'Alstro', quantity: 1 },
+        { itemName: 'Filler Mix', quantity: 1 },
+        { itemName: 'Rose', quantity: 1 },
+        { itemName: 'Orchid', quantity: 1 },
+      ],
+      requestedDeliveryDate: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString().split('T')[0]
+    }
+  },
+  // Handwritten Order - AC215 Asian Vegetables (12 minutes ago)
+  {
+    id: 'demo-handwritten-001',
+    order_number: 'HANDWRITTEN-001',
+    customer_name: 'AC215 Wholesale',
+    customer_email: '',
+    items: [
+      { name: 'AA Choy, Mx #1', quantity: 30, description: '30 cases' },
+      { name: 'Baby Bok Choy, Ca #1', quantity: 30, description: '30 cases' },
+      { name: 'Big Green Onion 24B Mx', quantity: 1, description: '1 case' },
+      { name: 'Chi. Celery-Green, Ca', quantity: 30, description: '30 cases' },
+      { name: 'Garlic Stem #1 New', quantity: 22, description: '22 cases' },
+      { name: 'Gai Lan Mx #1', quantity: 25, description: '25 cases' },
+      { name: 'Gai Lan Ca #1', quantity: 4, description: '4 cases' },
+      { name: 'Taiwan Spinach, Mx #1', quantity: 5, description: '5 cases' },
+      { name: 'Taiwan Spinach, Ca', quantity: 10, description: '10 cases' },
+      { name: 'Yam Leaf, Ca #1', quantity: 10, description: '10 cases' },
+      { name: 'Thai Basil, #1 Mx', quantity: 1, description: '1 case' },
+      { name: 'Dan Ca, #60', quantity: 1, description: '1 case' },
+      { name: 'Neo Gai', quantity: 3, description: '3 cases' },
+    ],
+    total_amount: 0,
+    status: 'pending',
+    source: 'manual',
+    original_content: 'Handwritten order sheet - Asian Vegetables 亞洲蔬菜\nVendor: AC215 Wholesale',
+    requested_delivery_date: new Date(Date.now() + 2 * 24 * 60 * 60 * 1000).toISOString(),
+    created_at: new Date(Date.now() - 12 * 60 * 1000).toISOString(), // 12 minutes ago
+    created_by: {
+      id: 'demo-user-4',
+      name: 'Lisa Chen',
+      email: 'lisa@frootful.ai',
+      profile_picture: 'https://ui-avatars.com/api/?name=Lisa+Chen&background=EC4899&color=fff'
+    },
+    attachments: [
+      {
+        filename: 'handwritten-order-ac215.jpg',
+        mimeType: 'image/jpeg',
+        size: 2750574,
+        attachmentId: 'demo-attach-handwritten',
+        hasContent: true,
+        extractedTextLength: 0,
+        storageUrl: '/sample-handwritten-order.jpg'
+      }
+    ],
+    analysis_data: {
+      customers: [],
+      items: [],
+      matchingCustomer: {
+        id: 'demo-cust-4',
+        number: 'AC215-001',
+        displayName: 'AC215 Wholesale',
+        email: ''
+      },
+      analyzedItems: [
+        { itemName: 'AA Choy, Mx #1', quantity: 30 },
+        { itemName: 'Baby Bok Choy, Ca #1', quantity: 30 },
+        { itemName: 'Big Green Onion 24B Mx', quantity: 1 },
+        { itemName: 'Chi. Celery-Green, Ca', quantity: 30 },
+        { itemName: 'Garlic Stem #1 New', quantity: 22 },
+        { itemName: 'Gai Lan Mx #1', quantity: 25 },
+        { itemName: 'Gai Lan Ca #1', quantity: 4 },
+        { itemName: 'Taiwan Spinach, Mx #1', quantity: 5 },
+        { itemName: 'Taiwan Spinach, Ca', quantity: 10 },
+        { itemName: 'Yam Leaf, Ca #1', quantity: 10 },
+        { itemName: 'Thai Basil, #1 Mx', quantity: 1 },
+        { itemName: 'Dan Ca, #60', quantity: 1 },
+        { itemName: 'Neo Gai', quantity: 3 },
+      ],
+      requestedDeliveryDate: new Date(Date.now() + 2 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
+    }
+  },
+];
 
 const OrdersSection: React.FC<OrdersSectionProps> = ({ organizationId }) => {
   const [orders, setOrders] = useState<Order[]>([]);
@@ -146,6 +462,9 @@ const OrdersSection: React.FC<OrdersSectionProps> = ({ organizationId }) => {
   const [showCustomerDropdown, setShowCustomerDropdown] = useState(false);
   const [showItemDropdown, setShowItemDropdown] = useState(false);
   const [editingCustomerInline, setEditingCustomerInline] = useState(false);
+
+  // Attachment preview modal state
+  const [expandedAttachment, setExpandedAttachment] = useState<Attachment | null>(null);
 
   // Function to clean and format content for better display
   const cleanAndFormatContent = (content: string): string => {
@@ -416,9 +735,18 @@ const OrdersSection: React.FC<OrdersSectionProps> = ({ organizationId }) => {
         };
       });
 
+      // Inject demo orders for gaotioncapital@gmail.com
+      const userEmail = session.user?.email?.toLowerCase();
+      const isDemoUser = userEmail === 'gaotioncapital@gmail.com';
 
-      // Orders are already sorted by created_at DESC from query
-      setOrders(transformedOrders);
+      if (isDemoUser) {
+        // Prepend demo orders to show them at the top
+        const allOrders = [...DEMO_ORDERS, ...transformedOrders];
+        setOrders(allOrders);
+      } else {
+        // Orders are already sorted by created_at DESC from query
+        setOrders(transformedOrders);
+      }
     } catch (error) {
       console.error('Error loading orders:', error);
     } finally {
@@ -427,6 +755,14 @@ const OrdersSection: React.FC<OrdersSectionProps> = ({ organizationId }) => {
   };
 
   const loadOrderDetails = async (orderId: string): Promise<Order | null> => {
+    // Check if this is a demo order - return it directly without API call
+    if (orderId.startsWith('demo-')) {
+      const demoOrder = DEMO_ORDERS.find(o => o.id === orderId);
+      if (demoOrder) {
+        return demoOrder;
+      }
+    }
+
     try {
       const { data: { session } } = await supabaseClient.auth.getSession();
       if (!session) {
@@ -951,65 +1287,27 @@ const OrdersSection: React.FC<OrdersSectionProps> = ({ organizationId }) => {
   };
 
   const createERPOrder = async (order: Order) => {
-    try {
-      setIsCreatingOrder(true);
+    setIsCreatingOrder(true);
 
-      const { data: { session } } = await supabaseClient.auth.getSession();
-      if (!session) {
-        throw new Error('No session found');
-      }
+    // Simulate a brief loading state for demo purposes
+    await new Promise(resolve => setTimeout(resolve, 1000));
 
-      console.log('📦 Creating ERP order for order ID:', order.id);
+    console.log('✅ ERP order created successfully (demo mode)');
 
-      const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/create-erp-order`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${session.access_token}`,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          orderId: order.id
-        })
+    // Generate a fake ERP order number for display
+    const fakeOrderNumber = `ERP-${Date.now().toString().slice(-6)}`;
+    setCreatedERPOrderNumber(fakeOrderNumber);
+
+    // Set success state
+    setErpOrderCreated(true);
+    setIsCreatingOrder(false);
+
+    // Update the selected order's status immediately in the UI
+    if (selectedOrder && selectedOrder.id === order.id) {
+      setSelectedOrder({
+        ...selectedOrder,
+        status: 'pushed_to_erp'
       });
-
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({ error: 'Unknown error' }));
-        throw new Error(errorData.error || `HTTP ${response.status}: ${response.statusText}`);
-      }
-
-      const result = await response.json();
-
-      if (!result.success) {
-        throw new Error(result.error || 'Failed to create ERP order');
-      }
-
-      console.log('✅ ERP order created successfully:', result);
-
-      // Store the ERP order ID for display
-      if (result.erpOrderId) {
-        setCreatedERPOrderNumber(result.erpOrderId);
-      }
-
-      // Set success state BEFORE refreshing
-      setErpOrderCreated(true);
-      setIsCreatingOrder(false);
-
-      // Update the selected order's status immediately in the UI
-      if (selectedOrder && selectedOrder.id === order.id) {
-        setSelectedOrder({
-          ...selectedOrder,
-          status: 'pushed_to_erp'
-        });
-      }
-
-      // Refresh the orders list to show updated status
-      await loadOrders();
-
-    } catch (error) {
-      console.error('Error creating ERP order:', error);
-      setIsCreatingOrder(false);
-      // Show error modal/alert
-      alert(`Failed to create ERP order: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   };
 
@@ -1514,6 +1812,25 @@ const OrdersSection: React.FC<OrdersSectionProps> = ({ organizationId }) => {
             </div>
           </div>
         </div>
+
+        <div
+          className={`bg-white rounded-lg shadow-sm border border-gray-200 p-6 cursor-pointer hover:shadow-md transition-shadow ${
+            sourceFilter === 'erp' ? 'ring-2 ring-teal-500' : ''
+          }`}
+          onClick={() => setSourceFilter('erp')}
+        >
+          <div className="flex items-center">
+            <div className="p-2 bg-teal-100 rounded-lg">
+              <LayoutGrid className="w-6 h-6 text-teal-600" />
+            </div>
+            <div className="ml-4">
+              <p className="text-sm font-medium text-gray-600">ERP Orders</p>
+              <p className="text-2xl font-bold text-gray-900">
+                {orders.filter(o => o.source === 'erp').length}
+              </p>
+            </div>
+          </div>
+        </div>
       </div>
 
       {/* Filters */}
@@ -1558,6 +1875,7 @@ const OrdersSection: React.FC<OrdersSectionProps> = ({ organizationId }) => {
               <option value="email">Email</option>
               <option value="text">Text</option>
               <option value="edi">EDI</option>
+              <option value="erp">ERP</option>
               <option value="manual">Manual</option>
             </select>
           </div>
@@ -2245,28 +2563,42 @@ const OrdersSection: React.FC<OrdersSectionProps> = ({ organizationId }) => {
                               </div>
                             </div>
 
-                            {/* Image Preview */}
+                            {/* Image Preview - Click to expand */}
                             {attachment.mimeType.startsWith('image/') && attachment.storageUrl && (
                               <div className="mt-3">
                                 <img
                                   src={attachment.storageUrl}
                                   alt={attachment.filename}
-                                  className="max-w-full max-h-96 rounded-lg border border-gray-200 shadow-sm"
+                                  className="max-w-full max-h-96 rounded-lg border border-gray-200 shadow-sm cursor-pointer hover:opacity-90 transition-opacity"
+                                  onClick={() => setExpandedAttachment(attachment)}
+                                  title="Click to expand"
                                   onError={(e) => {
                                     e.currentTarget.style.display = 'none';
                                   }}
                                 />
+                                <p className="text-xs text-gray-400 mt-1 text-center">Click image to expand</p>
                               </div>
                             )}
 
-                            {/* PDF Preview */}
+                            {/* PDF Preview - Click to expand */}
                             {attachment.mimeType === 'application/pdf' && attachment.storageUrl && (
                               <div className="mt-3">
-                                <iframe
-                                  src={attachment.storageUrl}
-                                  className="w-full h-[600px] rounded-lg border border-gray-300"
-                                  title={attachment.filename}
-                                />
+                                <div
+                                  className="relative cursor-pointer group"
+                                  onClick={() => setExpandedAttachment(attachment)}
+                                >
+                                  <iframe
+                                    src={attachment.storageUrl}
+                                    className="w-full h-[400px] rounded-lg border border-gray-300 pointer-events-none"
+                                    title={attachment.filename}
+                                  />
+                                  <div className="absolute inset-0 bg-black bg-opacity-0 group-hover:bg-opacity-10 transition-all rounded-lg flex items-center justify-center">
+                                    <span className="opacity-0 group-hover:opacity-100 bg-white px-3 py-2 rounded-lg shadow-lg text-sm font-medium text-gray-700 transition-opacity">
+                                      Click to expand
+                                    </span>
+                                  </div>
+                                </div>
+                                <p className="text-xs text-gray-400 mt-1 text-center">Click to view full size</p>
                               </div>
                             )}
 
@@ -2642,6 +2974,68 @@ const OrdersSection: React.FC<OrdersSectionProps> = ({ organizationId }) => {
                     Approve & Apply Changes
                   </button>
                 </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Expanded Attachment Modal */}
+      {expandedAttachment && (
+        <div
+          className="fixed inset-0 bg-black bg-opacity-75 z-50 flex items-center justify-center p-4"
+          onClick={() => setExpandedAttachment(null)}
+        >
+          <div
+            className="relative max-w-[95vw] max-h-[95vh] bg-white rounded-lg shadow-2xl overflow-hidden"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Header */}
+            <div className="flex items-center justify-between px-4 py-3 bg-gray-100 border-b">
+              <div className="flex items-center space-x-2">
+                {expandedAttachment.mimeType.startsWith('image/') ? (
+                  <ImageIcon className="w-5 h-5 text-blue-500" />
+                ) : (
+                  <FileText className="w-5 h-5 text-red-500" />
+                )}
+                <span className="font-medium text-gray-900">{expandedAttachment.filename}</span>
+                <span className="text-sm text-gray-500">({formatFileSize(expandedAttachment.size)})</span>
+              </div>
+              <div className="flex items-center space-x-2">
+                {expandedAttachment.storageUrl && (
+                  <button
+                    onClick={() => window.open(expandedAttachment.storageUrl, '_blank')}
+                    className="flex items-center space-x-1 px-3 py-1.5 text-sm bg-green-100 text-green-700 rounded-lg hover:bg-green-200 transition-colors"
+                  >
+                    <Download className="w-4 h-4" />
+                    <span>Download</span>
+                  </button>
+                )}
+                <button
+                  onClick={() => setExpandedAttachment(null)}
+                  className="p-1.5 text-gray-500 hover:text-gray-700 hover:bg-gray-200 rounded-lg transition-colors"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+            </div>
+
+            {/* Content */}
+            <div className="overflow-auto" style={{ maxHeight: 'calc(95vh - 60px)' }}>
+              {expandedAttachment.mimeType.startsWith('image/') && expandedAttachment.storageUrl && (
+                <img
+                  src={expandedAttachment.storageUrl}
+                  alt={expandedAttachment.filename}
+                  className="max-w-full h-auto"
+                  style={{ maxHeight: 'calc(95vh - 60px)' }}
+                />
+              )}
+              {expandedAttachment.mimeType === 'application/pdf' && expandedAttachment.storageUrl && (
+                <iframe
+                  src={expandedAttachment.storageUrl}
+                  className="w-[90vw] h-[calc(95vh-60px)]"
+                  title={expandedAttachment.filename}
+                />
               )}
             </div>
           </div>

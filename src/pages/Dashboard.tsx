@@ -1,7 +1,11 @@
 import React, { useEffect, useState } from 'react';
-import { AlertCircle, CheckCircle, ExternalLink, Settings, Building2, Database, ArrowRight, Loader2, Package, Smartphone, MessageSquare, Upload } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { AlertCircle, CheckCircle, ExternalLink, Settings, Building2, Database, ArrowRight, Loader2, Package, Smartphone, MessageSquare, Upload, BarChart3, Calendar } from 'lucide-react';
 import { supabaseClient } from '../supabaseClient';
 import OrdersSection from '../components/OrdersSection';
+import AnalyticsDashboard from '../components/AnalyticsDashboard';
+import DashboardV2 from '../components/DashboardV2';
+import DashboardV3 from '../components/DashboardV3';
 
 interface User {
   id: string;
@@ -40,6 +44,7 @@ interface OrderCounts {
 }
 
 const Dashboard: React.FC = () => {
+  const navigate = useNavigate();
   const [user, setUser] = useState<User | null>(null);
   const [organization, setOrganization] = useState<Organization | null>(null);
   const [erpConnections, setErpConnections] = useState<ERPConnection[]>([
@@ -66,7 +71,7 @@ const Dashboard: React.FC = () => {
   const [extensionLogoutInProgress, setExtensionLogoutInProgress] = useState(false);
   const [companies, setCompanies] = useState<Company[]>([]);
   const [selectedCompanyId, setSelectedCompanyId] = useState<string>('');
-  const [activeTab, setActiveTab] = useState<'overview' | 'orders'>('orders');
+  const [activeTab, setActiveTab] = useState<'overview' | 'orders' | 'upload' | 'analytics' | 'v2' | 'v3'>('orders');
   const [installPrompt, setInstallPrompt] = useState<any>(null);
   const [isInstallable, setIsInstallable] = useState(false);
   const [orderCounts, setOrderCounts] = useState<OrderCounts>({
@@ -733,6 +738,12 @@ const Dashboard: React.FC = () => {
                 </button>
                 <div className="absolute right-0 mt-2 w-48 bg-white rounded-md shadow-lg py-1 z-10 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200">
                   <button
+                    onClick={() => navigate('/settings')}
+                    className="block w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
+                  >
+                    Settings
+                  </button>
+                  <button
                     onClick={handleSignOut}
                     disabled={isSigningOut}
                     className="block w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed"
@@ -787,7 +798,7 @@ const Dashboard: React.FC = () => {
                   <span>All Orders</span>
                 </div>
               </button>
-              {/* <button
+              <button
                 onClick={() => setActiveTab('upload')}
                 className={`py-2 px-1 border-b-2 font-medium text-sm ${
                   activeTab === 'upload'
@@ -800,7 +811,49 @@ const Dashboard: React.FC = () => {
                   <Upload className="w-4 h-4" />
                   <span>Upload Orders</span>
                 </div>
-              </button> */}
+              </button>
+              <button
+                onClick={() => setActiveTab('analytics')}
+                className={`py-2 px-1 border-b-2 font-medium text-sm ${
+                  activeTab === 'analytics'
+                    ? 'text-gray-900'
+                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                }`}
+                style={activeTab === 'analytics' ? { borderBottomColor: '#53AD6D', color: '#53AD6D' } : {}}
+              >
+                <div className="flex items-center space-x-2">
+                  <BarChart3 className="w-4 h-4" />
+                  <span>Analytics</span>
+                </div>
+              </button>
+              <button
+                onClick={() => setActiveTab('v2')}
+                className={`py-2 px-1 border-b-2 font-medium text-sm ${
+                  activeTab === 'v2'
+                    ? 'text-gray-900'
+                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                }`}
+                style={activeTab === 'v2' ? { borderBottomColor: '#53AD6D', color: '#53AD6D' } : {}}
+              >
+                <div className="flex items-center space-x-2">
+                  <Calendar className="w-4 h-4" />
+                  <span>Orders V2</span>
+                </div>
+              </button>
+              <button
+                onClick={() => setActiveTab('v3')}
+                className={`py-2 px-1 border-b-2 font-medium text-sm ${
+                  activeTab === 'v3'
+                    ? 'text-gray-900'
+                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                }`}
+                style={activeTab === 'v3' ? { borderBottomColor: '#53AD6D', color: '#53AD6D' } : {}}
+              >
+                <div className="flex items-center space-x-2">
+                  <Calendar className="w-4 h-4" />
+                  <span>Orders V3</span>
+                </div>
+              </button>
             </nav>
           </div>
         </div>
@@ -988,7 +1041,13 @@ const Dashboard: React.FC = () => {
 
         {activeTab === 'orders' && <OrdersSection organizationId={organization?.id || null} />}
 
-        {/* {activeTab === 'upload' && <UploadOrdersSection />} */}
+        {activeTab === 'upload' && <UploadOrdersSection />}
+
+        {activeTab === 'analytics' && <AnalyticsDashboard />}
+
+        {activeTab === 'v2' && <DashboardV2 organizationId={organization?.id || null} />}
+
+        {activeTab === 'v3' && <DashboardV3 organizationId={organization?.id || null} />}
       </main>
     </div>
   );

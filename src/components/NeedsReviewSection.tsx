@@ -30,6 +30,55 @@ interface OrderChangeProposal {
   }>;
 }
 
+// Demo hardcoded proposals for user feedback
+const DEMO_PROPOSALS: OrderChangeProposal[] = [
+  {
+    id: 'demo-proposal-001',
+    order_id: 'demo-order-wf',
+    intake_event_id: 'demo-intake-001',
+    status: 'pending',
+    created_at: new Date(Date.now() - 5 * 60 * 1000).toISOString(),
+    orders: {
+      id: 'demo-order-wf',
+      customer_name: 'Whole Foods Market',
+      delivery_date: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+      status: 'pending',
+      source_channel: 'email',
+      order_lines: [
+        { product_name: 'Organic Baby Spinach', quantity: 50 },
+        { product_name: 'Organic Spring Mix', quantity: 30 },
+        { product_name: 'Organic Baby Kale', quantity: 25 },
+      ]
+    },
+    intake_events: {
+      channel: 'email',
+      created_at: new Date(Date.now() - 5 * 60 * 1000).toISOString()
+    },
+    order_change_proposal_lines: [
+      { id: 'line-1', item_name: 'Organic Baby Spinach', proposed_values: { quantity: 75 }, change_type: 'update' },
+      { id: 'line-2', item_name: 'Organic Baby Kale', proposed_values: { quantity: 40 }, change_type: 'update' },
+      { id: 'line-3', item_name: 'Organic Arugula', proposed_values: { quantity: 20 }, change_type: 'add' },
+    ]
+  },
+  {
+    id: 'demo-proposal-002',
+    order_id: null, // New order proposal
+    intake_event_id: 'demo-intake-002',
+    status: 'pending',
+    created_at: new Date(Date.now() - 15 * 60 * 1000).toISOString(),
+    orders: null,
+    intake_events: {
+      channel: 'sms',
+      created_at: new Date(Date.now() - 15 * 60 * 1000).toISOString()
+    },
+    order_change_proposal_lines: [
+      { id: 'new-line-1', item_name: 'Red Leaf Lettuce', proposed_values: { quantity: 24, customer_name: 'Fresh & Easy', delivery_date: new Date(Date.now() + 2 * 24 * 60 * 60 * 1000).toISOString().split('T')[0] }, change_type: 'add' },
+      { id: 'new-line-2', item_name: 'Green Leaf Lettuce', proposed_values: { quantity: 24 }, change_type: 'add' },
+      { id: 'new-line-3', item_name: 'Romaine Hearts', proposed_values: { quantity: 36 }, change_type: 'add' },
+    ]
+  }
+];
+
 export default function NeedsReviewSection() {
   const [proposals, setProposals] = useState<OrderChangeProposal[]>([]);
   const [loading, setLoading] = useState(true);
@@ -88,9 +137,13 @@ export default function NeedsReviewSection() {
         } : null
       }));
 
-      setProposals(filteredData);
+      // Combine real data with demo proposals for demo purposes
+      const combinedProposals = [...filteredData, ...DEMO_PROPOSALS];
+      setProposals(combinedProposals);
     } catch (error) {
       console.error('Error fetching proposals:', error);
+      // If fetch fails, still show demo proposals
+      setProposals(DEMO_PROPOSALS);
     } finally {
       setLoading(false);
     }

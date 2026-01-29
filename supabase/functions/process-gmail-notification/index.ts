@@ -592,31 +592,74 @@ async function processEmailAsync(userEmail: string, historyId: string, logger: L
           continue;
         }
 
+        // Demo organization constants
+        const DEMO_ORGANIZATION_ID = '00000000-0000-0000-0000-000000000001';
+        const DEMO_USER_ID = '00000000-0000-0000-0000-000000000002';
+
         // Get user ID by sender email
         const { data: senderUserId, error: senderUserError } = await supabaseClient
           .rpc('get_user_id_by_email', { user_email: senderEmail });
 
+        let organizationId: string;
+        let resolvedUserId: string;
+        let isDemoFallback = false;
+        let fallbackReason: string | null = null;
+
         if (senderUserError || !senderUserId) {
-          msgLogger.warn('Unrecognized sender - no user found', { senderEmail, subject, from });
-          continue;
+          // User not found - fall back to demo organization
+          isDemoFallback = true;
+          fallbackReason = 'user_not_found';
+          organizationId = DEMO_ORGANIZATION_ID;
+          resolvedUserId = DEMO_USER_ID;
+          msgLogger.info('Sender not found - falling back to demo organization', { senderEmail, subject, from });
+        } else {
+          // Get sender's organization
+          const { data: senderOrg, error: senderOrgError } = await supabaseClient
+            .from('user_organizations')
+            .select('organization_id')
+            .eq('user_id', senderUserId)
+            .single();
+
+          if (senderOrgError || !senderOrg) {
+            // User exists but has no organization - fall back to demo
+            isDemoFallback = true;
+            fallbackReason = 'user_has_no_org';
+            organizationId = DEMO_ORGANIZATION_ID;
+            resolvedUserId = DEMO_USER_ID;
+            msgLogger.info('Sender has no organization - falling back to demo organization', { senderEmail, senderUserId, subject, from });
+          } else {
+            organizationId = senderOrg.organization_id;
+            resolvedUserId = senderUserId;
+          }
         }
 
-        // Get sender's organization
-        const { data: senderOrg, error: senderOrgError } = await supabaseClient
-          .from('user_organizations')
-          .select('organization_id')
-          .eq('user_id', senderUserId)
-          .single();
+        const orgLogger = msgLogger.child({ organizationId, isDemoFallback });
 
-        if (senderOrgError || !senderOrg) {
-          msgLogger.warn('Unrecognized sender - user has no organization', { senderEmail, senderUserId, subject, from });
-          continue;
+        // Log demo fallback for transparency
+        if (isDemoFallback) {
+          const { data: logEntry, error: logError } = await supabaseClient
+            .from('demo_fallback_logs')
+            .insert({
+              original_email: senderEmail,
+              reason: fallbackReason,
+              metadata: {
+                subject: subject,
+                from: from,
+                gmail_message_id: messageId,
+                timestamp: new Date().toISOString()
+              }
+            })
+            .select('id')
+            .single();
+
+          if (logError) {
+            orgLogger.warn('Failed to log demo fallback', { error: logError.message });
+          } else {
+            orgLogger.info('Demo fallback logged', { logId: logEntry?.id, reason: fallbackReason });
+          }
         }
 
-        const organizationId = senderOrg.organization_id;
-        const orgLogger = msgLogger.child({ organizationId });
-
-        orgLogger.info('Organization resolved for sender', { senderEmail });
+        orgLogger.info('Organization resolved for sender', { senderEmail, isDemoFallback });
 
         // Create intake_event
         const { data: intakeEvent, error: intakeError } = await supabaseClient

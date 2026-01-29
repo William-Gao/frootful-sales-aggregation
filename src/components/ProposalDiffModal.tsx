@@ -28,6 +28,13 @@ interface ProposalLine {
   } | null;
 }
 
+type EditableDiffRow = {
+  left: OrderLine | null;
+  right: { product_name: string; quantity: number; item_id?: string | null } | null;
+  changeType: 'add' | 'remove' | 'modify' | 'none';
+  orderLineId?: string | null;
+};
+
 interface Order {
   id: string;
   customer_name: string;
@@ -103,12 +110,13 @@ export default function ProposalDiffModal({ proposalId, orderId, onClose, onReso
   const [isDragging, setIsDragging] = useState(false);
   const [timelineOrder, setTimelineOrder] = useState<'asc' | 'desc'>('desc'); // Default to newest first
 
-  // Editing state for new order proposals
+  // Editing state for proposals (both new order and change proposals)
   const [isEditing, setIsEditing] = useState(false);
   const [editedCustomerId, setEditedCustomerId] = useState<string | null>(null);
   const [editedCustomerName, setEditedCustomerName] = useState('');
   const [editedDeliveryDate, setEditedDeliveryDate] = useState<string | null>(null);
   const [editedLines, setEditedLines] = useState<ProposalLine[]>([]);
+  const [editedDiffRows, setEditedDiffRows] = useState<EditableDiffRow[]>([]);
 
   // Customer and item search state
   const [customers, setCustomers] = useState<any[]>([]);
@@ -218,6 +226,79 @@ export default function ProposalDiffModal({ proposalId, orderId, onClose, onReso
   async function fetchData() {
     try {
       setLoading(true);
+
+      // Check for demo proposals and return hardcoded data
+      if (proposalId.startsWith('demo-proposal-')) {
+        // Demo proposal 1: Whole Foods order update
+        if (proposalId === 'demo-proposal-001') {
+          setOrder({
+            id: 'demo-order-wf',
+            customer_name: 'Whole Foods Market',
+            delivery_date: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+            status: 'pending',
+            order_lines: [
+              { id: 'line-1', line_number: 1, product_name: 'Organic Baby Spinach', quantity: 50, status: 'active' },
+              { id: 'line-2', line_number: 2, product_name: 'Organic Spring Mix', quantity: 30, status: 'active' },
+              { id: 'line-3', line_number: 3, product_name: 'Organic Baby Kale', quantity: 25, status: 'active' },
+            ]
+          });
+          setProposalLines([
+            { id: 'pl-1', order_line_id: 'line-1', line_number: 1, change_type: 'modify', item_id: null, item_name: 'Organic Baby Spinach', proposed_values: { quantity: 75 } },
+            { id: 'pl-2', order_line_id: 'line-3', line_number: 3, change_type: 'modify', item_id: null, item_name: 'Organic Baby Kale', proposed_values: { quantity: 40 } },
+            { id: 'pl-3', order_line_id: null, line_number: 4, change_type: 'add', item_id: null, item_name: 'Organic Arugula', proposed_values: { quantity: 20 } },
+          ]);
+          setTimeline([
+            {
+              id: 'comm-1',
+              type: 'communication',
+              timestamp: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(),
+              channel: 'email',
+              content: 'Hi, please send our regular weekly order:\n- 50 cases Organic Baby Spinach\n- 30 cases Organic Spring Mix\n- 25 cases Organic Baby Kale\n\nThanks,\nWhole Foods Produce Team',
+              subject: 'Weekly Produce Order',
+              from: 'produce@wholefoods.com'
+            },
+            {
+              id: 'event-1',
+              type: 'event',
+              timestamp: new Date(Date.now() - 2 * 60 * 60 * 1000 + 30000).toISOString(),
+              eventType: 'order_created',
+              metadata: { source: 'email' }
+            },
+            {
+              id: 'comm-2',
+              type: 'communication',
+              timestamp: new Date(Date.now() - 5 * 60 * 1000).toISOString(),
+              channel: 'email',
+              content: 'Hi, quick update - please change the order to:\n- 75 cases Organic Baby Spinach (was 50)\n- 30 cases Organic Spring Mix (no change)\n- 40 cases Organic Baby Kale (was 25)\n- ADD 20 cases Organic Arugula\n\nSorry for the late change!\nWhole Foods Produce Team',
+              subject: 'RE: Weekly Produce Order - UPDATED',
+              from: 'produce@wholefoods.com'
+            }
+          ]);
+          setIntakeEventId('demo-intake-001');
+        }
+        // Demo proposal 2: New order from Fresh & Easy
+        else if (proposalId === 'demo-proposal-002') {
+          setOrder(null); // New order proposal
+          setProposalLines([
+            { id: 'npl-1', order_line_id: null, line_number: 1, change_type: 'add', item_id: null, item_name: 'Red Leaf Lettuce', proposed_values: { quantity: 24 } },
+            { id: 'npl-2', order_line_id: null, line_number: 2, change_type: 'add', item_id: null, item_name: 'Green Leaf Lettuce', proposed_values: { quantity: 24 } },
+            { id: 'npl-3', order_line_id: null, line_number: 3, change_type: 'add', item_id: null, item_name: 'Romaine Hearts', proposed_values: { quantity: 36 } },
+          ]);
+          setTimeline([
+            {
+              id: 'comm-sms-1',
+              type: 'communication',
+              timestamp: new Date(Date.now() - 15 * 60 * 1000).toISOString(),
+              channel: 'sms',
+              content: 'Hey need an order for Thursday: 24 red leaf, 24 green leaf, 36 romaine hearts. Thanks! - Fresh & Easy',
+              from: '+1 (555) 234-5678'
+            }
+          ]);
+          setIntakeEventId('demo-intake-002');
+        }
+        setLoading(false);
+        return;
+      }
 
       const isNewOrderProposal = !orderId;
 
@@ -403,6 +484,14 @@ export default function ProposalDiffModal({ proposalId, orderId, onClose, onReso
       setProcessing(true);
       console.log('🚀 Starting handleAccept...');
 
+      // Demo mode: simulate success for demo proposals
+      if (proposalId.startsWith('demo-proposal-')) {
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        alert('✅ Changes accepted successfully! (Demo mode)');
+        onResolved();
+        return;
+      }
+
       const isNewOrderProposal = !orderId;
       let finalOrderId = orderId;
       console.log('📋 Is new order proposal:', isNewOrderProposal);
@@ -504,8 +593,26 @@ export default function ProposalDiffModal({ proposalId, orderId, onClose, onReso
       }
 
       // Apply changes to order (or add lines for new order)
-      // Use edited lines if in editing mode, otherwise use original proposal lines
-      const linesToApply = (isNewOrderProposal && isEditing) ? editedLines : proposalLines;
+      // Use edited data if in editing mode, otherwise use original proposal lines
+      let linesToApply: ProposalLine[];
+      if (isEditing && isNewOrderProposal) {
+        linesToApply = editedLines;
+      } else if (isEditing && !isNewOrderProposal) {
+        // Convert editedDiffRows back to ProposalLine format
+        linesToApply = editedDiffRows
+          .filter((row) => row.changeType !== 'none')
+          .map((row, idx) => ({
+            id: `edited-${idx}`,
+            order_line_id: row.orderLineId || null,
+            line_number: idx + 1,
+            change_type: row.changeType as 'add' | 'remove' | 'modify',
+            item_id: row.right?.item_id || null,
+            item_name: row.right?.product_name || row.left?.product_name || '',
+            proposed_values: row.right ? { quantity: row.right.quantity } : null,
+          }));
+      } else {
+        linesToApply = proposalLines;
+      }
 
       console.log(`📝 Applying ${linesToApply.length} line changes...`);
 
@@ -717,6 +824,14 @@ export default function ProposalDiffModal({ proposalId, orderId, onClose, onReso
     try {
       setProcessing(true);
 
+      // Demo mode: simulate success for demo proposals
+      if (proposalId.startsWith('demo-proposal-')) {
+        await new Promise(resolve => setTimeout(resolve, 500));
+        alert('Changes rejected. (Demo mode)');
+        onResolved();
+        return;
+      }
+
       // Update proposal status
       await supabaseClient
         .from('order_change_proposals')
@@ -750,13 +865,57 @@ export default function ProposalDiffModal({ proposalId, orderId, onClose, onReso
   }
 
   async function fetchOrders() {
+    // Demo orders for the reclassify dropdown
+    const demoOrders = [
+      {
+        id: 'demo-order-1',
+        customer_name: 'Trader Joe\'s',
+        created_at: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString(),
+        status: 'pending',
+        item_count: 5,
+        order_lines: [
+          { id: 'ol-1', product_name: 'Organic Bananas', quantity: 100 },
+          { id: 'ol-2', product_name: 'Organic Apples', quantity: 75 },
+        ]
+      },
+      {
+        id: 'demo-order-2',
+        customer_name: 'Safeway',
+        created_at: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString(),
+        status: 'pending',
+        item_count: 8,
+        order_lines: [
+          { id: 'ol-3', product_name: 'Romaine Lettuce', quantity: 50 },
+          { id: 'ol-4', product_name: 'Iceberg Lettuce', quantity: 40 },
+        ]
+      },
+      {
+        id: 'demo-order-3',
+        customer_name: 'Costco',
+        created_at: new Date(Date.now() - 1 * 24 * 60 * 60 * 1000).toISOString(),
+        status: 'pending',
+        item_count: 12,
+        order_lines: [
+          { id: 'ol-5', product_name: 'Mixed Greens', quantity: 200 },
+          { id: 'ol-6', product_name: 'Baby Spinach', quantity: 150 },
+        ]
+      },
+    ];
+
     try {
       const session = await supabaseClient.auth.getSession();
-      if (!session.data.session) return;
+      if (!session.data.session) {
+        // Use demo orders if not logged in
+        setOrders(demoOrders);
+        return;
+      }
 
       // Get user's organization
       const { data: { user } } = await supabaseClient.auth.getUser();
-      if (!user) return;
+      if (!user) {
+        setOrders(demoOrders);
+        return;
+      }
 
       const { data: userOrg } = await supabaseClient
         .from('user_organizations')
@@ -764,7 +923,10 @@ export default function ProposalDiffModal({ proposalId, orderId, onClose, onReso
         .eq('user_id', user.id)
         .single();
 
-      if (!userOrg) return;
+      if (!userOrg) {
+        setOrders(demoOrders);
+        return;
+      }
 
       // Fetch recent orders for this organization with line details
       const { data: ordersData } = await supabaseClient
@@ -790,15 +952,26 @@ export default function ProposalDiffModal({ proposalId, orderId, onClose, onReso
         item_count: order.order_lines?.length || 0
       })) || [];
 
-      setOrders(ordersWithCount);
+      // Combine with demo orders for demo purposes
+      setOrders([...ordersWithCount, ...demoOrders]);
     } catch (error) {
       console.error('Error fetching orders:', error);
+      // Use demo orders on error
+      setOrders(demoOrders);
     }
   }
 
   async function handleReclassifyAsNew() {
     try {
       setProcessing(true);
+
+      // Demo mode: simulate success for demo proposals
+      if (proposalId.startsWith('demo-proposal-')) {
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        alert('Successfully reclassified as new order. (Demo mode)');
+        onResolved();
+        return;
+      }
 
       const session = await supabaseClient.auth.getSession();
       const response = await fetch(
@@ -882,6 +1055,14 @@ export default function ProposalDiffModal({ proposalId, orderId, onClose, onReso
   async function handleReclassifyToOrder(targetOrderId: string) {
     try {
       setProcessing(true);
+
+      // Demo mode: simulate success for demo proposals
+      if (proposalId.startsWith('demo-proposal-')) {
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        alert('Successfully reclassified to different order. (Demo mode)');
+        onResolved();
+        return;
+      }
 
       const session = await supabaseClient.auth.getSession();
       const response = await fetch(
@@ -1078,8 +1259,22 @@ export default function ProposalDiffModal({ proposalId, orderId, onClose, onReso
                     >
                       {isEditing ? (
                         <div className="space-y-2">
-                          <div className="text-sm font-medium text-gray-900 mb-1">
-                            {line.item_name}
+                          <div className="flex justify-between items-start">
+                            <div className="text-sm font-medium text-gray-900 mb-1">
+                              {line.item_name}
+                            </div>
+                            <button
+                              onClick={() => {
+                                const newLines = editedLines.filter((_, i) => i !== index);
+                                setEditedLines(newLines);
+                              }}
+                              className="p-1 text-gray-400 hover:text-red-600"
+                              title="Remove item"
+                            >
+                              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                              </svg>
+                            </button>
                           </div>
                           <div className="relative">
                             <input
@@ -1161,6 +1356,29 @@ export default function ProposalDiffModal({ proposalId, orderId, onClose, onReso
                     </div>
                   ))}
                 </div>
+                {/* Add Item button for new order editing */}
+                {isEditing && (
+                  <button
+                    onClick={() => {
+                      const newLine: ProposalLine = {
+                        id: `new-${Date.now()}`,
+                        order_line_id: null,
+                        line_number: editedLines.length + 1,
+                        change_type: 'add',
+                        item_id: null,
+                        item_name: 'New Item',
+                        proposed_values: { quantity: 1 },
+                      };
+                      setEditedLines([...editedLines, newLine]);
+                    }}
+                    className="mt-3 w-full py-2 border-2 border-dashed border-gray-300 rounded-lg text-sm text-gray-500 hover:border-indigo-400 hover:text-indigo-600 flex items-center justify-center space-x-1"
+                  >
+                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                    </svg>
+                    <span>Add Item</span>
+                  </button>
+                )}
               </div>
             </div>
           </div>
@@ -1309,89 +1527,156 @@ export default function ProposalDiffModal({ proposalId, orderId, onClose, onReso
     }
 
     // For change proposals, show diff view
-    // Create a map of existing lines for easy lookup
-    const existingLinesMap = new Map<string, OrderLine>();
-    order.order_lines
-      .filter((line) => line.status === 'active')
-      .forEach((line) => {
-        existingLinesMap.set(line.id, line);
-      });
+    // Build diff rows from original data (used for display when not editing)
+    function buildDiffRows(): EditableDiffRow[] {
+      const rows: EditableDiffRow[] = [];
 
-    // Build diff rows (one row per change)
-    type DiffRow = {
-      left: OrderLine | null;
-      right: { product_name: string; quantity: number } | null;
-      changeType: 'add' | 'remove' | 'modify' | 'none';
-    };
+      (order?.order_lines || [])
+        .filter((line) => line.status === 'active')
+        .forEach((line) => {
+          const modification = proposalLines.find(
+            (pl) => pl.change_type === 'modify' && pl.order_line_id === line.id
+          );
+          const removal = proposalLines.find(
+            (pl) => pl.change_type === 'remove' && pl.order_line_id === line.id
+          );
 
-    const diffRows: DiffRow[] = [];
-
-    // Process existing lines
-    order.order_lines
-      .filter((line) => line.status === 'active')
-      .forEach((line) => {
-        const modification = proposalLines.find(
-          (pl) => pl.change_type === 'modify' && pl.order_line_id === line.id
-        );
-        const removal = proposalLines.find(
-          (pl) => pl.change_type === 'remove' && pl.order_line_id === line.id
-        );
-
-        if (removal) {
-          // Removal: left filled, right empty
-          diffRows.push({
-            left: line,
-            right: null,
-            changeType: 'remove',
-          });
-        } else if (modification) {
-          // Modification: both sides filled
-          diffRows.push({
-            left: line,
-            right: {
-              product_name: modification.item_name,
-              quantity: modification.proposed_values?.quantity ?? line.quantity,
-            },
-            changeType: 'modify',
-          });
-        } else {
-          // Unchanged: both sides filled, same content
-          diffRows.push({
-            left: line,
-            right: {
-              product_name: line.product_name,
-              quantity: line.quantity,
-            },
-            changeType: 'none',
-          });
-        }
-      });
-
-    // Add additions: left empty, right filled
-    proposalLines
-      .filter((pl) => pl.change_type === 'add')
-      .forEach((addition) => {
-        diffRows.push({
-          left: null,
-          right: {
-            product_name: addition.item_name,
-            quantity: addition.proposed_values?.quantity || 0,
-          },
-          changeType: 'add',
+          if (removal) {
+            rows.push({ left: line, right: null, changeType: 'remove', orderLineId: line.id });
+          } else if (modification) {
+            rows.push({
+              left: line,
+              right: {
+                product_name: modification.item_name,
+                quantity: modification.proposed_values?.quantity ?? line.quantity,
+                item_id: modification.item_id,
+              },
+              changeType: 'modify',
+              orderLineId: line.id,
+            });
+          } else {
+            rows.push({
+              left: line,
+              right: { product_name: line.product_name, quantity: line.quantity },
+              changeType: 'none',
+              orderLineId: line.id,
+            });
+          }
         });
-      });
+
+      proposalLines
+        .filter((pl) => pl.change_type === 'add')
+        .forEach((addition) => {
+          rows.push({
+            left: null,
+            right: {
+              product_name: addition.item_name,
+              quantity: addition.proposed_values?.quantity || 0,
+              item_id: addition.item_id,
+            },
+            changeType: 'add',
+          });
+        });
+
+      return rows;
+    }
+
+    const displayRows = isEditing ? editedDiffRows : buildDiffRows();
+
+    function startEditingChangeProposal() {
+      setIsEditing(true);
+      setEditedDiffRows(buildDiffRows());
+    }
+
+    function handleChangeRowQuantity(idx: number, quantity: number) {
+      const newRows = [...editedDiffRows];
+      const row = newRows[idx];
+      if (row.right) {
+        row.right = { ...row.right, quantity };
+      }
+      // If it was unchanged, mark as modified
+      if (row.changeType === 'none') {
+        row.changeType = 'modify';
+      }
+      setEditedDiffRows(newRows);
+    }
+
+    function handleChangeRowItem(idx: number, item: any) {
+      const newRows = [...editedDiffRows];
+      const row = newRows[idx];
+      if (row.right) {
+        row.right = { ...row.right, product_name: item.displayName, item_id: item.id };
+      }
+      if (row.changeType === 'none') {
+        row.changeType = 'modify';
+      }
+      setEditedDiffRows(newRows);
+      setItemSearchTerms({ ...itemSearchTerms, [idx]: '' });
+      setShowItemDropdown({ ...showItemDropdown, [idx]: false });
+    }
+
+    function handleRemoveRow(idx: number) {
+      const newRows = [...editedDiffRows];
+      const row = newRows[idx];
+      if (row.left) {
+        // Existing item - mark as removal
+        newRows[idx] = { ...row, right: null, changeType: 'remove' };
+      } else {
+        // New addition - just remove the row entirely
+        newRows.splice(idx, 1);
+      }
+      setEditedDiffRows(newRows);
+    }
+
+    function handleUndoRemoveRow(idx: number) {
+      const newRows = [...editedDiffRows];
+      const row = newRows[idx];
+      if (row.left) {
+        // Restore to unchanged
+        newRows[idx] = {
+          ...row,
+          right: { product_name: row.left.product_name, quantity: row.left.quantity },
+          changeType: 'none',
+        };
+      }
+      setEditedDiffRows(newRows);
+    }
+
+    function handleAddNewRow() {
+      setEditedDiffRows([
+        ...editedDiffRows,
+        {
+          left: null,
+          right: { product_name: '', quantity: 1 },
+          changeType: 'add',
+        },
+      ]);
+    }
 
     return (
       <div>
         <div className="grid grid-cols-2 gap-6 mb-4">
           <h3 className="text-lg font-semibold text-gray-900">Current Order</h3>
-          <h3 className="text-lg font-semibold text-gray-900">Proposed Changes</h3>
+          <div className="flex items-center justify-between">
+            <h3 className="text-lg font-semibold text-gray-900">Changes</h3>
+            {!isEditing && (
+              <button
+                onClick={startEditingChangeProposal}
+                className="text-xs text-indigo-600 hover:text-indigo-700 flex items-center space-x-1"
+              >
+                <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                </svg>
+                <span>Edit</span>
+              </button>
+            )}
+          </div>
         </div>
 
         <div className="space-y-2">
-          {diffRows.map((row, idx) => (
+          {displayRows.map((row, idx) => (
             <div key={idx} className="grid grid-cols-2 gap-6">
-              {/* Left side */}
+              {/* Left side - Current Order (always read-only) */}
               <div>
                 {row.left ? (
                   <div
@@ -1428,44 +1713,157 @@ export default function ProposalDiffModal({ proposalId, orderId, onClose, onReso
                 )}
               </div>
 
-              {/* Right side */}
+              {/* Right side - Changes (editable when editing) */}
               <div>
-                {row.right ? (
-                  <div
-                    className={`p-3 rounded-lg border ${
-                      row.changeType === 'add'
-                        ? 'bg-green-50 border-green-200'
-                        : row.changeType === 'modify'
-                        ? 'bg-blue-50 border-blue-200'
-                        : 'bg-gray-50 border-gray-200'
-                    }`}
-                  >
-                    <div className="flex justify-between items-start mb-1">
-                      <span className="font-medium text-sm text-gray-900">{row.right.product_name}</span>
-                      {row.changeType === 'add' && (
-                        <span className="text-xs font-semibold text-green-600 bg-green-100 px-2 py-0.5 rounded">
-                          NEW
-                        </span>
-                      )}
-                      {row.changeType === 'modify' && (
-                        <span className="text-xs font-semibold text-blue-600 bg-blue-100 px-2 py-0.5 rounded">
-                          MODIFIED
-                        </span>
-                      )}
+                {isEditing ? (
+                  row.changeType === 'remove' ? (
+                    <div className="p-3 rounded-lg border border-dashed border-red-200 bg-red-50 opacity-60">
+                      <div className="flex justify-between items-center">
+                        <span className="text-xs text-red-400 line-through">{row.left?.product_name}</span>
+                        <button
+                          onClick={() => handleUndoRemoveRow(idx)}
+                          className="text-xs text-indigo-600 hover:text-indigo-700"
+                          title="Undo remove"
+                        >
+                          Undo
+                        </button>
+                      </div>
                     </div>
-                    <div className="text-xs text-gray-600">
-                      <span>Qty: {row.right.quantity}</span>
+                  ) : (
+                    <div
+                      className={`p-3 rounded-lg border ${
+                        row.changeType === 'add'
+                          ? 'bg-green-50 border-green-200'
+                          : row.changeType === 'modify'
+                          ? 'bg-blue-50 border-blue-200'
+                          : 'bg-gray-50 border-gray-200'
+                      }`}
+                    >
+                      <div className="space-y-2">
+                        <div className="flex justify-between items-start">
+                          <div className="flex-1 mr-2">
+                            <div className="relative">
+                              <div className="text-sm font-medium text-gray-900 mb-1">{row.right?.product_name || 'Select item...'}</div>
+                              <input
+                                type="text"
+                                value={itemSearchTerms[idx] || ''}
+                                onChange={(e) => {
+                                  setItemSearchTerms({ ...itemSearchTerms, [idx]: e.target.value });
+                                  setShowItemDropdown({ ...showItemDropdown, [idx]: true });
+                                }}
+                                onFocus={() => setShowItemDropdown({ ...showItemDropdown, [idx]: true })}
+                                onBlur={() => setTimeout(() => setShowItemDropdown({ ...showItemDropdown, [idx]: false }), 200)}
+                                className="w-full px-2 py-1 text-xs border border-gray-300 rounded-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
+                                placeholder="Search to change item..."
+                              />
+                              {showItemDropdown[idx] && (
+                                <div className="absolute z-10 w-full mt-1 bg-white border border-gray-300 rounded-md shadow-lg max-h-48 overflow-auto">
+                                  {items
+                                    .filter((item: any) =>
+                                      !itemSearchTerms[idx] ||
+                                      item.displayName.toLowerCase().includes(itemSearchTerms[idx].toLowerCase()) ||
+                                      item.number?.toLowerCase().includes(itemSearchTerms[idx].toLowerCase())
+                                    )
+                                    .map((item: any) => (
+                                      <div
+                                        key={item.id}
+                                        onClick={() => handleChangeRowItem(idx, item)}
+                                        className="px-3 py-2 hover:bg-indigo-50 cursor-pointer"
+                                      >
+                                        <div className="font-medium text-sm">{item.displayName}</div>
+                                        {item.number && <div className="text-xs text-gray-500">SKU: {item.number}</div>}
+                                      </div>
+                                    ))}
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                          <div className="flex items-center space-x-2">
+                            {row.changeType !== 'none' && (
+                              <span className={`text-xs font-semibold px-2 py-0.5 rounded ${
+                                row.changeType === 'add'
+                                  ? 'text-green-600 bg-green-100'
+                                  : 'text-blue-600 bg-blue-100'
+                              }`}>
+                                {row.changeType === 'add' ? 'NEW' : 'MODIFIED'}
+                              </span>
+                            )}
+                            <button
+                              onClick={() => handleRemoveRow(idx)}
+                              className="p-1 text-gray-400 hover:text-red-600"
+                              title="Remove item"
+                            >
+                              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                              </svg>
+                            </button>
+                          </div>
+                        </div>
+                        <div className="flex items-center space-x-2">
+                          <label className="text-xs text-gray-500">Qty:</label>
+                          <input
+                            type="number"
+                            value={row.right?.quantity || 0}
+                            onChange={(e) => handleChangeRowQuantity(idx, parseInt(e.target.value) || 0)}
+                            className="w-20 px-2 py-1 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
+                            min="1"
+                          />
+                        </div>
+                      </div>
                     </div>
-                  </div>
+                  )
                 ) : (
-                  <div className="p-3 rounded-lg border border-dashed border-gray-300 bg-gray-50 opacity-40">
-                    <div className="text-xs text-gray-400 text-center">—</div>
-                  </div>
+                  // Read-only view
+                  row.right ? (
+                    <div
+                      className={`p-3 rounded-lg border ${
+                        row.changeType === 'add'
+                          ? 'bg-green-50 border-green-200'
+                          : row.changeType === 'modify'
+                          ? 'bg-blue-50 border-blue-200'
+                          : 'bg-gray-50 border-gray-200'
+                      }`}
+                    >
+                      <div className="flex justify-between items-start mb-1">
+                        <span className="font-medium text-sm text-gray-900">{row.right.product_name}</span>
+                        {row.changeType === 'add' && (
+                          <span className="text-xs font-semibold text-green-600 bg-green-100 px-2 py-0.5 rounded">
+                            NEW
+                          </span>
+                        )}
+                        {row.changeType === 'modify' && (
+                          <span className="text-xs font-semibold text-blue-600 bg-blue-100 px-2 py-0.5 rounded">
+                            MODIFIED
+                          </span>
+                        )}
+                      </div>
+                      <div className="text-xs text-gray-600">
+                        <span>Qty: {row.right.quantity}</span>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="p-3 rounded-lg border border-dashed border-gray-300 bg-gray-50 opacity-40">
+                      <div className="text-xs text-gray-400 text-center">—</div>
+                    </div>
+                  )
                 )}
               </div>
             </div>
           ))}
         </div>
+
+        {/* Add Item button when editing */}
+        {isEditing && (
+          <button
+            onClick={handleAddNewRow}
+            className="mt-3 w-full py-2 border-2 border-dashed border-gray-300 rounded-lg text-sm text-gray-500 hover:border-indigo-400 hover:text-indigo-600 flex items-center justify-center space-x-1"
+          >
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+            </svg>
+            <span>Add Item</span>
+          </button>
+        )}
       </div>
     );
   }
@@ -1829,7 +2227,7 @@ export default function ProposalDiffModal({ proposalId, orderId, onClose, onReso
 
           {/* Right side - Accept/Reject buttons */}
           <div className="flex gap-4 ml-auto">
-            {isEditing && isNewOrderProposal ? (
+            {isEditing ? (
               <>
                 <button
                   onClick={() => {
@@ -1837,6 +2235,7 @@ export default function ProposalDiffModal({ proposalId, orderId, onClose, onReso
                     setEditedCustomerName('');
                     setEditedDeliveryDate('');
                     setEditedLines([]);
+                    setEditedDiffRows([]);
                   }}
                   disabled={processing}
                   className="px-6 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 disabled:opacity-50"
@@ -1859,7 +2258,7 @@ export default function ProposalDiffModal({ proposalId, orderId, onClose, onReso
                     }
                   }}
                 >
-                  {processing ? 'Processing...' : 'Create ERP Order'}
+                  {processing ? 'Processing...' : isNewOrderProposal ? 'Create ERP Order' : 'Accept Changes'}
                 </button>
               </>
             ) : (
