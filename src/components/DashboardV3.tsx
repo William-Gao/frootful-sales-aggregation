@@ -1,4 +1,5 @@
 import {
+  BarChart3,
   Bell,
   Calendar as CalendarIcon,
   Check,
@@ -15,11 +16,14 @@ import {
   Package,
   Printer,
   Search,
+  Upload,
   User,
   X
 } from 'lucide-react';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { supabaseClient } from '../supabaseClient';
+import UploadOrdersSection from './UploadOrdersSection';
+import AnalyticsDashboard from './AnalyticsDashboard';
 
 // ============================================================================
 // TYPES
@@ -3419,7 +3423,7 @@ const InboxFeed: React.FC<InboxFeedProps> = ({
 
 const DashboardV3: React.FC<DashboardV3Props> = ({ organizationId, layout = 'default' }) => {
   const [viewMode, setViewMode] = useState<ViewMode>('week');
-  const [sidebarTab, setSidebarTab] = useState<'inbox' | 'orders'>('inbox');
+  const [sidebarTab, setSidebarTab] = useState<'inbox' | 'orders' | 'upload' | 'analytics'>('inbox');
   const [orders, setOrders] = useState<Order[]>(MOCK_STANDING_ORDERS);
   const [proposals, setProposals] = useState<Proposal[]>(MOCK_PROPOSALS);
   const [isLoading, setIsLoading] = useState(true);
@@ -3808,12 +3812,34 @@ const DashboardV3: React.FC<DashboardV3Props> = ({ organizationId, layout = 'def
               <Package className="w-5 h-5" />
               <span>Orders</span>
             </button>
+            <button
+              onClick={() => setSidebarTab('upload')}
+              className={`w-full flex items-center space-x-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
+                sidebarTab === 'upload'
+                  ? 'bg-green-50 text-green-700'
+                  : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
+              }`}
+            >
+              <Upload className="w-5 h-5" />
+              <span>Upload</span>
+            </button>
+            <button
+              onClick={() => setSidebarTab('analytics')}
+              className={`w-full flex items-center space-x-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
+                sidebarTab === 'analytics'
+                  ? 'bg-green-50 text-green-700'
+                  : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
+              }`}
+            >
+              <BarChart3 className="w-5 h-5" />
+              <span>Analytics</span>
+            </button>
           </div>
         </nav>
 
         {/* Main Content */}
         <main className="flex-1 min-w-0 p-6 overflow-y-auto">
-          {sidebarTab === 'inbox' ? (
+          {sidebarTab === 'inbox' && (
             <div className="space-y-4">
               {proposals.length > 0 ? (
                 inboxFeedElement
@@ -3825,7 +3851,13 @@ const DashboardV3: React.FC<DashboardV3Props> = ({ organizationId, layout = 'def
                 </div>
               )}
             </div>
-          ) : (
+          )}
+
+          {sidebarTab === 'upload' && <UploadOrdersSection />}
+
+          {sidebarTab === 'analytics' && <AnalyticsDashboard />}
+
+          {sidebarTab === 'orders' && (
             <div className="space-y-6">
               {headerElement}
 

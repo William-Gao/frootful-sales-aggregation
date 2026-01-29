@@ -13,7 +13,7 @@ const MOCK_ORG = {
   name: 'Boston Microgreens',
 };
 
-const DashboardTest: React.FC = () => {
+const DashboardDemo: React.FC = () => {
   const navigate = useNavigate();
 
   return (
@@ -65,4 +65,4 @@ const DashboardTest: React.FC = () => {
   );
 };
 
-export default DashboardTest;
+export default DashboardDemo;

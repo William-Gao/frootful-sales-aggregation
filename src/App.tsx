@@ -9,7 +9,7 @@ import AuthCallback from './pages/AuthCallback';
 import Demo from './demo/Demo';
 import Playground from './demo/Playground';
 import Settings from './pages/Settings';
-import DashboardTest from './pages/DashboardTest';
+import DashboardDemo from './pages/DashboardDemo';
 
 function App() {
   return (
@@ -20,7 +20,7 @@ function App() {
         <Route path="/admin" element={<AdminDashboard />} />
         <Route path="/onboarding" element={<Onboarding />} />
         <Route path="/dashboard" element={<Dashboard />} />
-        <Route path="/dashboard/test" element={<DashboardTest />} />
+        <Route path="/dashboard/demo" element={<DashboardDemo />} />
         <Route path="/settings" element={<Settings />} />
         <Route path="/auth/callback" element={<AuthCallback />} />
         <Route path="/demo" element={<Demo />} />
