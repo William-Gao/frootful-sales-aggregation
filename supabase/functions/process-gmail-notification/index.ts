@@ -8,6 +8,7 @@ const corsHeaders = {
 };
 
 // Helper function to decode base64url (Gmail Pub/Sub format)
+// Returns raw Latin-1 string (for non-text data like Pub/Sub JSON payloads)
 function base64urlDecode(str: string): string {
   // Replace URL-safe characters
   const base64 = str.replace(/-/g, '+').replace(/_/g, '/');
@@ -19,6 +20,20 @@ function base64urlDecode(str: string): string {
   } catch (_error) {
     throw new Error('Invalid base64url string');
   }
+}
+
+// Decode base64url as proper UTF-8 (for email body content)
+// atob() returns Latin-1, which corrupts multi-byte UTF-8 chars like NBSP (C2 A0 → "Â ").
+// This properly decodes the bytes as UTF-8.
+function base64urlDecodeUtf8(str: string): string {
+  const base64 = str.replace(/-/g, '+').replace(/_/g, '/');
+  const padded = base64 + '='.repeat((4 - base64.length % 4) % 4);
+  const binaryStr = atob(padded);
+  const bytes = new Uint8Array(binaryStr.length);
+  for (let i = 0; i < binaryStr.length; i++) {
+    bytes[i] = binaryStr.charCodeAt(i);
+  }
+  return new TextDecoder('utf-8').decode(bytes);
 }
 
 // Helper function to fetch email from Gmail API
@@ -46,11 +61,11 @@ function getHeader(headers: any[], name: string): string | null {
   return header ? header.value : null;
 }
 
-// Helper function to decode email body
+// Helper function to decode email body (proper UTF-8)
 function decodeEmailBody(data: string): string {
   if (!data) return '';
   try {
-    return base64urlDecode(data);
+    return base64urlDecodeUtf8(data);
   } catch (_error) {
     return '';
   }

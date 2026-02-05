@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { supabaseClient } from '../supabaseClient';
 
 // Helper function to format date strings (YYYY-MM-DD) without timezone issues
@@ -14,6 +14,7 @@ interface OrderLine {
   product_name: string;
   quantity: number;
   status: string;
+  variant_code: string;
 }
 
 interface ProposalLine {
@@ -22,15 +23,14 @@ interface ProposalLine {
   line_number: number;
   change_type: 'add' | 'remove' | 'modify';
   item_id: string | null;
+  item_variant_id?: string | null;
   item_name: string;
-  proposed_values: {
-    quantity?: number;
-  } | null;
+  proposed_values: Record<string, any> | null;
 }
 
 type EditableDiffRow = {
   left: OrderLine | null;
-  right: { product_name: string; quantity: number; item_id?: string | null } | null;
+  right: { product_name: string; quantity: number; size: string; item_id?: string | null } | null;
   changeType: 'add' | 'remove' | 'modify' | 'none';
   orderLineId?: string | null;
 };
@@ -237,9 +237,9 @@ export default function ProposalDiffModal({ proposalId, orderId, onClose, onReso
             delivery_date: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString().split('T')[0],
             status: 'pending',
             order_lines: [
-              { id: 'line-1', line_number: 1, product_name: 'Organic Baby Spinach', quantity: 50, status: 'active' },
-              { id: 'line-2', line_number: 2, product_name: 'Organic Spring Mix', quantity: 30, status: 'active' },
-              { id: 'line-3', line_number: 3, product_name: 'Organic Baby Kale', quantity: 25, status: 'active' },
+              { id: 'line-1', line_number: 1, product_name: 'Organic Baby Spinach', quantity: 50, status: 'active', variant_code: '' },
+              { id: 'line-2', line_number: 2, product_name: 'Organic Spring Mix', quantity: 30, status: 'active', variant_code: '' },
+              { id: 'line-3', line_number: 3, product_name: 'Organic Baby Kale', quantity: 25, status: 'active', variant_code: '' },
             ]
           });
           setProposalLines([
@@ -329,7 +329,8 @@ export default function ProposalDiffModal({ proposalId, orderId, onClose, onReso
               line_number,
               product_name,
               quantity,
-              status
+              status,
+              item_variants ( variant_code )
             )
           `)
           .eq('id', orderId)
@@ -337,6 +338,13 @@ export default function ProposalDiffModal({ proposalId, orderId, onClose, onReso
           .single();
 
         if (orderError) throw orderError;
+        // Map variant_code from join into order_lines
+        if (data?.order_lines) {
+          data.order_lines = data.order_lines.map((line: any) => ({
+            ...line,
+            variant_code: line.item_variants?.variant_code || '',
+          }));
+        }
         orderData = data;
       }
 
@@ -608,7 +616,7 @@ export default function ProposalDiffModal({ proposalId, orderId, onClose, onReso
             change_type: row.changeType as 'add' | 'remove' | 'modify',
             item_id: row.right?.item_id || null,
             item_name: row.right?.product_name || row.left?.product_name || '',
-            proposed_values: row.right ? { quantity: row.right.quantity } : null,
+            proposed_values: row.right ? { quantity: row.right.quantity, variant_code: row.right.size } : null,
           }));
       } else {
         linesToApply = proposalLines;
@@ -635,13 +643,28 @@ export default function ProposalDiffModal({ proposalId, orderId, onClose, onReso
         console.log(`Processing change: ${change.change_type} - ${change.item_name}`);
 
         if (change.change_type === 'add') {
+          // Use item_variant_id from proposal line, or look up from variant_code
+          let itemVariantId: string | null = change.item_variant_id || null;
+          if (!itemVariantId && change.item_id && change.proposed_values?.variant_code) {
+            const { data: variantData } = await (supabaseClient as any)
+              .from('item_variants')
+              .select('id')
+              .eq('item_id', change.item_id)
+              .eq('variant_code', change.proposed_values.variant_code)
+              .single();
+            if (variantData) {
+              itemVariantId = variantData.id;
+            }
+          }
+
           // Insert new line
-          const lineData = {
+          const lineData: any = {
             order_id: finalOrderId,
             line_number: isNewOrderProposal ? change.line_number : nextLineNumber++,
             product_name: change.item_name,
             quantity: change.proposed_values?.quantity || 0,
             item_id: change.item_id,
+            item_variant_id: itemVariantId,
             status: 'active',
           };
           console.log('Inserting line:', lineData);
@@ -670,6 +693,19 @@ export default function ProposalDiffModal({ proposalId, orderId, onClose, onReso
           const updates: any = {};
           if (change.proposed_values?.quantity !== undefined) {
             updates.quantity = change.proposed_values.quantity;
+          }
+
+          // Update item_variant_id if variant_code changed
+          if (change.proposed_values?.variant_code && change.item_id) {
+            const { data: variantData } = await (supabaseClient as any)
+              .from('item_variants')
+              .select('id')
+              .eq('item_id', change.item_id)
+              .eq('variant_code', change.proposed_values.variant_code)
+              .single();
+            if (variantData) {
+              updates.item_variant_id = variantData.id;
+            }
           }
 
           if (Object.keys(updates).length > 0) {
@@ -962,6 +998,11 @@ export default function ProposalDiffModal({ proposalId, orderId, onClose, onReso
   }
 
   async function handleReclassifyAsNew() {
+    if (!intakeEventId) {
+      alert('Cannot reclassify: missing intake event ID');
+      return;
+    }
+
     try {
       setProcessing(true);
 
@@ -974,8 +1015,19 @@ export default function ProposalDiffModal({ proposalId, orderId, onClose, onReso
       }
 
       const session = await supabaseClient.auth.getSession();
+
+      // Step 1: Reject the current proposal
+      await (supabaseClient as any)
+        .from('order_change_proposals')
+        .update({
+          status: 'rejected',
+          reviewed_at: new Date().toISOString()
+        })
+        .eq('id', proposalId);
+
+      // Step 2: Create new proposal as new order (target_order_id: null)
       const response = await fetch(
-        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/reclassify-proposal`,
+        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/create-proposal`,
         {
           method: 'POST',
           headers: {
@@ -983,8 +1035,8 @@ export default function ProposalDiffModal({ proposalId, orderId, onClose, onReso
             'Content-Type': 'application/json'
           },
           body: JSON.stringify({
-            proposal_id: proposalId,
-            action: 'convert_to_new'
+            intake_event_id: intakeEventId,
+            target_order_id: null  // null = new order proposal
           })
         }
       );
@@ -1053,6 +1105,11 @@ export default function ProposalDiffModal({ proposalId, orderId, onClose, onReso
   }
 
   async function handleReclassifyToOrder(targetOrderId: string) {
+    if (!intakeEventId) {
+      alert('Cannot reclassify: missing intake event ID');
+      return;
+    }
+
     try {
       setProcessing(true);
 
@@ -1065,8 +1122,19 @@ export default function ProposalDiffModal({ proposalId, orderId, onClose, onReso
       }
 
       const session = await supabaseClient.auth.getSession();
+
+      // Step 1: Reject the current proposal
+      await (supabaseClient as any)
+        .from('order_change_proposals')
+        .update({
+          status: 'rejected',
+          reviewed_at: new Date().toISOString()
+        })
+        .eq('id', proposalId);
+
+      // Step 2: Create new proposal for the target order
       const response = await fetch(
-        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/reclassify-proposal`,
+        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/create-proposal`,
         {
           method: 'POST',
           headers: {
@@ -1074,8 +1142,7 @@ export default function ProposalDiffModal({ proposalId, orderId, onClose, onReso
             'Content-Type': 'application/json'
           },
           body: JSON.stringify({
-            proposal_id: proposalId,
-            action: 'reassign_to_order',
+            intake_event_id: intakeEventId,
             target_order_id: targetOrderId
           })
         }
@@ -1549,6 +1616,7 @@ export default function ProposalDiffModal({ proposalId, orderId, onClose, onReso
               right: {
                 product_name: modification.item_name,
                 quantity: modification.proposed_values?.quantity ?? line.quantity,
+                size: modification.proposed_values?.variant_code || line.variant_code || '',
                 item_id: modification.item_id,
               },
               changeType: 'modify',
@@ -1557,7 +1625,7 @@ export default function ProposalDiffModal({ proposalId, orderId, onClose, onReso
           } else {
             rows.push({
               left: line,
-              right: { product_name: line.product_name, quantity: line.quantity },
+              right: { product_name: line.product_name, quantity: line.quantity, size: line.variant_code || '' },
               changeType: 'none',
               orderLineId: line.id,
             });
@@ -1572,6 +1640,7 @@ export default function ProposalDiffModal({ proposalId, orderId, onClose, onReso
             right: {
               product_name: addition.item_name,
               quantity: addition.proposed_values?.quantity || 0,
+              size: addition.proposed_values?.variant_code || '',
               item_id: addition.item_id,
             },
             changeType: 'add',
@@ -1635,7 +1704,7 @@ export default function ProposalDiffModal({ proposalId, orderId, onClose, onReso
         // Restore to unchanged
         newRows[idx] = {
           ...row,
-          right: { product_name: row.left.product_name, quantity: row.left.quantity },
+          right: { product_name: row.left.product_name, quantity: row.left.quantity, size: row.left.variant_code || '' },
           changeType: 'none',
         };
       }
@@ -1647,223 +1716,266 @@ export default function ProposalDiffModal({ proposalId, orderId, onClose, onReso
         ...editedDiffRows,
         {
           left: null,
-          right: { product_name: '', quantity: 1 },
+          right: { product_name: '', quantity: 1, size: '' },
           changeType: 'add',
         },
       ]);
     }
 
+    // InboxCard-style single-column view
+    // Find the communication (intake event) from timeline
+    const communication = timeline.find(t => t.type === 'communication');
+
     return (
       <div>
-        <div className="grid grid-cols-2 gap-6 mb-4">
-          <h3 className="text-lg font-semibold text-gray-900">Current Order</h3>
-          <div className="flex items-center justify-between">
-            <h3 className="text-lg font-semibold text-gray-900">Changes</h3>
-            {!isEditing && (
-              <button
-                onClick={startEditingChangeProposal}
-                className="text-xs text-indigo-600 hover:text-indigo-700 flex items-center space-x-1"
-              >
-                <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-                </svg>
-                <span>Edit</span>
-              </button>
+        {/* Original message from intake event */}
+        {communication && (
+          <div className="mb-4">
+            <div className="flex items-center gap-2 text-xs text-gray-500 mb-1.5">
+              {communication.channel === 'sms' ? (
+                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" /></svg>
+              ) : (
+                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" /></svg>
+              )}
+              <span className="uppercase font-medium">{communication.channel}</span>
+              {communication.from && (
+                <>
+                  <span>&middot;</span>
+                  <span>{communication.from}</span>
+                </>
+              )}
+              <span>&middot;</span>
+              <span>{new Date(communication.timestamp).toLocaleString()}</span>
+            </div>
+            {communication.subject && (
+              <p className="text-xs font-medium text-gray-800 mb-1">{communication.subject}</p>
             )}
+            <div className="bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-700 italic whitespace-pre-line">
+              {communication.content}
+            </div>
           </div>
+        )}
+
+        <div className="flex items-center justify-between mb-3">
+          <p className="text-xs text-gray-400 uppercase tracking-wider font-medium">Changes</p>
+          {!isEditing && (
+            <button
+              onClick={startEditingChangeProposal}
+              className="text-xs text-indigo-600 hover:text-indigo-700 flex items-center space-x-1"
+            >
+              <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+              </svg>
+              <span>Edit</span>
+            </button>
+          )}
         </div>
 
-        <div className="space-y-2">
-          {displayRows.map((row, idx) => (
-            <div key={idx} className="grid grid-cols-2 gap-6">
-              {/* Left side - Current Order (always read-only) */}
-              <div>
-                {row.left ? (
-                  <div
-                    className={`p-3 rounded-lg border ${
-                      row.changeType === 'remove'
-                        ? 'bg-red-50 border-red-200'
-                        : row.changeType === 'modify'
-                        ? 'bg-blue-50 border-blue-200'
-                        : 'bg-gray-50 border-gray-200'
-                    }`}
-                  >
-                    <div className="flex justify-between items-start mb-1">
-                      <span
-                        className={`font-medium text-sm ${
-                          row.changeType === 'remove' ? 'line-through text-gray-500' : 'text-gray-900'
-                        }`}
-                      >
-                        {row.left.product_name}
-                      </span>
-                      {row.changeType === 'remove' && (
-                        <span className="text-xs font-semibold text-red-600 bg-red-100 px-2 py-0.5 rounded">
-                          REMOVED
-                        </span>
-                      )}
-                    </div>
-                    <div className="text-xs text-gray-600">
-                      <span>Qty: {row.left.quantity}</span>
-                    </div>
-                  </div>
-                ) : (
-                  <div className="p-3 rounded-lg border border-dashed border-gray-300 bg-gray-50 opacity-40">
-                    <div className="text-xs text-gray-400 text-center">—</div>
-                  </div>
-                )}
-              </div>
-
-              {/* Right side - Changes (editable when editing) */}
-              <div>
-                {isEditing ? (
-                  row.changeType === 'remove' ? (
-                    <div className="p-3 rounded-lg border border-dashed border-red-200 bg-red-50 opacity-60">
-                      <div className="flex justify-between items-center">
-                        <span className="text-xs text-red-400 line-through">{row.left?.product_name}</span>
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="text-xs text-gray-400 uppercase tracking-wider">
+              <th className="py-1 text-left font-medium">Item</th>
+              <th className="py-1 text-center font-medium w-16">Variant</th>
+              <th className="py-1 text-center font-medium w-16">Qty</th>
+              <th className="py-1 w-8"></th>
+            </tr>
+          </thead>
+          <tbody>
+            {/* Existing order items with diff annotations */}
+            {displayRows.filter(r => r.left).map((row, idx) => {
+              const originalIdx = displayRows.indexOf(row);
+              return (
+                <React.Fragment key={idx}>
+                  {/* Original item row */}
+                  <tr className={`${row.changeType === 'remove' || row.changeType === 'modify' ? 'opacity-50' : ''}`}>
+                    <td className={`py-1.5 text-gray-700 ${row.changeType === 'remove' || row.changeType === 'modify' ? 'line-through' : ''}`}>
+                      {row.left!.product_name}
+                    </td>
+                    <td className={`py-1.5 text-center text-gray-500 w-16 ${row.changeType === 'remove' || row.changeType === 'modify' ? 'line-through' : ''}`}>
+                      {row.left!.variant_code}
+                    </td>
+                    <td className={`py-1.5 text-center text-gray-700 font-medium w-16 ${row.changeType === 'remove' || row.changeType === 'modify' ? 'line-through' : ''}`}>
+                      {row.left!.quantity}
+                    </td>
+                    <td className="py-1.5 w-8">
+                      {isEditing && row.changeType === 'none' && (
                         <button
-                          onClick={() => handleUndoRemoveRow(idx)}
-                          className="text-xs text-indigo-600 hover:text-indigo-700"
-                          title="Undo remove"
+                          onClick={() => handleRemoveRow(originalIdx)}
+                          className="text-gray-300 hover:text-red-500 transition-colors"
+                          title="Remove item"
                         >
-                          Undo
+                          <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                          </svg>
                         </button>
-                      </div>
-                    </div>
-                  ) : (
-                    <div
-                      className={`p-3 rounded-lg border ${
-                        row.changeType === 'add'
-                          ? 'bg-green-50 border-green-200'
-                          : row.changeType === 'modify'
-                          ? 'bg-blue-50 border-blue-200'
-                          : 'bg-gray-50 border-gray-200'
-                      }`}
-                    >
-                      <div className="space-y-2">
-                        <div className="flex justify-between items-start">
-                          <div className="flex-1 mr-2">
-                            <div className="relative">
-                              <div className="text-sm font-medium text-gray-900 mb-1">{row.right?.product_name || 'Select item...'}</div>
-                              <input
-                                type="text"
-                                value={itemSearchTerms[idx] || ''}
-                                onChange={(e) => {
-                                  setItemSearchTerms({ ...itemSearchTerms, [idx]: e.target.value });
-                                  setShowItemDropdown({ ...showItemDropdown, [idx]: true });
-                                }}
-                                onFocus={() => setShowItemDropdown({ ...showItemDropdown, [idx]: true })}
-                                onBlur={() => setTimeout(() => setShowItemDropdown({ ...showItemDropdown, [idx]: false }), 200)}
-                                className="w-full px-2 py-1 text-xs border border-gray-300 rounded-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
-                                placeholder="Search to change item..."
-                              />
-                              {showItemDropdown[idx] && (
-                                <div className="absolute z-10 w-full mt-1 bg-white border border-gray-300 rounded-md shadow-lg max-h-48 overflow-auto">
-                                  {items
-                                    .filter((item: any) =>
-                                      !itemSearchTerms[idx] ||
-                                      item.displayName.toLowerCase().includes(itemSearchTerms[idx].toLowerCase()) ||
-                                      item.number?.toLowerCase().includes(itemSearchTerms[idx].toLowerCase())
-                                    )
-                                    .map((item: any) => (
-                                      <div
-                                        key={item.id}
-                                        onClick={() => handleChangeRowItem(idx, item)}
-                                        className="px-3 py-2 hover:bg-indigo-50 cursor-pointer"
-                                      >
-                                        <div className="font-medium text-sm">{item.displayName}</div>
-                                        {item.number && <div className="text-xs text-gray-500">SKU: {item.number}</div>}
-                                      </div>
-                                    ))}
-                                </div>
-                              )}
-                            </div>
-                          </div>
-                          <div className="flex items-center space-x-2">
-                            {row.changeType !== 'none' && (
-                              <span className={`text-xs font-semibold px-2 py-0.5 rounded ${
-                                row.changeType === 'add'
-                                  ? 'text-green-600 bg-green-100'
-                                  : 'text-blue-600 bg-blue-100'
-                              }`}>
-                                {row.changeType === 'add' ? 'NEW' : 'MODIFIED'}
-                              </span>
-                            )}
-                            <button
-                              onClick={() => handleRemoveRow(idx)}
-                              className="p-1 text-gray-400 hover:text-red-600"
-                              title="Remove item"
-                            >
-                              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                              </svg>
-                            </button>
-                          </div>
-                        </div>
-                        <div className="flex items-center space-x-2">
-                          <label className="text-xs text-gray-500">Qty:</label>
+                      )}
+                    </td>
+                  </tr>
+                  {/* Modify annotation sub-row */}
+                  {row.changeType === 'modify' && (
+                    <tr className="bg-blue-50">
+                      <td className="py-1.5 pl-5 text-blue-700 text-sm">
+                        <span className="text-blue-400 mr-1">&#8627;</span>
+                        {row.right?.product_name}
+                      </td>
+                      <td className="py-1.5 text-center text-blue-600 text-sm">
+                        {row.right?.size}
+                      </td>
+                      <td className="py-1.5 text-center">
+                        {isEditing ? (
                           <input
                             type="number"
-                            value={row.right?.quantity || 0}
-                            onChange={(e) => handleChangeRowQuantity(idx, parseInt(e.target.value) || 0)}
-                            className="w-20 px-2 py-1 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
                             min="1"
+                            value={row.right?.quantity || 0}
+                            onChange={(e) => handleChangeRowQuantity(originalIdx, parseInt(e.target.value) || 0)}
+                            className="w-12 px-1 py-0.5 text-sm text-center border border-blue-300 rounded bg-white focus:outline-none focus:ring-1 focus:ring-blue-500 font-semibold"
                           />
+                        ) : (
+                          <span className="font-semibold text-blue-700">{row.right?.quantity}</span>
+                        )}
+                      </td>
+                      <td className="py-1.5">
+                        {isEditing && (
+                          <button
+                            onClick={() => handleUndoRemoveRow(originalIdx)}
+                            className="text-gray-400 hover:text-red-500"
+                            title="Undo modification"
+                          >
+                            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                            </svg>
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                  )}
+                  {/* Remove annotation sub-row */}
+                  {row.changeType === 'remove' && (
+                    <tr>
+                      <td colSpan={3} className="pb-1.5">
+                        <div className="ml-4 px-2 py-1 bg-red-50 border border-red-200 rounded text-xs text-red-600 inline-flex items-center gap-2">
+                          <span>&#8627; remove</span>
                         </div>
-                      </div>
-                    </div>
-                  )
-                ) : (
-                  // Read-only view
-                  row.right ? (
-                    <div
-                      className={`p-3 rounded-lg border ${
-                        row.changeType === 'add'
-                          ? 'bg-green-50 border-green-200'
-                          : row.changeType === 'modify'
-                          ? 'bg-blue-50 border-blue-200'
-                          : 'bg-gray-50 border-gray-200'
-                      }`}
-                    >
-                      <div className="flex justify-between items-start mb-1">
-                        <span className="font-medium text-sm text-gray-900">{row.right.product_name}</span>
-                        {row.changeType === 'add' && (
-                          <span className="text-xs font-semibold text-green-600 bg-green-100 px-2 py-0.5 rounded">
-                            NEW
-                          </span>
+                      </td>
+                      <td className="pb-1.5">
+                        {isEditing && (
+                          <button
+                            onClick={() => handleUndoRemoveRow(originalIdx)}
+                            className="text-xs text-indigo-600 hover:text-indigo-700"
+                            title="Undo remove"
+                          >
+                            Undo
+                          </button>
                         )}
-                        {row.changeType === 'modify' && (
-                          <span className="text-xs font-semibold text-blue-600 bg-blue-100 px-2 py-0.5 rounded">
-                            MODIFIED
-                          </span>
-                        )}
-                      </div>
-                      <div className="text-xs text-gray-600">
-                        <span>Qty: {row.right.quantity}</span>
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="p-3 rounded-lg border border-dashed border-gray-300 bg-gray-50 opacity-40">
-                      <div className="text-xs text-gray-400 text-center">—</div>
-                    </div>
-                  )
-                )}
-              </div>
-            </div>
-          ))}
-        </div>
+                      </td>
+                    </tr>
+                  )}
+                </React.Fragment>
+              );
+            })}
 
-        {/* Add Item button when editing */}
-        {isEditing && (
-          <button
-            onClick={handleAddNewRow}
-            className="mt-3 w-full py-2 border-2 border-dashed border-gray-300 rounded-lg text-sm text-gray-500 hover:border-indigo-400 hover:text-indigo-600 flex items-center justify-center space-x-1"
-          >
-            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-            </svg>
-            <span>Add Item</span>
-          </button>
-        )}
+            {/* Separator before add rows */}
+            {displayRows.some(r => r.changeType === 'add') && (
+              <tr>
+                <td colSpan={4} className="py-1">
+                  <div className="border-t border-dashed border-gray-300"></div>
+                </td>
+              </tr>
+            )}
+
+            {/* Add rows */}
+            {displayRows.filter(r => r.changeType === 'add').map((row, addIdx) => {
+              const originalIdx = displayRows.indexOf(row);
+              return (
+                <tr key={`add-${addIdx}`} className="bg-green-50">
+                  <td className="py-1.5 text-green-700">
+                    <span className="text-green-500 mr-1">+</span>
+                    {isEditing ? (
+                      <div className="inline-block relative">
+                        <span className="text-sm font-medium">{row.right?.product_name || 'Select item...'}</span>
+                        <input
+                          type="text"
+                          value={itemSearchTerms[originalIdx] || ''}
+                          onChange={(e) => {
+                            setItemSearchTerms({ ...itemSearchTerms, [originalIdx]: e.target.value });
+                            setShowItemDropdown({ ...showItemDropdown, [originalIdx]: true });
+                          }}
+                          onFocus={() => setShowItemDropdown({ ...showItemDropdown, [originalIdx]: true })}
+                          onBlur={() => setTimeout(() => setShowItemDropdown({ ...showItemDropdown, [originalIdx]: false }), 200)}
+                          className="ml-2 w-40 px-2 py-0.5 text-xs border border-green-300 rounded bg-white focus:outline-none focus:ring-1 focus:ring-green-500"
+                          placeholder="Search..."
+                        />
+                        {showItemDropdown[originalIdx] && (
+                          <div className="absolute z-10 left-0 mt-1 w-64 bg-white border border-gray-300 rounded-md shadow-lg max-h-48 overflow-auto">
+                            {items
+                              .filter((item: any) =>
+                                !itemSearchTerms[originalIdx] ||
+                                item.displayName.toLowerCase().includes(itemSearchTerms[originalIdx].toLowerCase())
+                              )
+                              .map((item: any) => (
+                                <div
+                                  key={item.id}
+                                  onClick={() => handleChangeRowItem(originalIdx, item)}
+                                  className="px-3 py-2 hover:bg-green-50 cursor-pointer text-sm"
+                                >
+                                  {item.displayName}
+                                </div>
+                              ))}
+                          </div>
+                        )}
+                      </div>
+                    ) : (
+                      <span>{row.right?.product_name}</span>
+                    )}
+                  </td>
+                  <td className="py-1.5 text-center text-green-600 text-sm">
+                    {row.right?.size}
+                  </td>
+                  <td className="py-1.5 text-center">
+                    {isEditing ? (
+                      <input
+                        type="number"
+                        min="1"
+                        value={row.right?.quantity || 0}
+                        onChange={(e) => handleChangeRowQuantity(originalIdx, parseInt(e.target.value) || 0)}
+                        className="w-12 px-1 py-0.5 text-sm text-center border border-green-300 rounded bg-white focus:outline-none focus:ring-1 focus:ring-green-500 font-semibold"
+                      />
+                    ) : (
+                      <span className="font-semibold text-green-700">{row.right?.quantity}</span>
+                    )}
+                  </td>
+                  <td className="py-1.5">
+                    {isEditing && (
+                      <button
+                        onClick={() => handleRemoveRow(originalIdx)}
+                        className="text-gray-400 hover:text-red-500"
+                        title="Remove"
+                      >
+                        <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                        </svg>
+                      </button>
+                    )}
+                  </td>
+                </tr>
+              );
+            })}
+
+            {/* Add new item button */}
+            {isEditing && (
+              <tr>
+                <td colSpan={4} className="pt-2">
+                  <button
+                    onClick={handleAddNewRow}
+                    className="text-xs text-green-600 hover:text-green-700 flex items-center gap-1"
+                  >
+                    <span>+</span> Add item
+                  </button>
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
       </div>
     );
   }
