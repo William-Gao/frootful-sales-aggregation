@@ -4904,28 +4904,6 @@ const DashboardV3: React.FC<DashboardV3Props> = ({ organizationId, layout = 'def
                 <ChevronLeft className="w-5 h-5" />
               )}
             </button>
-            <button
-              onClick={() => setSidebarTab('upload')}
-              className={`w-full flex items-center space-x-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
-                sidebarTab === 'upload'
-                  ? 'bg-green-50 text-green-700'
-                  : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
-              }`}
-            >
-              <Upload className="w-5 h-5" />
-              <span>Upload</span>
-            </button>
-            <button
-              onClick={() => setSidebarTab('analytics')}
-              className={`w-full flex items-center space-x-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
-                sidebarTab === 'analytics'
-                  ? 'bg-green-50 text-green-700'
-                  : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
-              }`}
-            >
-              <BarChart3 className="w-5 h-5" />
-              <span>Analytics</span>
-            </button>
           </div>
 
         </nav>
