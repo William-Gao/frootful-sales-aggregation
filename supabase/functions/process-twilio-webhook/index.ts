@@ -71,10 +71,14 @@ Deno.serve(async (req) => {
     }
 
     // Create intake_event - database webhook will handle analysis and order creation
+    // TODO: In the future, look up organization by the "To" phone number
+    // For now, hardcode to the test organization (microgreens producer)
+    const TEST_ORGANIZATION_ID = 'ac3dd72d-373d-4424-8085-55b3b1844459';
+
     const { data: intakeEvent, error: intakeError } = await supabase
       .from('intake_events')
       .insert({
-        organization_id: null, // Will be determined during processing
+        organization_id: TEST_ORGANIZATION_ID,
         channel: 'sms',
         provider: 'twilio',
         provider_message_id: webhookData.MessageSid,

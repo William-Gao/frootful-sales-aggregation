@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { AlertCircle, Building2, Loader2, Settings, Smartphone } from 'lucide-react';
+import { Loader2 } from 'lucide-react';
 import { supabaseClient } from '../supabaseClient';
 import DashboardV3 from '../components/DashboardV3';
 
@@ -342,90 +342,19 @@ const Dashboard: React.FC = () => {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      {/* Header */}
-      <header className="bg-white shadow-sm border-b border-gray-200">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-between items-center py-4">
-            <div className="flex items-center space-x-3">
-              <h1 className="text-2xl font-bold" style={{ color: '#53AD6D' }}>
-                Frootful
-              </h1>
-              {organization ? (
-                <div className="flex items-center space-x-2 px-3 py-1 bg-green-50 rounded-lg border border-green-200">
-                  <Building2 className="w-4 h-4 text-green-600" />
-                  <span className="text-sm font-medium text-green-900">{organization.name}</span>
-                </div>
-              ) : (
-                <div className="flex items-center space-x-2 px-3 py-1 bg-red-50 rounded-lg border border-red-200">
-                  <AlertCircle className="w-4 h-4 text-red-600" />
-                  <span className="text-sm font-medium text-red-900">No Organization - Contact Support</span>
-                </div>
-              )}
-            </div>
-            
-            <div className="flex items-center space-x-4">
-              {/* PWA Install Button */}
-              {isInstallable && (
-                <button
-                  onClick={handleInstallPWA}
-                  className="flex items-center space-x-2 px-3 py-2 text-sm bg-green-100 text-green-700 rounded-lg hover:bg-green-200 transition-colors"
-                >
-                  <Smartphone className="w-4 h-4" />
-                  <span>Install App</span>
-                </button>
-              )}
-
-              {user && (
-                <div className="flex items-center space-x-3">
-                  <div className="text-right">
-                    <p className="text-sm font-medium text-gray-900">{user.user_metadata?.full_name || user.email}</p>
-                    <p className="text-xs text-gray-500">Connected to Gmail</p>
-                  </div>
-                  {user.user_metadata?.avatar_url && (
-                    <img
-                      src={user.user_metadata.avatar_url}
-                      alt="Profile"
-                      className="w-8 h-8 rounded-full"
-                    />
-                  )}
-                </div>
-              )}
-              <div className="relative group">
-                <button className="p-2 text-gray-400 hover:text-gray-600 transition-colors">
-                  <Settings className="w-5 h-5" />
-                </button>
-                <div className="absolute right-0 mt-2 w-48 bg-white rounded-md shadow-lg py-1 z-10 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200">
-                  <button
-                    onClick={() => navigate('/settings')}
-                    className="block w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
-                  >
-                    Settings
-                  </button>
-                  <button
-                    onClick={handleSignOut}
-                    disabled={isSigningOut}
-                    className="block w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    {isSigningOut ? (
-                      <div className="flex items-center space-x-2">
-                        <Loader2 className="w-4 h-4 animate-spin" />
-                        <span>Signing out...</span>
-                      </div>
-                    ) : (
-                      'Sign Out'
-                    )}
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </header>
-
-      {/* Main Content */}
-      <DashboardV3 organizationId={organization?.id || null} layout="sidebar" />
-    </div>
+    <DashboardV3
+      organizationId={organization?.id || null}
+      layout="sidebar"
+      headerContent={{
+        organization,
+        user,
+        isInstallable,
+        isSigningOut,
+        onInstallPWA: handleInstallPWA,
+        onSignOut: handleSignOut,
+        onNavigateSettings: () => navigate('/settings'),
+      }}
+    />
   );
 };
 

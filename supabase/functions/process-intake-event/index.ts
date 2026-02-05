@@ -33,14 +33,37 @@ interface Customer {
   phone?: string;
 }
 
+interface ItemVariant {
+  id: string;
+  variant_code: string;
+  variant_name: string;
+  notes?: string;
+}
+
 interface Item {
   id: string;
   sku: string;
   name: string;
   description?: string;
-  base_price: number;
   category?: string;
   notes?: string;  // Page reference (P.1, P.2, etc.)
+  item_variants?: ItemVariant[];
+}
+
+interface OrderLine {
+  id: string;
+  line_number: number;
+  product_name: string;
+  quantity: number;
+}
+
+interface Order {
+  id: string;
+  customer_name: string;
+  delivery_date: string;
+  status: string;
+  created_at: string;
+  order_lines: OrderLine[];
 }
 
 /**
@@ -189,38 +212,74 @@ Deno.serve(async (req) => {
     let organizationId = intakeEvent.organization_id;
     let createdByUserId: string | null = null;
 
-    // Always try to resolve user from sender info (needed for AI analysis logging)
+    // For SMS: resolve user from sender phone number
     if (intakeEvent.channel === 'sms') {
       const fromPhone = intakeEvent.raw_content?.from;
       if (fromPhone) {
-        const normalizedPhone = fromPhone.replace('+', '').trim();
+        // Twilio sends phone in E.164 format (+1XXXXXXXXXX), just strip whitespace
+        const normalizedPhone = fromPhone.replace(/\s+/g, '');
+
+        eventLogger.info('SMS phone lookup attempt', {
+          rawPhone: fromPhone,
+          normalizedPhone: normalizedPhone
+        });
+
+        // Try RPC first
         const { data: userId, error: userError } = await supabase
           .rpc('get_user_id_by_phone', { user_phone: normalizedPhone });
 
-        if (userId) {
-          eventLogger.info('Found user by phone', { userId, fromPhone });
-          createdByUserId = userId;
+        eventLogger.info('Phone RPC lookup result', {
+          normalizedPhone,
+          userId,
+          error: userError?.message || null
+        });
 
-          // If org not set, get it from user
-          if (!organizationId) {
-            const { data: userOrg } = await supabase
-              .from('user_organizations')
-              .select('organization_id')
-              .eq('user_id', userId)
-              .single();
+        // Debug: Also try direct query to see what's in auth.users
+        // This helps us understand if the issue is the RPC or the phone format
+        if (!userId) {
+          // Try without + prefix (in case auth.users stores without it)
+          const phoneWithoutPlus = normalizedPhone.replace(/^\+/, '');
+          const { data: altUserId } = await supabase
+            .rpc('get_user_id_by_phone', { user_phone: phoneWithoutPlus });
 
-            if (userOrg) {
-              organizationId = userOrg.organization_id;
-              eventLogger.info('Organization resolved from phone', { organizationId, fromPhone });
-            } else {
-              eventLogger.warn('User not associated with any organization', { userId });
-            }
+          eventLogger.info('Phone lookup without + prefix', {
+            phoneWithoutPlus,
+            altUserId
+          });
+
+          if (altUserId) {
+            createdByUserId = altUserId;
+            eventLogger.info('Found user by phone (without + prefix)', { userId: altUserId });
           }
-        } else {
-          eventLogger.warn('No user found for phone', { normalizedPhone, error: userError });
+        }
+
+        if (!userError && userId) {
+          createdByUserId = userId;
+          eventLogger.info('Found user by phone', { userId, fromPhone: normalizedPhone });
+        }
+
+        // If org not set, get it from user
+        if (createdByUserId && !organizationId) {
+          const { data: userOrg } = await supabase
+            .from('user_organizations')
+            .select('organization_id')
+            .eq('user_id', createdByUserId)
+            .single();
+
+          if (userOrg) {
+            organizationId = userOrg.organization_id;
+            eventLogger.info('Organization resolved from phone', { organizationId, phone: normalizedPhone });
+          }
+        }
+
+        if (!createdByUserId) {
+          eventLogger.warn('No user found for phone', { phone: normalizedPhone, error: userError });
         }
       }
-    } else if (intakeEvent.channel === 'email') {
+    }
+
+    // For email: resolve user from sender email (needed for AI analysis logging)
+    if (intakeEvent.channel === 'email') {
       const fromEmail = intakeEvent.raw_content?.from;
       if (fromEmail) {
         const emailMatch = fromEmail.match(/<([^>]+)>/) || [null, fromEmail];
@@ -313,7 +372,7 @@ Deno.serve(async (req) => {
 
     const { data: items } = await supabase
       .from('items')
-      .select('id, sku, name, description, base_price, category, notes')
+      .select('id, sku, name, description, item_variants(id, variant_code, variant_name, notes)')
       .eq('organization_id', organizationId)
       .eq('active', true);
 
@@ -458,10 +517,16 @@ Deno.serve(async (req) => {
       requestedDeliveryDate: analysisResult.requestedDeliveryDate
     });
 
-    // Step 2: Fetch recent orders for this customer to detect if this is a change request
-    let recentOrders = [];
+    // Step 2: Fetch both upcoming and recent orders for this customer
+    // Upcoming: most likely candidates for modifications
+    // Recent: context for patterns or past order references
+    let upcomingOrders: Order[] = [];
+    let pastOrders: Order[] = [];
+    const today = new Date().toISOString().split('T')[0];
+
     if (analysisResult.customerId) {
-      const { data: orders, error: ordersError } = await supabase
+      // Fetch upcoming orders (delivery_date >= today) for matched customer
+      const { data: upcoming, error: upcomingError } = await supabase
         .from('orders')
         .select(`
           id,
@@ -478,26 +543,123 @@ Deno.serve(async (req) => {
         `)
         .eq('organization_id', organizationId)
         .eq('customer_id', analysisResult.customerId)
-        .order('created_at', { ascending: false })
+        .neq('status', 'cancelled')
+        .gte('delivery_date', today)
+        .order('delivery_date', { ascending: true })  // Nearest delivery first
         .limit(5);
 
-      if (ordersError) {
-        orgLogger.error('Error fetching orders', ordersError);
+      if (upcomingError) {
+        orgLogger.error('Error fetching upcoming orders', upcomingError);
       }
+      upcomingOrders = upcoming || [];
 
-      recentOrders = orders || [];
-      orgLogger.info('Fetched recent orders for customer', {
+      // Fetch recent past orders (delivery_date < today)
+      const { data: past, error: pastError } = await supabase
+        .from('orders')
+        .select(`
+          id,
+          customer_name,
+          delivery_date,
+          status,
+          created_at,
+          order_lines(
+            id,
+            line_number,
+            product_name,
+            quantity
+          )
+        `)
+        .eq('organization_id', organizationId)
+        .eq('customer_id', analysisResult.customerId)
+        .neq('status', 'cancelled')
+        .lt('delivery_date', today)
+        .order('delivery_date', { ascending: false })  // Most recent past first
+        .limit(3);
+
+      if (pastError) {
+        orgLogger.error('Error fetching past orders', pastError);
+      }
+      pastOrders = past || [];
+
+      orgLogger.info('Fetched orders for customer', {
         customerId: analysisResult.customerId,
         customerName: matchedCustomer?.name,
-        recentOrderCount: recentOrders.length
+        upcomingOrderCount: upcomingOrders.length,
+        pastOrderCount: pastOrders.length
+      });
+    } else {
+      // FALLBACK: Customer not matched - fetch ALL upcoming orders so AI can attempt name-based matching
+      // This handles cases where "Deauxave" doesn't match exactly to customer in DB
+      orgLogger.warn('Customer not matched - fetching all upcoming orders as fallback', {
+        requestedDeliveryDate: analysisResult.requestedDeliveryDate
+      });
+
+      const { data: allUpcoming, error: allUpcomingError } = await supabase
+        .from('orders')
+        .select(`
+          id,
+          customer_name,
+          delivery_date,
+          status,
+          created_at,
+          order_lines(
+            id,
+            line_number,
+            product_name,
+            quantity
+          )
+        `)
+        .eq('organization_id', organizationId)
+        .neq('status', 'cancelled')
+        .gte('delivery_date', today)
+        .order('delivery_date', { ascending: true })
+        .limit(20);  // Get more orders since we're doing name matching
+
+      if (allUpcomingError) {
+        orgLogger.error('Error fetching all upcoming orders', allUpcomingError);
+      }
+      upcomingOrders = allUpcoming || [];
+
+      orgLogger.info('Fetched all upcoming orders for fallback matching', {
+        orderCount: upcomingOrders.length,
+        customerNames: upcomingOrders.map(o => o.customer_name)
       });
     }
 
-    // Step 3: Determine if this is a NEW order or a CHANGE to existing order
+    // Step 3: Check for exact date match before AI intent determination
+    // If requestedDeliveryDate exists and matches an order exactly, pass this info to AI
+    let exactDateMatchOrder: Order | null = null;
+    if (analysisResult.requestedDeliveryDate && upcomingOrders.length > 0) {
+      exactDateMatchOrder = upcomingOrders.find(
+        o => o.delivery_date === analysisResult.requestedDeliveryDate
+      ) || null;
+
+      if (exactDateMatchOrder) {
+        orgLogger.info('========== EXACT DATE MATCH FOUND ==========');
+        orgLogger.info('Existing order found for requested delivery date - will be treated as CHANGE_ORDER', {
+          requestedDeliveryDate: analysisResult.requestedDeliveryDate,
+          matchedOrderId: exactDateMatchOrder.id,
+          matchedOrderCustomer: exactDateMatchOrder.customer_name,
+          existingOrderItems: exactDateMatchOrder.order_lines.map(l => `${l.product_name} x${l.quantity}`).join(', ')
+        });
+        orgLogger.info('============================================');
+      } else {
+        orgLogger.info('No exact date match - requested date has no existing order', {
+          requestedDeliveryDate: analysisResult.requestedDeliveryDate,
+          upcomingOrderDates: upcomingOrders.map(o => o.delivery_date)
+        });
+      }
+    } else if (!analysisResult.requestedDeliveryDate) {
+      orgLogger.info('No requested delivery date extracted from message');
+    }
+
+    // Determine if this is a NEW order or a CHANGE to existing order
     const intentResult = await determineOrderIntent(
       intakeEvent,
       analysisResult,
-      recentOrders
+      upcomingOrders,
+      pastOrders,
+      exactDateMatchOrder
     );
 
     orgLogger.info('Order intent determined', {
@@ -518,7 +680,8 @@ Deno.serve(async (req) => {
           organization_id: organizationId,
           order_id: null, // NULL indicates this is a new order proposal
           intake_event_id: intakeEvent.id,
-          status: 'pending'
+          status: 'pending',
+          tags: { order_frequency: analysisResult.orderFrequency || 'one-time' }
         })
         .select()
         .single();
@@ -554,11 +717,23 @@ Deno.serve(async (req) => {
         const officialItemName = matchedItemData?.name || 'Unknown Item';
         const officialSku = matchedItemData?.sku || null;
 
+        // Resolve variant from AI response
+        const variantCode = line.variantCode || null;
+        let itemVariantId: string | null = null;
+        if (matchedItemData && variantCode) {
+          const variant = matchedItemData.item_variants?.find(
+            (v: ItemVariant) => v.variant_code === variantCode
+          );
+          itemVariantId = variant?.id || null;
+        }
+
         if (matchedItemData) {
           proposalLogger.info('Matched item from database', {
             itemId,
             officialName: officialItemName,
-            sku: officialSku
+            sku: officialSku,
+            variantCode,
+            itemVariantId
           });
         }
 
@@ -568,9 +743,11 @@ Deno.serve(async (req) => {
           line_number: index + 1,
           change_type: 'add', // All lines are 'add' for new orders
           item_id: matchedItemData ? itemId : null,
+          item_variant_id: itemVariantId,
           item_name: officialItemName,
           proposed_values: {
             quantity: line.quantity,
+            variant_code: variantCode,
             ai_matched: !!matchedItemData,
             sku: officialSku,
             confidence: matchedItemData ? 0.9 : 0.5,
@@ -615,7 +792,9 @@ Deno.serve(async (req) => {
       const matchedOrderId = intentResult.matchedOrderId;
       orgLogger.info('Creating change proposal', { matchedOrderId });
 
-      const matchedOrder = recentOrders.find(o => o.id === matchedOrderId);
+      // Search both upcoming and past orders for the matched order
+      const allOrders = [...upcomingOrders, ...pastOrders];
+      const matchedOrder = allOrders.find(o => o.id === matchedOrderId);
       if (!matchedOrder) {
         orgLogger.error('Matched order not found', undefined, { matchedOrderId });
         throw new Error(`Matched order ${matchedOrderId} not found`);
@@ -631,7 +810,8 @@ Deno.serve(async (req) => {
       const changesResult = await determineOrderChanges(
         intakeEvent,
         analysisResult,
-        matchedOrder
+        matchedOrder,
+        items
       );
 
       orgLogger.info('Changes determined', { changeCount: changesResult.proposedChanges?.length || 0 });
@@ -643,7 +823,8 @@ Deno.serve(async (req) => {
           organization_id: organizationId,
           order_id: matchedOrder.id,
           intake_event_id: intakeEvent.id,
-          status: 'pending'
+          status: 'pending',
+          tags: { order_frequency: analysisResult.orderFrequency || 'one-time' }
         })
         .select()
         .single();
@@ -688,14 +869,28 @@ Deno.serve(async (req) => {
         // Use official item name from our database if available
         const officialItemName = matchedItem?.name || change.item_name;
 
+        // Resolve variant from proposed_values if present
+        const variantCode = change.proposed_values?.variant_code || null;
+        let itemVariantId: string | null = null;
+        if (matchedItem && variantCode) {
+          const variant = matchedItem.item_variants?.find(
+            (v: ItemVariant) => v.variant_code === variantCode
+          );
+          itemVariantId = variant?.id || null;
+        }
+
         return {
           proposal_id: proposal.id,
           order_line_id: change.order_line_id || null,
           line_number: change.line_number,
           change_type: change.change_type,
           item_id: matchedItem ? itemId : null,
+          item_variant_id: itemVariantId,
           item_name: officialItemName,
-          proposed_values: change.proposed_values || null
+          proposed_values: {
+            ...(change.proposed_values || {}),
+            variant_code: variantCode,
+          }
         };
       });
 
@@ -779,7 +974,9 @@ Deno.serve(async (req) => {
 async function determineOrderIntent(
   intakeEvent: any,
   analysisResult: any,
-  recentOrders: any[]
+  upcomingOrders: Order[],
+  pastOrders: Order[],
+  exactDateMatchOrder: Order | null = null
 ): Promise<any> {
   // Extract content based on channel
   let content = '';
@@ -797,17 +994,32 @@ async function determineOrderIntent(
       {
         role: 'system',
         content: `You are an expert at analyzing order-related messages and determining if they represent:
-1. A NEW order (customer placing a fresh order)
+1. A NEW order (customer placing a fresh order with multiple items)
 2. A CHANGE to an existing order (modifying quantities, adding/removing items, changing delivery date)
 3. A CONFIRMATION or acknowledgment (no action needed)
 4. IRRELEVANT (not order-related)
 
-When analyzing, look for keywords like:
-- Change indicators: "change order", "update order", "modify", "increase", "decrease", "add to order", "remove from order"
-- Order references: "order #123", "SO-456", "PO number"
-- New order indicators: "I need", "please send", "order for delivery"
+CRITICAL RULE: If there is ALREADY an order for this customer on the requested delivery date (in UPCOMING orders), the intent is ALWAYS CHANGE_ORDER, not NEW_ORDER. The customer is modifying their existing order for that day.
 
-Consider the context of recent orders for this customer.`
+CUSTOMER NAME MATCHING: If Customer ID is "Unknown", look at the customer_name in the UPCOMING orders and try to match by name. Names may be spelled slightly differently (e.g., "Deauxave" might match "Deuxave" or "Deaux Ave"). Use fuzzy matching logic - if a customer name in the message is similar to an order's customer_name, consider it a match.
+
+CRITICAL: If a customer with upcoming orders asks to "add", "remove", or "change" items, this is almost always a CHANGE_ORDER (modifying their existing order), NOT a new order.
+
+Change/modification indicators (→ CHANGE_ORDER):
+- "can we add", "add a", "add one more", "add to my order"
+- "change", "update", "modify", "increase", "decrease"
+- "remove", "cancel", "take off"
+- "just for this [day]" (implies modifying a specific delivery)
+- Single item requests from customers with existing orders
+- ANY request that mentions a date where the customer already has an order
+
+New order indicators (→ NEW_ORDER):
+- Full order lists with multiple items AND no existing order for that date
+- "I need to place an order", "new order"
+- "please send" (with full item list)
+- No upcoming orders exist for this customer for the requested date
+
+Consider the context of upcoming orders for this customer. If the customer already has an order for the requested delivery date, it's a CHANGE_ORDER.`
       },
       {
         role: 'user',
@@ -821,14 +1033,35 @@ ${JSON.stringify(analysisResult.orderLines)}
 
 Customer ID: ${analysisResult.customerId || 'Unknown'}
 Requested delivery date: ${analysisResult.requestedDeliveryDate || 'Not specified'}
+${exactDateMatchOrder ? `
+⚠️ EXACT DATE MATCH FOUND ⚠️
+There is ALREADY an existing order for the requested delivery date (${analysisResult.requestedDeliveryDate}).
+Order ID: ${exactDateMatchOrder.id}
+Customer: ${exactDateMatchOrder.customer_name}
+Current items: ${JSON.stringify(exactDateMatchOrder.order_lines.map((l: OrderLine) => ({ product: l.product_name, quantity: l.quantity })))}
 
-Recent orders for this customer:
-${JSON.stringify(recentOrders.map(o => ({
+This means the customer is MODIFYING their existing order, NOT placing a new one.
+Intent MUST be CHANGE_ORDER with matchedOrderId: "${exactDateMatchOrder.id}"
+` : ''}
+UPCOMING orders (delivery_date >= today - these are the most likely targets for modifications):
+${JSON.stringify(upcomingOrders.map(o => ({
+          id: o.id,
+          customer_name: o.customer_name,
+          delivery_date: o.delivery_date,
+          status: o.status,
+          lines: o.order_lines.map((l: OrderLine) => ({
+            id: l.id,
+            product: l.product_name,
+            quantity: l.quantity
+          }))
+        })))}
+
+PAST orders (for context and pattern reference):
+${JSON.stringify(pastOrders.map(o => ({
           id: o.id,
           delivery_date: o.delivery_date,
           status: o.status,
-          created_at: o.created_at,
-          lines: o.order_lines.map((l: any) => ({
+          lines: o.order_lines.map((l: OrderLine) => ({
             id: l.id,
             product: l.product_name,
             quantity: l.quantity
@@ -844,13 +1077,20 @@ Return JSON with this structure:
 }
 
 For CHANGE_ORDER:
-- Match to the most relevant recent order based on delivery date, items, and message content
+- Match to the most relevant order based on delivery date
 - Return the order ID that should be modified
+- If the message mentions a specific day (e.g., "this Tuesday", "2/10"), match to the order with that delivery date
+- ALWAYS return matchedOrderId if intent is CHANGE_ORDER
+
+CRITICAL:
+1. If there's an EXACT DATE MATCH (shown above), intent MUST be CHANGE_ORDER with the matched order ID
+2. If a customer says "can we add X" or "remove X" or "change X" and has an upcoming order, this is a CHANGE_ORDER
+3. Only use NEW_ORDER if there is NO existing order for this customer on the requested date
 `
       }
     ],
     temperature: 0.3,
-    max_tokens: 1000,
+    max_completion_tokens: 1000,
     response_format: { type: "json_object" }
   };
 
@@ -859,13 +1099,18 @@ For CHANGE_ORDER:
       model: 'gpt-5.1',
       messages: requestData.messages,
       temperature: requestData.temperature,
-      max_tokens: requestData.max_tokens,
+      max_completion_tokens: requestData.max_completion_tokens,
       response_format: requestData.response_format
     });
 
     const result = JSON.parse(completion.choices[0].message.content || '{}');
     return result;
-  } catch (_error) {
+  } catch (error) {
+    // Log the error for debugging
+    console.error('========== ERROR IN determineOrderIntent ==========');
+    console.error('Error:', error instanceof Error ? error.message : error);
+    console.error('====================DEFAULTING TO NEW_ORDER===============================');
+
     // Default to NEW_ORDER if we can't determine
     return {
       intent: 'NEW_ORDER',
@@ -879,7 +1124,8 @@ For CHANGE_ORDER:
 async function determineOrderChanges(
   intakeEvent: any,
   analysisResult: any,
-  matchedOrder: any
+  matchedOrder: any,
+  catalogItems: Item[]
 ): Promise<any> {
   // Extract content based on channel
   let content = '';
@@ -890,6 +1136,17 @@ async function determineOrderChanges(
     const bodyHtml = intakeEvent.raw_content.body_html || '';
     content = bodyText || bodyHtml;
   }
+
+  // Build catalog items list with variants for the AI
+  const catalogItemsList = catalogItems.map(item => ({
+    id: item.id,
+    name: item.name,
+    variants: item.item_variants?.map(v => ({
+      code: v.variant_code,
+      name: v.variant_name,
+      notes: v.notes
+    })) || []
+  }));
 
   const requestData = {
     model: 'gpt-5.1',
@@ -902,7 +1159,15 @@ Your task is to:
 1. Compare the existing order lines with the requested items
 2. Identify additions (new items not in the original order)
 3. Identify removals (items that should be removed)
-4. Identify modifications (items where quantity or price changed)
+4. Identify modifications (items where quantity or variant/size changed)
+
+ITEM VARIANTS:
+Each item may have size variants. When the customer specifies a size:
+- "small", "S", "1.5oz" → variant_code: "S"
+- "large", "L", "3oz" → variant_code: "L"
+- "tray", "T20" → variant_code: "T20"
+
+Use the catalog items list to find the correct item_id and variant_code.
 
 For each change, you must:
 - For MODIFY: Include the exact order_line_id from the existing order
@@ -912,6 +1177,9 @@ For each change, you must:
       {
         role: 'user',
         content: `Compare this existing order with the change request:
+
+CATALOG ITEMS (use these to match item_id and variant_code):
+${JSON.stringify(catalogItemsList, null, 2)}
 
 EXISTING ORDER:
 Order ID: ${matchedOrder.id}
@@ -942,10 +1210,11 @@ Return JSON with this structure:
       "change_type": "add" | "remove" | "modify",
       "order_line_id": "uuid-of-existing-line-or-null",
       "line_number": 1,
-      "item_id": "uuid-or-null",
+      "item_id": "uuid-from-catalog",
       "item_name": "Product Name",
       "proposed_values": {
-        "quantity": 75
+        "quantity": 1,
+        "variant_code": "L"
       }
     }
   ],
@@ -956,12 +1225,14 @@ IMPORTANT:
 - For "modify": Match to the existing order line by product name and include its order_line_id
 - For "add": New items not in the original order, order_line_id should be null
 - For "remove": Items in original order but not in the change request, include order_line_id
-- proposed_values should only contain the NEW values (for add/modify), null for remove
+- proposed_values should contain quantity AND variant_code (S, L, or T20) based on the customer's size request
+- ALWAYS include variant_code in proposed_values when the customer specifies a size (small/large/tray)
+- Match item_id from the CATALOG ITEMS list above
 `
       }
     ],
     temperature: 0.3,
-    max_tokens: 2000,
+    max_completion_tokens: 2000,
     response_format: { type: "json_object" }
   };
 
@@ -970,13 +1241,16 @@ IMPORTANT:
       model: 'gpt-5.1',
       messages: requestData.messages,
       temperature: requestData.temperature,
-      max_tokens: requestData.max_tokens,
+      max_completion_tokens: requestData.max_completion_tokens,
       response_format: requestData.response_format
     });
 
     const result = JSON.parse(completion.choices[0].message.content || '{}');
     return result;
-  } catch (_error) {
+  } catch (error) {
+    console.error('========== ERROR IN determineOrderChanges ==========');
+    console.error('Error:', error instanceof Error ? error.message : error);
+    console.error('====================================================');
     return {
       proposedChanges: [],
       reasoning: 'Failed to analyze changes'
@@ -1033,7 +1307,11 @@ async function analyzeIntakeEvent(
       id: item.id,
       sku: item.sku,
       displayName: item.name,
-      unitPrice: item.base_price
+      variants: (item.item_variants || []).map(v => ({
+        code: v.variant_code,
+        name: v.variant_name,
+        notes: v.notes || null,
+      }))
     }));
 
     const customersList = customers.map((customer) => ({

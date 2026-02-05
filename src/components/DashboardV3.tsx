@@ -1,21 +1,30 @@
 import {
+  AlertCircle,
+  ArrowUpDown,
   BarChart3,
   Bell,
+  Building2,
   Calendar as CalendarIcon,
   Check,
   ChevronDown,
   ChevronLeft,
+  ChevronRight,
   ChevronUp,
   Filter,
   Inbox,
   LayoutGrid,
   List,
   Loader2,
+  LogOut,
   Mail,
   MessageSquare,
   Package,
   Printer,
   Search,
+  RefreshCw,
+  Settings,
+  ShoppingBag,
+  Smartphone,
   Upload,
   User,
   X
@@ -26,10 +35,47 @@ import UploadOrdersSection from './UploadOrdersSection';
 import AnalyticsDashboard from './AnalyticsDashboard';
 
 // ============================================================================
+// TOOLTIP COMPONENT
+// ============================================================================
+
+interface TooltipProps {
+  text: string;
+  children: React.ReactNode;
+  position?: 'top' | 'bottom' | 'left' | 'right';
+}
+
+const Tooltip: React.FC<TooltipProps> = ({ text, children, position = 'top' }) => {
+  const [show, setShow] = useState(false);
+
+  const positionClasses = {
+    top: 'bottom-full left-1/2 -translate-x-1/2 mb-1',
+    bottom: 'top-full left-1/2 -translate-x-1/2 mt-1',
+    left: 'right-full top-1/2 -translate-y-1/2 mr-1',
+    right: 'left-full top-1/2 -translate-y-1/2 ml-1',
+  };
+
+  return (
+    <div
+      className="relative inline-flex"
+      onMouseEnter={() => setShow(true)}
+      onMouseLeave={() => setShow(false)}
+    >
+      {children}
+      {show && (
+        <div className={`absolute ${positionClasses[position]} z-50 px-2 py-1 text-xs font-medium text-white bg-gray-900 rounded shadow-lg whitespace-nowrap pointer-events-none`}>
+          {text}
+        </div>
+      )}
+    </div>
+  );
+};
+
+// ============================================================================
 // TYPES
 // ============================================================================
 
 interface OrderItem {
+  order_line_id?: string;
   name: string;
   size: string; // e.g. 'S', 'L', 'T20'
   quantity: number;
@@ -52,10 +98,15 @@ interface Order {
 interface ProposalLine {
   id: string;
   change_type: 'add' | 'modify' | 'remove';
+  order_line_id?: string | null;
+  item_id?: string | null;
+  item_variant_id?: string | null;
   item_name: string;
   size: string;
   quantity: number;
   original_quantity?: number;
+  original_size?: string;
+  available_variants?: { id: string; code: string; name: string }[];
 }
 
 interface TimelineEvent {
@@ -72,6 +123,7 @@ interface TimelineEvent {
 interface Proposal {
   id: string;
   order_id: string | null; // null = new order proposal
+  intake_event_id: string; // Reference to the original intake event
   action?: 'create' | 'assign' | 'undetermined'; // AI-determined action. 'create' = AI recommends new order, 'assign' = matched to existing, 'undetermined' = could not determine
   customer_name: string;
   delivery_date: string;
@@ -79,14 +131,37 @@ interface Proposal {
   channel: 'email' | 'sms';
   created_at: string;
   message_preview: string;
+  message_full: string;
+  message_html?: string;
+  sender?: string;
+  subject?: string;
+  email_date?: string;
   lines: ProposalLine[];
   timeline: TimelineEvent[];
-  order_type?: 'one-time' | 'recurring';
+  order_frequency?: 'one-time' | 'recurring';
+}
+
+interface Customer {
+  id: string;
+  name: string;
+  email?: string | null;
+  phone?: string | null;
+}
+
+interface HeaderContentProps {
+  organization: { id: string; name: string } | null;
+  user: { email?: string; user_metadata?: { full_name?: string; avatar_url?: string } } | null;
+  isInstallable: boolean;
+  isSigningOut: boolean;
+  onInstallPWA: () => void;
+  onSignOut: () => void;
+  onNavigateSettings: () => void;
 }
 
 interface DashboardV3Props {
   organizationId: string | null;
   layout?: 'default' | 'sidebar';
+  headerContent?: HeaderContentProps;
 }
 
 type ViewMode = 'week' | 'list';
@@ -149,7 +224,6 @@ FEB_3.setDate(TODAY.getDate() + 5); // 5 days from today (Feb 3 if today is Jan 
 const FEB_4 = new Date(TODAY);
 FEB_4.setDate(TODAY.getDate() + 6); // 6 days from today (Feb 4 if today is Jan 29)
 
-// Mock orders with line items visible
 const MOCK_STANDING_ORDERS: Order[] = [
   // === Friday 1/30 orders ===
   {
@@ -1261,13 +1335,14 @@ const MOCK_PROPOSALS: Proposal[] = [
     id: 'prop-1',
     order_id: 'fri-bistro',
     action: 'assign',
-    order_type: 'one-time',
+    order_frequency: 'one-time',
     customer_name: 'Bistro Du Midi',
     delivery_date: TOMORROW.toISOString().split('T')[0],
     message_count: 1,
     channel: 'sms',
     created_at: new Date(Date.now() - 2 * 60 * 1000).toISOString(), // 2 min ago
     message_preview: 'Bistro 1/30\nHey Bennett can we remove the cilantro and sunflower for this Friday. Also like to change Anise to 2 larges and add a 2 large shiso green',
+    message_full: 'Bistro 1/30\nHey Bennett can we remove the cilantro and sunflower for this Friday. Also like to change Anise to 2 larges and add a 2 large shiso green',
     lines: [
       { id: 'line-1', change_type: 'remove', item_name: 'Cilantro', size: 'Large', quantity: 1 },
       { id: 'line-2', change_type: 'remove', item_name: 'Sunflower', size: 'Large', quantity: 1 },
@@ -1302,13 +1377,18 @@ const MOCK_PROPOSALS: Proposal[] = [
     id: 'prop-2',
     order_id: 'fri-oceanaire',
     action: 'assign',
-    order_type: 'one-time',
+    order_frequency: 'one-time',
     customer_name: 'The Oceanaire',
     delivery_date: TOMORROW.toISOString().split('T')[0],
     message_count: 1,
     channel: 'email',
     created_at: new Date(Date.now() - 15 * 60 * 1000).toISOString(), // 15 min ago
-    message_preview: 'From: Marco <chef@mammamia.com>\nSubject: Modification 1/30\n\nHey Bennett, could we modify our order for Sorrel to just 1 instead of 3? Just for this Friday\n\nThanks,\nMarco',
+    message_preview: 'Hey Bennett, could we modify our order for Sorrel to just 1 instead of 3? Just for this Friday\n\nThanks,\nMarco',
+    message_full: 'Hey Bennett, could we modify our order for Sorrel to just 1 instead of 3? Just for this Friday\n\nThanks,\nMarco',
+    message_html: '<p>Hey Bennett,</p><p>Could we modify our order for Sorrel to just 1 instead of 3? Just for this Friday.</p><p>Thanks,<br/>Marco</p><div style="color:#888;font-size:12px;margin-top:16px;border-top:1px solid #eee;padding-top:8px"><b>Marco Rossi</b> | Executive Chef<br/>The Oceanaire Restaurant<br/>Phone: (617) 555-0142</div>',
+    sender: 'Marco <chef@mammamia.com>',
+    subject: 'Modification 1/30',
+    email_date: 'Thu, Jan 30, 2025 at 9:15 AM',
     lines: [
       { id: 'line-3', change_type: 'modify', item_name: 'Sorrel, Red Veined', size: 'Small', quantity: 1, original_quantity: 3 },
     ],
@@ -1341,13 +1421,14 @@ const MOCK_PROPOSALS: Proposal[] = [
     id: 'prop-3',
     order_id: null,
     action: 'create',
-    order_type: 'recurring',
+    order_frequency: 'recurring',
     customer_name: 'Uni',
     delivery_date: TOMORROW.toISOString().split('T')[0],
     message_count: 1,
     channel: 'sms',
     created_at: new Date(Date.now() - 5 * 60 * 1000).toISOString(), // 5 min ago
     message_preview: 'Uni 1/30\nHey guys can we add on a 2oz micro cilantro and a micro shiso 2pm for fridays?\nThis would be weekly',
+    message_full: 'Uni 1/30\nHey guys can we add on a 2oz micro cilantro and a micro shiso 2pm for fridays?\nThis would be weekly',
     lines: [
       { id: 'line-6', change_type: 'add', item_name: 'Cilantro', size: 'Small', quantity: 1 },
       { id: 'line-7', change_type: 'add', item_name: 'Shiso, Green', size: 'Small', quantity: 1 },
@@ -1374,13 +1455,14 @@ const MOCK_PROPOSALS: Proposal[] = [
     id: 'prop-4',
     order_id: null,
     action: 'undetermined',
-    order_type: 'one-time',
+    order_frequency: 'one-time',
     customer_name: 'Ruka',
     delivery_date: DAY_AFTER.toISOString().split('T')[0],
     message_count: 1,
     channel: 'email',
     created_at: new Date(Date.now() - 30 * 60 * 1000).toISOString(), // 30 min ago
     message_preview: 'Order for Wednesday: 5 cilantro small, 2 thai basil small',
+    message_full: 'Order for Wednesday: 5 cilantro small, 2 thai basil small',
     lines: [
       { id: 'line-8', change_type: 'add', item_name: 'Cilantro', size: 'Small', quantity: 5 },
       { id: 'line-9', change_type: 'add', item_name: 'Basil, Thai', size: 'Small', quantity: 2 },
@@ -1408,13 +1490,14 @@ const MOCK_PROPOSALS: Proposal[] = [
     id: 'prop-desnuda',
     order_id: null,
     action: 'create',
-    order_type: 'one-time',
+    order_frequency: 'one-time',
     customer_name: 'Desnuda',
     delivery_date: TOMORROW.toISOString().split('T')[0],
     message_count: 1,
     channel: 'sms',
     created_at: new Date(Date.now() - 45 * 60 * 1000).toISOString(),
     message_preview: 'Desnuda 1/30\n1 large cilantro\n1 large Tokyo\n1 large Thai basil',
+    message_full: 'Desnuda 1/30\n1 large cilantro\n1 large Tokyo\n1 large Thai basil',
     lines: [
       { id: 'line-d1', change_type: 'add', item_name: 'Cilantro', size: 'Small', quantity: 2 },
       { id: 'line-d2', change_type: 'add', item_name: 'Tokyo Onion', size: 'Large', quantity: 1 },
@@ -1533,6 +1616,83 @@ const ItemSearchDropdown: React.FC<ItemSearchDropdownProps> = ({ value, onChange
   );
 };
 
+// Searchable customer dropdown for selecting customers
+interface CustomerSearchDropdownProps {
+  value: string;
+  onChange: (value: string) => void;
+  customers: Customer[];
+  className?: string;
+}
+
+const CustomerSearchDropdown: React.FC<CustomerSearchDropdownProps> = ({ value, onChange, customers, className }) => {
+  const [isOpen, setIsOpen] = useState(false);
+  const [search, setSearch] = useState(value);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const dropdownRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    setSearch(value);
+  }, [value]);
+
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
+        setIsOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  const filtered = customers.filter(customer =>
+    customer.name.toLowerCase().includes(search.toLowerCase())
+  );
+
+  return (
+    <div className="relative" ref={dropdownRef}>
+      <input
+        ref={inputRef}
+        type="text"
+        value={search}
+        onChange={(e) => {
+          setSearch(e.target.value);
+          setIsOpen(true);
+          onChange(e.target.value);
+        }}
+        onFocus={() => setIsOpen(true)}
+        placeholder="Search customers..."
+        className={className || "w-full px-3 py-1.5 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500"}
+      />
+      {isOpen && filtered.length > 0 && (
+        <div className="absolute z-50 left-0 right-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-lg max-h-48 overflow-y-auto">
+          {filtered.map(customer => (
+            <button
+              key={customer.id}
+              type="button"
+              className={`w-full text-left px-3 py-1.5 text-sm hover:bg-blue-50 transition-colors ${
+                customer.name === value ? 'bg-blue-50 text-blue-700 font-medium' : 'text-gray-700'
+              }`}
+              onMouseDown={(e) => {
+                e.preventDefault();
+                onChange(customer.name);
+                setSearch(customer.name);
+                setIsOpen(false);
+              }}
+            >
+              {customer.name}
+            </button>
+          ))}
+        </div>
+      )}
+      {isOpen && filtered.length === 0 && search && (
+        <div className="absolute z-50 left-0 right-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-lg px-3 py-2 text-sm text-gray-400">
+          No customers found
+        </div>
+      )}
+    </div>
+  );
+};
+
 // Inline compact diff view - integrated into the items table with annotations
 interface InlineCompactDiffProps {
   order: Order;
@@ -1541,9 +1701,10 @@ interface InlineCompactDiffProps {
   onDismiss: (id: string) => void;
   onOpenCreateNewOrderModal: (id: string) => void;
   onOpenAssignToOrderModal: (id: string) => void;
+  isDismissing?: boolean;
 }
 
-const InlineCompactDiff: React.FC<InlineCompactDiffProps> = ({ order, proposal, onApply, onDismiss, onOpenCreateNewOrderModal, onOpenAssignToOrderModal }) => {
+const InlineCompactDiff: React.FC<InlineCompactDiffProps> = ({ order, proposal, onApply, onDismiss, onOpenCreateNewOrderModal, onOpenAssignToOrderModal, isDismissing }) => {
   const [editableLines, setEditableLines] = useState<ProposalLine[]>(proposal.lines);
   const [showAllMessages, setShowAllMessages] = useState(false);
 
@@ -1567,6 +1728,7 @@ const InlineCompactDiff: React.FC<InlineCompactDiffProps> = ({ order, proposal, 
     setEditableLines(prev => [...prev, {
       id,
       change_type: 'remove' as const,
+      order_line_id: item.order_line_id,
       item_name: item.name,
       size: item.size,
       quantity: item.quantity,
@@ -1578,10 +1740,12 @@ const InlineCompactDiff: React.FC<InlineCompactDiffProps> = ({ order, proposal, 
     setEditableLines(prev => [...prev, {
       id,
       change_type: 'modify' as const,
+      order_line_id: item.order_line_id,
       item_name: item.name,
       size: item.size,
       quantity: item.quantity,
       original_quantity: item.quantity,
+      original_size: item.size,
     }]);
   };
 
@@ -1689,8 +1853,8 @@ const InlineCompactDiff: React.FC<InlineCompactDiffProps> = ({ order, proposal, 
         </thead>
         <tbody>
           {order.items.map((item, idx) => {
-            const modification = editableLines.find(l => l.change_type === 'modify' && l.item_name === item.name);
-            const removal = editableLines.find(l => l.change_type === 'remove' && l.item_name === item.name);
+            const modification = editableLines.find(l => l.change_type === 'modify' && (l.order_line_id ? l.order_line_id === item.order_line_id : l.item_name === item.name && l.original_size === item.size));
+            const removal = editableLines.find(l => l.change_type === 'remove' && (l.order_line_id ? l.order_line_id === item.order_line_id : l.item_name === item.name && l.size === item.size));
 
             return (
               <React.Fragment key={idx}>
@@ -1730,10 +1894,9 @@ const InlineCompactDiff: React.FC<InlineCompactDiffProps> = ({ order, proposal, 
                         onChange={(e) => updateEditableLine(modification.id, { size: e.target.value })}
                         className="px-1 py-0.5 text-xs border border-blue-300 rounded bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
                       >
-                        <option value="Small">S</option>
-                        <option value="Medium">M</option>
-                        <option value="Large">L</option>
-                        <option value="T20">T20</option>
+                        {getVariantsForLine(modification).map(v => (
+                          <option key={v.code} value={v.code}>{v.code}</option>
+                        ))}
                       </select>
                     </td>
                     <td className="py-1.5 text-center">
@@ -1800,10 +1963,9 @@ const InlineCompactDiff: React.FC<InlineCompactDiffProps> = ({ order, proposal, 
                     onChange={(e) => updateEditableLine(line.id, { size: e.target.value })}
                     className="px-1 py-0.5 text-xs border border-green-300 rounded bg-white focus:outline-none focus:ring-1 focus:ring-green-500"
                   >
-                    <option value="Small">S</option>
-                    <option value="Medium">M</option>
-                    <option value="Large">L</option>
-                    <option value="T20">T20</option>
+                    {getVariantsForLine(line).map(v => (
+                      <option key={v.code} value={v.code}>{v.code}</option>
+                    ))}
                   </select>
                 </td>
                 <td className="py-1.5 text-center">
@@ -1848,10 +2010,14 @@ const InlineCompactDiff: React.FC<InlineCompactDiffProps> = ({ order, proposal, 
         </button>
         <button
           onClick={() => onDismiss(proposal.id)}
-          className="flex items-center gap-1 px-4 py-2 bg-gray-100 text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-200 transition-colors"
+          disabled={isDismissing}
+          className="flex items-center gap-1 px-4 py-2 bg-gray-100 text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-200 transition-colors disabled:opacity-50"
         >
-          <X className="w-4 h-4" />
-          Dismiss
+          {isDismissing ? (
+            <><Loader2 className="w-4 h-4 animate-spin" /> Dismissing...</>
+          ) : (
+            <><X className="w-4 h-4" /> Dismiss</>
+          )}
         </button>
       </div>
     </div>
@@ -1860,13 +2026,15 @@ const InlineCompactDiff: React.FC<InlineCompactDiffProps> = ({ order, proposal, 
 
 interface NewOrderProposalCardProps {
   proposal: Proposal;
-  onCreateOrder: (id: string, lines: ProposalLine[], customerName?: string, deliveryDate?: string) => void;
+  customers: Customer[];
+  onCreateOrder: (id: string, lines: ProposalLine[], customerName?: string, deliveryDate?: string) => Promise<void>;
   onDismiss: (id: string) => void;
   onOpenCreateNewOrderModal: (id: string) => void;
   onOpenAssignToOrderModal: (id: string) => void;
+  isDismissing?: boolean;
 }
 
-const NewOrderProposalCard: React.FC<NewOrderProposalCardProps> = ({ proposal, onCreateOrder, onDismiss, onOpenCreateNewOrderModal, onOpenAssignToOrderModal }) => {
+const NewOrderProposalCard: React.FC<NewOrderProposalCardProps> = ({ proposal, customers, onCreateOrder, onDismiss, onOpenCreateNewOrderModal, onOpenAssignToOrderModal, isDismissing }) => {
   const [editableLines, setEditableLines] = useState<ProposalLine[]>(proposal.lines);
   const [customerName, setCustomerName] = useState(proposal.customer_name);
   const [deliveryDate, setDeliveryDate] = useState(() => {
@@ -1983,11 +2151,10 @@ const NewOrderProposalCard: React.FC<NewOrderProposalCardProps> = ({ proposal, o
       <div className="flex items-center gap-4 mb-3">
         <div className="flex-1">
           <label className="block text-xs text-gray-400 uppercase tracking-wider mb-1">Customer</label>
-          <input
-            type="text"
+          <CustomerSearchDropdown
             value={customerName}
-            onChange={(e) => setCustomerName(e.target.value)}
-            className="w-full px-3 py-1.5 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+            onChange={setCustomerName}
+            customers={customers}
           />
         </div>
         <div className="w-44">
@@ -2029,10 +2196,9 @@ const NewOrderProposalCard: React.FC<NewOrderProposalCardProps> = ({ proposal, o
                   onChange={(e) => updateEditableLine(line.id, { size: e.target.value })}
                   className="px-1 py-0.5 text-xs border border-green-300 rounded bg-white focus:outline-none focus:ring-1 focus:ring-green-500"
                 >
-                  <option value="Small">S</option>
-                  <option value="Medium">M</option>
-                  <option value="Large">L</option>
-                  <option value="T20">T20</option>
+                  {getVariantsForLine(line).map(v => (
+                    <option key={v.code} value={v.code}>{v.code}</option>
+                  ))}
                 </select>
               </td>
               <td className="py-1.5 text-center">
@@ -2077,10 +2243,14 @@ const NewOrderProposalCard: React.FC<NewOrderProposalCardProps> = ({ proposal, o
         </button>
         <button
           onClick={() => onDismiss(proposal.id)}
-          className="flex items-center gap-1 px-4 py-2 bg-gray-100 text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-200 transition-colors"
+          disabled={isDismissing}
+          className="flex items-center gap-1 px-4 py-2 bg-gray-100 text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-200 transition-colors disabled:opacity-50"
         >
-          <X className="w-4 h-4" />
-          Dismiss
+          {isDismissing ? (
+            <><Loader2 className="w-4 h-4 animate-spin" /> Dismissing...</>
+          ) : (
+            <><X className="w-4 h-4" /> Dismiss</>
+          )}
         </button>
       </div>
     </div>
@@ -2093,11 +2263,12 @@ const NewOrderProposalCard: React.FC<NewOrderProposalCardProps> = ({ proposal, o
 
 interface CreateNewOrderModalProps {
   proposal: Proposal;
-  onCreateOrder: (id: string, lines: ProposalLine[], customerName?: string, deliveryDate?: string) => void;
+  customers: Customer[];
+  onCreateOrder: (id: string, lines: ProposalLine[], customerName?: string, deliveryDate?: string) => Promise<void>;
   onClose: () => void;
 }
 
-const CreateNewOrderModal: React.FC<CreateNewOrderModalProps> = ({ proposal, onCreateOrder, onClose }) => {
+const CreateNewOrderModal: React.FC<CreateNewOrderModalProps> = ({ proposal, customers, onCreateOrder, onClose }) => {
   const [editableLines, setEditableLines] = useState<ProposalLine[]>(proposal.lines);
   const [customerName, setCustomerName] = useState(proposal.customer_name);
   const [deliveryDate, setDeliveryDate] = useState(() => {
@@ -2199,11 +2370,10 @@ const CreateNewOrderModal: React.FC<CreateNewOrderModalProps> = ({ proposal, onC
           <div className="flex items-center gap-4">
             <div className="flex-1">
               <label className="block text-xs text-gray-400 uppercase tracking-wider mb-1">Customer</label>
-              <input
-                type="text"
+              <CustomerSearchDropdown
                 value={customerName}
-                onChange={(e) => setCustomerName(e.target.value)}
-                className="w-full px-3 py-1.5 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+                onChange={setCustomerName}
+                customers={customers}
               />
             </div>
             <div className="w-44">
@@ -2245,10 +2415,9 @@ const CreateNewOrderModal: React.FC<CreateNewOrderModalProps> = ({ proposal, onC
                       onChange={(e) => updateEditableLine(line.id, { size: e.target.value })}
                       className="px-1 py-0.5 text-xs border border-green-300 rounded bg-white focus:outline-none focus:ring-1 focus:ring-green-500"
                     >
-                      <option value="Small">S</option>
-                      <option value="Medium">M</option>
-                      <option value="Large">L</option>
-                      <option value="T20">T20</option>
+                      {getVariantsForLine(line).map(v => (
+                        <option key={v.code} value={v.code}>{v.code}</option>
+                      ))}
                     </select>
                   </td>
                   <td className="py-1.5 text-center">
@@ -2306,16 +2475,18 @@ interface AssignToOrderModalProps {
   proposal: Proposal;
   sourceOrderId: string | null;
   allOrders: Order[];
-  onReassignToOrder: (proposalId: string, targetOrderId: string) => void;
   onClose: () => void;
+  onRefresh: () => Promise<void>;
 }
 
-const AssignToOrderModal: React.FC<AssignToOrderModalProps> = ({ proposal, sourceOrderId, allOrders, onReassignToOrder, onClose }) => {
+const AssignToOrderModal: React.FC<AssignToOrderModalProps> = ({ proposal, sourceOrderId, allOrders, onClose, onRefresh }) => {
   const [step, setStep] = useState<'pick' | 'preview'>('pick');
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [editableLines, setEditableLines] = useState<ProposalLine[]>(proposal.lines);
+  const [newProposalId, setNewProposalId] = useState<string | null>(null);
+  const [isApplying, setIsApplying] = useState(false);
 
   const filteredOrders = useMemo(() => {
     return allOrders
@@ -2323,16 +2494,125 @@ const AssignToOrderModal: React.FC<AssignToOrderModalProps> = ({ proposal, sourc
       .filter(o => !searchQuery || o.customer_name.toLowerCase().includes(searchQuery.toLowerCase()));
   }, [allOrders, sourceOrderId, searchQuery]);
 
-  const handlePickOrder = (order: Order) => {
+  const handlePickOrder = async (order: Order) => {
+    if (!proposal.intake_event_id) {
+      console.error('Missing intake_event_id');
+      return;
+    }
+
     setSelectedOrder(order);
     setStep('preview');
     setIsAnalyzing(true);
 
-    // Simulate analysis delay, then populate editable lines
-    setTimeout(() => {
+    try {
+      const session = await supabaseClient.auth.getSession();
+      const response = await fetch(
+        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/create-proposal`,
+        {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${session.data.session?.access_token}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            intake_event_id: proposal.intake_event_id,
+            target_order_id: order.id
+          })
+        }
+      );
+
+      const result = await response.json();
+
+      if (result.success && result.proposal) {
+        setNewProposalId(result.proposal_id);
+        // Transform lines to match our ProposalLine format
+        const lines: ProposalLine[] = result.proposal.lines.map((line: any) => ({
+          id: line.id,
+          change_type: line.change_type,
+          item_name: line.item_name,
+          size: line.size || line.proposed_values?.variant_code || '',
+          quantity: line.quantity || line.proposed_values?.quantity || 0,
+          order_line_id: line.order_line_id,
+          original_quantity: line.original_quantity || line.proposed_values?.original_quantity,
+          original_size: line.original_size || line.proposed_values?.original_variant_code,
+        }));
+        setEditableLines(lines);
+      } else {
+        console.error('Failed to create proposal:', result.error);
+        // Fallback to original lines
+        setEditableLines(proposal.lines);
+      }
+    } catch (error) {
+      console.error('Error creating proposal:', error);
       setEditableLines(proposal.lines);
+    } finally {
       setIsAnalyzing(false);
-    }, 1200);
+    }
+  };
+
+  const handleApplyChanges = async () => {
+    if (!newProposalId || !selectedOrder) return;
+
+    setIsApplying(true);
+    try {
+      // Accept new proposal
+      await (supabaseClient as any)
+        .from('order_change_proposals')
+        .update({ status: 'accepted', reviewed_at: new Date().toISOString() })
+        .eq('id', newProposalId);
+
+      // Reject old proposal
+      await (supabaseClient as any)
+        .from('order_change_proposals')
+        .update({ status: 'rejected', reviewed_at: new Date().toISOString() })
+        .eq('id', proposal.id);
+
+      // Apply the changes to the order (add/modify/remove lines)
+      for (const line of editableLines) {
+        if (line.change_type === 'add') {
+          await (supabaseClient as any).from('order_lines').insert({
+            order_id: selectedOrder.id,
+            product_name: line.item_name,
+            quantity: line.quantity,
+            item_id: line.item_id || null,
+            item_variant_id: line.item_variant_id || null,
+            status: 'active'
+          });
+        } else if (line.change_type === 'modify' && line.order_line_id) {
+          await (supabaseClient as any)
+            .from('order_lines')
+            .update({ quantity: line.quantity })
+            .eq('id', line.order_line_id);
+        } else if (line.change_type === 'remove' && line.order_line_id) {
+          await (supabaseClient as any)
+            .from('order_lines')
+            .update({ status: 'deleted' })
+            .eq('id', line.order_line_id);
+        }
+      }
+
+      await onRefresh();
+      onClose();
+    } catch (error) {
+      console.error('Error applying changes:', error);
+    } finally {
+      setIsApplying(false);
+    }
+  };
+
+  const handleCancel = async () => {
+    // If we created a new proposal, reject it
+    if (newProposalId) {
+      try {
+        await (supabaseClient as any)
+          .from('order_change_proposals')
+          .update({ status: 'rejected', reviewed_at: new Date().toISOString() })
+          .eq('id', newProposalId);
+      } catch (error) {
+        console.error('Error rejecting proposal:', error);
+      }
+    }
+    onClose();
   };
 
   const removeEditableLine = (lineId: string) => {
@@ -2359,6 +2639,7 @@ const AssignToOrderModal: React.FC<AssignToOrderModalProps> = ({ proposal, sourc
     setEditableLines(prev => [...prev, {
       id,
       change_type: 'remove' as const,
+      order_line_id: item.order_line_id,
       item_name: item.name,
       size: item.size,
       quantity: item.quantity,
@@ -2370,10 +2651,12 @@ const AssignToOrderModal: React.FC<AssignToOrderModalProps> = ({ proposal, sourc
     setEditableLines(prev => [...prev, {
       id,
       change_type: 'modify' as const,
+      order_line_id: item.order_line_id,
       item_name: item.name,
       size: item.size,
       quantity: item.quantity,
       original_quantity: item.quantity,
+      original_size: item.size,
     }]);
   };
 
@@ -2505,8 +2788,8 @@ const AssignToOrderModal: React.FC<AssignToOrderModalProps> = ({ proposal, sourc
                   <tbody>
                     {/* Existing order items with diff annotations */}
                     {selectedOrder && selectedOrder.items.map((item, idx) => {
-                      const modification = editableLines.find(l => l.change_type === 'modify' && l.item_name === item.name);
-                      const removal = editableLines.find(l => l.change_type === 'remove' && l.item_name === item.name);
+                      const modification = editableLines.find(l => l.change_type === 'modify' && (l.order_line_id ? l.order_line_id === item.order_line_id : l.item_name === item.name && l.original_size === item.size));
+                      const removal = editableLines.find(l => l.change_type === 'remove' && (l.order_line_id ? l.order_line_id === item.order_line_id : l.item_name === item.name && l.size === item.size));
 
                       return (
                         <React.Fragment key={idx}>
@@ -2544,10 +2827,9 @@ const AssignToOrderModal: React.FC<AssignToOrderModalProps> = ({ proposal, sourc
                                   onChange={(e) => updateEditableLine(modification.id, { size: e.target.value })}
                                   className="px-1 py-0.5 text-xs border border-blue-300 rounded bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
                                 >
-                                  <option value="Small">S</option>
-                                  <option value="Medium">M</option>
-                                  <option value="Large">L</option>
-                                  <option value="T20">T20</option>
+                                  {getVariantsForLine(modification).map(v => (
+                                    <option key={v.code} value={v.code}>{v.code}</option>
+                                  ))}
                                 </select>
                               </td>
                               <td className="py-1.5 text-center">
@@ -2613,10 +2895,9 @@ const AssignToOrderModal: React.FC<AssignToOrderModalProps> = ({ proposal, sourc
                               onChange={(e) => updateEditableLine(line.id, { size: e.target.value })}
                               className="px-1 py-0.5 text-xs border border-green-300 rounded bg-white focus:outline-none focus:ring-1 focus:ring-green-500"
                             >
-                              <option value="Small">S</option>
-                              <option value="Medium">M</option>
-                              <option value="Large">L</option>
-                              <option value="T20">T20</option>
+                              {getVariantsForLine(line).map(v => (
+                                <option key={v.code} value={v.code}>{v.code}</option>
+                              ))}
                             </select>
                           </td>
                           <td className="py-1.5 text-center">
@@ -2653,23 +2934,23 @@ const AssignToOrderModal: React.FC<AssignToOrderModalProps> = ({ proposal, sourc
             </div>
             <div className="flex items-center gap-2 px-6 py-4 border-t border-gray-200">
               <button
-                onClick={() => {
-                  if (selectedOrder) {
-                    onReassignToOrder(proposal.id, selectedOrder.id);
-                  }
-                }}
-                disabled={isAnalyzing}
+                onClick={handleApplyChanges}
+                disabled={isAnalyzing || isApplying || !newProposalId}
                 className="flex items-center gap-1 px-4 py-2 bg-green-600 text-white text-sm font-medium rounded-lg hover:bg-green-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                <Check className="w-4 h-4" />
+                {isApplying ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  <Check className="w-4 h-4" />
+                )}
                 Apply Changes
               </button>
               <button
-                onClick={() => { setStep('pick'); setSelectedOrder(null); setEditableLines(proposal.lines); }}
-                className="flex items-center gap-1 px-4 py-2 bg-gray-100 text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-200 transition-colors"
+                onClick={handleCancel}
+                disabled={isApplying}
+                className="flex items-center gap-1 px-4 py-2 bg-gray-100 text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-200 transition-colors disabled:opacity-50"
               >
-                <ChevronLeft className="w-4 h-4" />
-                Back
+                Cancel
               </button>
             </div>
           </>
@@ -2687,6 +2968,17 @@ const SIZE_LABELS: Record<string, string> = {
   'L': 'Large',
   'T20': '10x20 Trays',
 };
+
+// Default variants to use when available_variants is not present
+const DEFAULT_VARIANTS = [
+  { code: 'S', name: 'Small' },
+  { code: 'L', name: 'Large' },
+  { code: 'T20', name: '10x20 Tray' }
+];
+
+// Helper to get variants for a line (uses available_variants if present, otherwise default)
+const getVariantsForLine = (line: { available_variants?: { code: string; name: string }[] }) =>
+  line.available_variants && line.available_variants.length > 0 ? line.available_variants : DEFAULT_VARIANTS;
 
 function buildPackingSummary(orders: Order[]): { crop: string; sizes: Record<string, number>; total: number }[] {
   // Aggregate: crop -> size -> total quantity
@@ -2790,7 +3082,7 @@ function printPackingSummary(dateStr: string, orders: Order[]) {
       </tr>
     </tbody>
   </table>
-  <div class="footer">Generated from Frootful Sales Aggregation</div>
+  <div class="footer">Generated from Frootful</div>
   <script>window.onload = function() { window.print(); }</script>
 </body>
 </html>`;
@@ -2810,16 +3102,20 @@ interface InboxCardProps {
   proposal: Proposal;
   matchedOrder: Order | null;
   orders: Order[];
+  customers: Customer[];
   onApplyChange: (proposalId: string, lines: ProposalLine[]) => void;
-  onCreateOrder: (proposalId: string, lines: ProposalLine[], customerName?: string, deliveryDate?: string) => void;
+  onCreateOrder: (proposalId: string, lines: ProposalLine[], customerName?: string, deliveryDate?: string) => Promise<void>;
   onDismiss: (proposalId: string) => void;
   onOpenCreateNewOrderModal: (proposalId: string) => void;
   onOpenAssignToOrderModal: (proposalId: string, sourceOrderId: string | null) => void;
+  onUpdateOrderFrequency: (proposalId: string, value: 'one-time' | 'recurring') => void;
+  isDismissing?: boolean;
+  isApplying?: boolean;
 }
 
 const InboxCard: React.FC<InboxCardProps> = ({
-  proposal, matchedOrder, orders, onApplyChange, onCreateOrder, onDismiss,
-  onOpenCreateNewOrderModal, onOpenAssignToOrderModal
+  proposal, matchedOrder, orders, customers, onApplyChange, onCreateOrder, onDismiss,
+  onOpenCreateNewOrderModal, onOpenAssignToOrderModal, onUpdateOrderFrequency, isDismissing, isApplying
 }) => {
   const isUndetermined = proposal.action === 'undetermined' || (!proposal.action && proposal.order_id === null);
   const isCreateNew = proposal.action === 'create';
@@ -2829,6 +3125,12 @@ const InboxCard: React.FC<InboxCardProps> = ({
   const [showCorrection, setShowCorrection] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
   const [showOrderItems, setShowOrderItems] = useState(false);
+  const [messageExpanded, setMessageExpanded] = useState(false);
+  const [contentNeedsExpand, setContentNeedsExpand] = useState(false);
+  const [isCreating, setIsCreating] = useState(false);
+  const [orderFrequency, setOrderFrequency] = useState<'one-time' | 'recurring'>(
+    proposal.order_frequency || 'one-time'
+  );
   const [customerName, setCustomerName] = useState(proposal.customer_name);
   const [deliveryDate, setDeliveryDate] = useState(() => {
     if (proposal.delivery_date) return proposal.delivery_date;
@@ -2867,6 +3169,7 @@ const InboxCard: React.FC<InboxCardProps> = ({
     setEditableLines(prev => [...prev, {
       id,
       change_type: 'remove' as const,
+      order_line_id: item.order_line_id,
       item_name: item.name,
       size: item.size,
       quantity: item.quantity,
@@ -2878,15 +3181,17 @@ const InboxCard: React.FC<InboxCardProps> = ({
     setEditableLines(prev => [...prev, {
       id,
       change_type: 'modify' as const,
+      order_line_id: item.order_line_id,
       item_name: item.name,
       size: item.size,
       quantity: item.quantity,
       original_quantity: item.quantity,
+      original_size: item.size,
     }]);
   };
 
   return (
-    <div className={`rounded-lg border bg-white shadow-sm ${isUndetermined ? 'border-l-4 border-l-amber-400 border-t border-r border-b border-gray-200' : isCreateNew ? 'border-l-4 border-l-green-400 border-t border-r border-b border-gray-200' : 'border-l-4 border-l-blue-400 border-t border-r border-b border-gray-200'}`}>
+    <div className={`rounded-lg border bg-white shadow-sm transition-all duration-300 ${(isDismissing || isApplying) ? 'opacity-50 scale-98 pointer-events-none' : ''} ${isUndetermined ? 'border-l-4 border-l-amber-400 border-t border-r border-b border-gray-200' : isCreateNew ? 'border-l-4 border-l-green-400 border-t border-r border-b border-gray-200' : 'border-l-4 border-l-blue-400 border-t border-r border-b border-gray-200'}`}>
       {/* Collapsible header */}
       <div
         className="flex items-center justify-between px-5 py-3 cursor-pointer select-none hover:bg-gray-50 transition-colors"
@@ -2924,11 +3229,121 @@ const InboxCard: React.FC<InboxCardProps> = ({
       {/* Collapsible body */}
       {!collapsed && (
         <div className="px-5 pb-5">
-      {/* 1. Message */}
+      {/* 1. Message — email-style viewer */}
       <div className="mb-3">
-        {/* Quoted message */}
-        <div className="bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-700 italic whitespace-pre-line">
-          {proposal.message_preview}
+        <div className="border border-gray-200 rounded-lg overflow-hidden bg-white shadow-sm">
+          {/* Email header */}
+          {proposal.channel === 'email' ? (
+            <div className="px-3 py-2 bg-gray-50 border-b border-gray-200 space-y-1">
+              {proposal.sender && (
+                <div className="flex items-center gap-2 text-sm">
+                  <span className="text-gray-400 text-xs w-12 text-right shrink-0">From</span>
+                  <span className="text-gray-800 font-medium">{proposal.sender}</span>
+                </div>
+              )}
+              {proposal.subject && (
+                <div className="flex items-center gap-2 text-sm">
+                  <span className="text-gray-400 text-xs w-12 text-right shrink-0">Subject</span>
+                  <span className="text-gray-700">{proposal.subject}</span>
+                </div>
+              )}
+              {proposal.email_date && (
+                <div className="flex items-center gap-2 text-sm">
+                  <span className="text-gray-400 text-xs w-12 text-right shrink-0">Date</span>
+                  <span className="text-gray-500 text-xs">{proposal.email_date}</span>
+                </div>
+              )}
+            </div>
+          ) : (
+            <div className="px-3 py-2 bg-gray-50 border-b border-gray-200 flex items-center gap-2 text-xs text-gray-500">
+              <MessageSquare className="w-3 h-3" />
+              <span>SMS</span>
+              <span className="text-gray-300">&middot;</span>
+              <span>{formatTime(proposal.created_at)}</span>
+            </div>
+          )}
+
+          {/* Collapse toggle at top when expanded */}
+          {messageExpanded && contentNeedsExpand && (
+            <div className="border-b border-gray-100 px-3 py-1.5">
+              <button
+                onClick={() => setMessageExpanded(false)}
+                className="text-xs text-blue-600 hover:text-blue-800 flex items-center gap-1"
+              >
+                <ChevronUp className="w-3 h-3" /> Show less
+              </button>
+            </div>
+          )}
+
+          {/* Email body — always render via iframe for proper encoding */}
+          <div className={`relative ${!messageExpanded ? 'max-h-40 overflow-hidden' : ''}`}>
+            <iframe
+              ref={(el) => {
+                if (!el) return;
+                const doc = el.contentDocument;
+                if (!doc) return;
+                // Legacy cleanup for emails stored before the UTF-8 decode fix.
+                // New emails are decoded correctly at ingest time.
+                const cleanText = (s: string) => s
+                  .replace(/\u00c2(?=[\u00a0\s]|[A-Z]|$)/g, '')  // Â artifact
+                  .replace(/\u00a0/g, ' ');
+                const rawHtml = proposal.message_html;
+                const htmlContent = rawHtml
+                  ? cleanText(rawHtml)
+                  : `<pre style="font-family:inherit;white-space:pre-wrap;margin:0">${cleanText(proposal.message_full || proposal.message_preview).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}</pre>`;
+                doc.open();
+                doc.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><style>
+                  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; font-size: 13px; line-height: 1.5; color: #374151; margin: 0; padding: 12px 16px; word-wrap: break-word; overflow-wrap: break-word; }
+                  a { color: #2563eb; text-decoration: none; }
+                  a:hover { text-decoration: underline; }
+                  blockquote { border-left: 3px solid #d1d5db; margin: 8px 0; padding: 4px 0 4px 12px; color: #6b7280; }
+                  img { max-width: 100%; height: auto; }
+                  pre { white-space: pre-wrap; word-wrap: break-word; font-family: inherit; }
+                  table { border-collapse: collapse; max-width: 100%; }
+                  td, th { padding: 4px 8px; }
+                  hr { border: none; border-top: 1px solid #e5e7eb; margin: 12px 0; }
+                  .gmail_quote { margin: 8px 0 0; padding-left: 12px; border-left: 3px solid #d1d5db; color: #6b7280; }
+                </style></head><body>${htmlContent}</body></html>`);
+                doc.close();
+                // Auto-resize iframe to content height
+                const resize = () => {
+                  if (doc.body) {
+                    const contentHeight = doc.body.scrollHeight;
+                    el.style.height = contentHeight + 'px';
+                    // Only show expand/collapse if content exceeds 160px (max-h-40)
+                    setContentNeedsExpand(contentHeight > 160);
+                  }
+                };
+                el.addEventListener('load', resize);
+                setTimeout(resize, 50);
+                setTimeout(resize, 200);
+              }}
+              sandbox="allow-same-origin"
+              className="w-full border-0"
+              style={{ minHeight: '60px' }}
+              title="Email content"
+            />
+            {/* Fade overlay when collapsed and content needs expand */}
+            {!messageExpanded && contentNeedsExpand && (
+              <div className="absolute bottom-0 left-0 right-0 h-10 bg-gradient-to-t from-white to-transparent pointer-events-none"></div>
+            )}
+          </div>
+
+          {/* Expand/collapse toggle - only show if content is large enough to need it */}
+          {contentNeedsExpand && (
+            <div className="border-t border-gray-100 px-3 py-1.5">
+              <button
+                onClick={() => setMessageExpanded(!messageExpanded)}
+                className="text-xs text-blue-600 hover:text-blue-800 flex items-center gap-1"
+              >
+                {messageExpanded ? (
+                  <><ChevronUp className="w-3 h-3" /> Show less</>
+                ) : (
+                  <><ChevronDown className="w-3 h-3" /> Show more</>
+                )}
+              </button>
+            </div>
+          )}
         </div>
 
         {/* Multi-message expansion */}
@@ -2951,7 +3366,7 @@ const InboxCard: React.FC<InboxCardProps> = ({
                       <span>{formatTime(msg.timestamp)}</span>
                     </div>
                     {msg.subject && <p className="text-xs font-medium text-gray-800 mb-0.5">{msg.subject}</p>}
-                    <p className="text-gray-700 italic whitespace-pre-line">{msg.content}</p>
+                    <p className="text-gray-700 whitespace-pre-line">{msg.content}</p>
                   </div>
                 ))}
               </div>
@@ -2984,23 +3399,14 @@ const InboxCard: React.FC<InboxCardProps> = ({
         /* AI determined: create new order */
         <div className="mb-3">
           <div className="px-3 py-3 bg-green-50 border border-green-200 rounded-lg">
-            <div className="flex items-center justify-between mb-2">
-              <p className="text-xs text-green-600 uppercase tracking-wider font-medium">AI Recommended: Create New Order</p>
-              <button
-                onClick={(e) => { e.stopPropagation(); setShowCorrection(!showCorrection); }}
-                className="px-3 py-1 text-xs font-medium text-gray-500 bg-white border border-gray-300 rounded-md hover:bg-gray-50 hover:text-gray-700 transition-colors"
-              >
-                This is wrong
-              </button>
-            </div>
+            <p className="text-xs text-green-600 uppercase tracking-wider font-medium mb-2">AI Recommended: Create New Order</p>
             <div className="flex items-center gap-3 px-3 py-2 bg-white border border-green-200 rounded-lg">
-              <div className="flex items-center gap-2 flex-1">
+              <div className="flex items-center gap-2 flex-1" onClick={(e) => e.stopPropagation()}>
                 <User className="w-4 h-4 text-green-500 flex-shrink-0" />
-                <input
-                  type="text"
+                <CustomerSearchDropdown
                   value={customerName}
-                  onChange={(e) => setCustomerName(e.target.value)}
-                  onClick={(e) => e.stopPropagation()}
+                  onChange={setCustomerName}
+                  customers={customers}
                   className="text-sm font-medium text-gray-900 bg-transparent border-b border-transparent hover:border-gray-300 focus:border-green-500 focus:outline-none px-0 py-0.5 w-full"
                 />
               </div>
@@ -3015,24 +3421,131 @@ const InboxCard: React.FC<InboxCardProps> = ({
                 />
               </div>
             </div>
-            {proposal.order_type && (
-              <div className="mt-2 relative group/tag">
-                <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium cursor-help ${
-                  proposal.order_type === 'one-time'
-                    ? 'bg-orange-100 text-orange-700'
-                    : 'bg-blue-100 text-blue-700'
-                }`}>
-                  {proposal.order_type === 'one-time' ? 'One-time' : 'Recurring'}
-                </span>
-                <div className="absolute left-0 bottom-full mb-1 w-56 px-3 py-2 bg-gray-900 text-white text-xs rounded-lg shadow-lg opacity-0 invisible group-hover/tag:opacity-100 group-hover/tag:visible transition-all duration-200 z-50 pointer-events-none">
-                  {proposal.order_type === 'one-time'
-                    ? 'This is a one-time order update and will not affect recurring standing orders.'
-                    : 'This will update the customer\u2019s standing order for this day of the week.'}
-                </div>
+            <div className="mt-2 relative group/tag">
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  const newVal = orderFrequency === 'one-time' ? 'recurring' : 'one-time';
+                  setOrderFrequency(newVal);
+                  onUpdateOrderFrequency(proposal.id, newVal);
+                }}
+                className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium transition-all duration-200 active:scale-95 ${
+                  orderFrequency === 'one-time'
+                    ? 'bg-orange-100 text-orange-700 hover:bg-orange-200'
+                    : 'bg-blue-100 text-blue-700 hover:bg-blue-200'
+                }`}
+              >
+                {orderFrequency === 'one-time' ? 'One-time' : 'Recurring'}
+                <ArrowUpDown className="w-3 h-3 opacity-40" />
+              </button>
+              <div className="absolute left-0 bottom-full mb-1 w-56 px-3 py-2 bg-gray-900 text-white text-xs rounded-lg shadow-lg opacity-0 invisible group-hover/tag:opacity-100 group-hover/tag:visible transition-all duration-200 z-50 pointer-events-none">
+                {orderFrequency === 'one-time'
+                  ? 'This is a one-time order update and will not affect recurring standing orders.'
+                  : 'This will update the customer\u2019s standing order for this day of the week.'}
               </div>
-            )}
+            </div>
+            {/* Items table inside recommendation box */}
+            <div className="border-t border-green-200 mt-3 pt-2">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="text-xs text-green-600/60 uppercase tracking-wider">
+                    <th className="py-1 text-left font-medium">Item</th>
+                    <th className="py-1 text-center font-medium">Size</th>
+                    <th className="py-1 text-center font-medium">Qty</th>
+                    <th className="py-1 w-6"></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {editableLines
+                    .filter(l => l.change_type === 'add')
+                    .map(line => (
+                      <tr key={line.id} className="bg-green-50/50">
+                        <td className="py-1.5 pl-1">
+                          <div className="flex items-center gap-1">
+                            <span className="text-green-600 text-xs font-bold">+</span>
+                            <ItemSearchDropdown
+                              value={line.item_name}
+                              onChange={(val) => updateEditableLine(line.id, { item_name: val })}
+                            />
+                          </div>
+                        </td>
+                        <td className="py-1.5 text-center">
+                          <select
+                            value={line.size}
+                            onChange={(e) => updateEditableLine(line.id, { size: e.target.value })}
+                            className="px-1 py-0.5 text-xs border border-green-300 rounded bg-white focus:outline-none focus:ring-1 focus:ring-green-500"
+                          >
+                            {getVariantsForLine(line).map(v => (
+                              <option key={v.code} value={v.code}>{v.code}</option>
+                            ))}
+                          </select>
+                        </td>
+                        <td className="py-1.5 text-center">
+                          <input
+                            type="number"
+                            min="1"
+                            value={line.quantity}
+                            onChange={(e) => updateEditableLine(line.id, { quantity: parseInt(e.target.value) || 1 })}
+                            className="w-12 px-1 py-0.5 text-sm text-center border border-green-300 rounded bg-white focus:outline-none focus:ring-1 focus:ring-green-500"
+                          />
+                        </td>
+                        <td className="py-1.5">
+                          <button onClick={() => removeEditableLine(line.id)} className="text-gray-400 hover:text-red-500">
+                            <X className="w-3.5 h-3.5" />
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  <tr>
+                    <td colSpan={4} className="pt-1">
+                      <button
+                        onClick={addNewItemLine}
+                        className="flex items-center gap-1 text-xs text-green-600 hover:text-green-700 hover:bg-green-100/50 px-2 py-1 rounded transition-colors"
+                      >
+                        <span className="text-sm font-bold">+</span> Add item
+                      </button>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+            {/* Action buttons inside recommendation box */}
+            <div className="flex items-center gap-2 mt-3 pt-3 border-t border-green-200">
+              <button
+                onClick={async () => {
+                  setIsCreating(true);
+                  await onCreateOrder(proposal.id, editableLines, customerName, deliveryDate);
+                  setIsCreating(false);
+                }}
+                disabled={isCreating}
+                className="flex items-center gap-1 px-4 py-2 bg-green-600 text-white text-sm font-medium rounded-lg hover:bg-green-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {isCreating ? (
+                  <><Loader2 className="w-4 h-4 animate-spin" /> Creating...</>
+                ) : (
+                  <><Check className="w-4 h-4" /> Create Order</>
+                )}
+              </button>
+              <button
+                onClick={() => onDismiss(proposal.id)}
+                disabled={isCreating || isDismissing}
+                className="flex items-center gap-1 px-4 py-2 bg-white text-gray-600 text-sm font-medium rounded-lg border border-gray-200 hover:bg-gray-50 transition-colors disabled:opacity-50"
+              >
+                {isDismissing ? (
+                  <><Loader2 className="w-4 h-4 animate-spin" /> Dismissing...</>
+                ) : (
+                  <><X className="w-4 h-4" /> Dismiss</>
+                )}
+              </button>
+              <button
+                onClick={(e) => { e.stopPropagation(); setShowCorrection(!showCorrection); }}
+                className="ml-auto text-xs text-gray-400 hover:text-gray-600 transition-colors"
+              >
+                Something wrong?
+              </button>
+            </div>
             {showCorrection && (
-              <div className="mt-3 pt-3 border-t border-green-200 flex items-center gap-2">
+              <div className="flex items-center gap-2 mt-2">
                 <button
                   onClick={() => onOpenAssignToOrderModal(proposal.id, null)}
                   className="flex-1 px-3 py-2 text-sm font-medium text-green-700 bg-white border border-green-200 rounded-lg hover:bg-green-100 transition-colors text-center"
@@ -3047,15 +3560,7 @@ const InboxCard: React.FC<InboxCardProps> = ({
         /* AI matched to existing order */
         <div className="mb-3">
           <div className="px-3 py-3 bg-blue-50 border border-blue-200 rounded-lg">
-            <div className="flex items-center justify-between mb-2">
-              <p className="text-xs text-blue-600 uppercase tracking-wider font-medium">AI Matched Order To</p>
-              <button
-                onClick={(e) => { e.stopPropagation(); setShowCorrection(!showCorrection); }}
-                className="px-3 py-1 text-xs font-medium text-gray-500 bg-white border border-gray-300 rounded-md hover:bg-gray-50 hover:text-gray-700 transition-colors"
-              >
-                This is wrong
-              </button>
-            </div>
+            <p className="text-xs text-blue-600 uppercase tracking-wider font-medium mb-2">AI Matched Order To</p>
             <div
               className="flex items-center gap-3 px-3 py-2 bg-white border border-blue-200 rounded-lg cursor-pointer hover:bg-blue-50 transition-colors"
               onClick={() => setShowOrderItems(!showOrderItems)}
@@ -3073,22 +3578,29 @@ const InboxCard: React.FC<InboxCardProps> = ({
                 showOrderItems ? <ChevronUp className="w-4 h-4 text-blue-400" /> : <ChevronDown className="w-4 h-4 text-blue-400" />
               )}
             </div>
-            {proposal.order_type && (
-              <div className="mt-2 relative group/tag">
-                <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium cursor-help ${
-                  proposal.order_type === 'one-time'
-                    ? 'bg-orange-100 text-orange-700'
-                    : 'bg-blue-100 text-blue-700'
-                }`}>
-                  {proposal.order_type === 'one-time' ? 'One-time' : 'Recurring'}
-                </span>
-                <div className="absolute left-0 bottom-full mb-1 w-56 px-3 py-2 bg-gray-900 text-white text-xs rounded-lg shadow-lg opacity-0 invisible group-hover/tag:opacity-100 group-hover/tag:visible transition-all duration-200 z-50 pointer-events-none">
-                  {proposal.order_type === 'one-time'
-                    ? 'This is a one-time order update and will not affect recurring standing orders.'
-                    : 'This will update the customer\u2019s standing order for this day of the week.'}
-                </div>
+            <div className="mt-2 relative group/tag">
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  const newVal = orderFrequency === 'one-time' ? 'recurring' : 'one-time';
+                  setOrderFrequency(newVal);
+                  onUpdateOrderFrequency(proposal.id, newVal);
+                }}
+                className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium transition-all duration-200 active:scale-95 ${
+                  orderFrequency === 'one-time'
+                    ? 'bg-orange-100 text-orange-700 hover:bg-orange-200'
+                    : 'bg-blue-100 text-blue-700 hover:bg-blue-200'
+                }`}
+              >
+                {orderFrequency === 'one-time' ? 'One-time' : 'Recurring'}
+                <ArrowUpDown className="w-3 h-3 opacity-40" />
+              </button>
+              <div className="absolute left-0 bottom-full mb-1 w-56 px-3 py-2 bg-gray-900 text-white text-xs rounded-lg shadow-lg opacity-0 invisible group-hover/tag:opacity-100 group-hover/tag:visible transition-all duration-200 z-50 pointer-events-none">
+                {orderFrequency === 'one-time'
+                  ? 'This is a one-time order update for this order only and will not affect future orders.'
+                  : 'This will update the customer\u2019s standing order for this day of the week.'}
               </div>
-            )}
+            </div>
             {/* Expandable current order items */}
             {showOrderItems && matchedOrder && matchedOrder.items.length > 0 && (
               <div className="mt-2 px-3 py-2 bg-white border border-blue-200 rounded-lg">
@@ -3104,8 +3616,206 @@ const InboxCard: React.FC<InboxCardProps> = ({
                 </div>
               </div>
             )}
+            {/* Changes table inside recommendation box */}
+            <div className="border-t border-blue-200 mt-3 pt-2">
+              <p className="text-xs text-blue-600/70 uppercase tracking-wider font-medium mb-1.5">Changes</p>
+              {/* Delete Order label - shown when all lines are removals with no adds */}
+              {matchedOrder &&
+               editableLines.length > 0 &&
+               editableLines.every(l => l.change_type === 'remove') && (
+                <div className="mb-2 px-3 py-2 bg-red-100 border border-red-300 rounded-lg">
+                  <p className="text-sm font-semibold text-red-700">Cancel Order</p>
+                  <p className="text-xs text-red-600">This order will be cancelled.</p>
+                </div>
+              )}
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="text-xs text-blue-600/60 uppercase tracking-wider">
+                    <th className="py-1 text-left font-medium">Item</th>
+                    <th className="py-1 text-center font-medium">Size</th>
+                    <th className="py-1 text-center font-medium">Qty</th>
+                    <th className="py-1 w-6"></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {/* Existing order items with diff annotations */}
+                  {matchedOrder && matchedOrder.items.map((item, idx) => {
+                    const modification = editableLines.find(l => l.change_type === 'modify' && (l.order_line_id ? l.order_line_id === item.order_line_id : l.item_name === item.name && l.original_size === item.size));
+                    const removal = editableLines.find(l => l.change_type === 'remove' && (l.order_line_id ? l.order_line_id === item.order_line_id : l.item_name === item.name && l.size === item.size));
+
+                    return (
+                      <React.Fragment key={idx}>
+                        <tr
+                          className={`${removal || modification ? 'opacity-50' : 'group hover:bg-gray-50 cursor-pointer'}`}
+                          onDoubleClick={() => {
+                            if (!removal && !modification) addModificationForItem(item);
+                          }}
+                          title={!removal && !modification ? 'Double-click to modify' : undefined}
+                        >
+                          <td className={`py-1.5 text-gray-700 ${removal || modification ? 'line-through' : ''}`}>{item.name}</td>
+                          <td className={`py-1.5 text-center text-gray-500 ${removal || modification ? 'line-through' : ''}`}>{item.size}</td>
+                          <td className={`py-1.5 text-center text-gray-700 font-medium ${removal || modification ? 'line-through' : ''}`}>{item.quantity}</td>
+                          <td className="py-1.5">
+                            {!removal && !modification && (
+                              <button
+                                onClick={() => addRemovalForItem(item)}
+                                className="text-gray-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity"
+                                title="Remove item"
+                              >
+                                <X className="w-3.5 h-3.5" />
+                              </button>
+                            )}
+                          </td>
+                        </tr>
+                        {modification && (
+                          <tr className="bg-blue-50">
+                            <td className="py-1.5 pl-5 text-blue-700 text-sm">
+                              <span className="text-blue-400 mr-1">&#8627;</span>
+                              {modification.item_name}
+                            </td>
+                            <td className="py-1.5 text-center">
+                              <select
+                                value={modification.size}
+                                onChange={(e) => updateEditableLine(modification.id, { size: e.target.value })}
+                                className="px-1 py-0.5 text-xs border border-blue-300 rounded bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
+                              >
+                                {getVariantsForLine(modification).map(v => (
+                                  <option key={v.code} value={v.code}>{v.code}</option>
+                                ))}
+                              </select>
+                            </td>
+                            <td className="py-1.5 text-center">
+                              <input
+                                type="number"
+                                min="1"
+                                value={modification.quantity}
+                                onChange={(e) => updateEditableLine(modification.id, { quantity: parseInt(e.target.value) || 1 })}
+                                className="w-12 px-1 py-0.5 text-sm text-center border border-blue-300 rounded bg-white focus:outline-none focus:ring-1 focus:ring-blue-500 font-semibold"
+                              />
+                            </td>
+                            <td className="py-1.5">
+                              <button onClick={() => removeEditableLine(modification.id)} className="text-gray-400 hover:text-red-500">
+                                <X className="w-3.5 h-3.5" />
+                              </button>
+                            </td>
+                          </tr>
+                        )}
+                        {removal && (
+                          <tr>
+                            <td colSpan={3} className="pb-1.5">
+                              <div className="ml-4 px-2 py-1 bg-red-50 border border-red-200 rounded text-xs text-red-600 inline-flex items-center gap-2">
+                                <span>&#8627; remove</span>
+                              </div>
+                            </td>
+                            <td className="pb-1.5">
+                              <button onClick={() => removeEditableLine(removal.id)} className="text-gray-400 hover:text-red-500">
+                                <X className="w-3.5 h-3.5" />
+                              </button>
+                            </td>
+                          </tr>
+                        )}
+                      </React.Fragment>
+                    );
+                  })}
+
+                  {/* Separator before add rows */}
+                  {editableLines.filter(l => l.change_type === 'add').length > 0 && (
+                    <tr>
+                      <td colSpan={4} className="py-1">
+                        <div className="border-t border-dashed border-blue-200"></div>
+                      </td>
+                    </tr>
+                  )}
+
+                  {/* Add/new item rows */}
+                  {editableLines
+                    .filter(l => l.change_type === 'add')
+                    .map(line => (
+                      <tr key={line.id} className="bg-green-50">
+                        <td className="py-1.5 pl-1">
+                          <div className="flex items-center gap-1">
+                            <span className="text-green-600 text-xs font-bold">+</span>
+                            <ItemSearchDropdown
+                              value={line.item_name}
+                              onChange={(val) => updateEditableLine(line.id, { item_name: val })}
+                            />
+                          </div>
+                        </td>
+                        <td className="py-1.5 text-center">
+                          <select
+                            value={line.size}
+                            onChange={(e) => updateEditableLine(line.id, { size: e.target.value })}
+                            className="px-1 py-0.5 text-xs border border-green-300 rounded bg-white focus:outline-none focus:ring-1 focus:ring-green-500"
+                          >
+                            {getVariantsForLine(line).map(v => (
+                              <option key={v.code} value={v.code}>{v.code}</option>
+                            ))}
+                          </select>
+                        </td>
+                        <td className="py-1.5 text-center">
+                          <input
+                            type="number"
+                            min="1"
+                            value={line.quantity}
+                            onChange={(e) => updateEditableLine(line.id, { quantity: parseInt(e.target.value) || 1 })}
+                            className="w-12 px-1 py-0.5 text-sm text-center border border-green-300 rounded bg-white focus:outline-none focus:ring-1 focus:ring-green-500"
+                          />
+                        </td>
+                        <td className="py-1.5">
+                          <button onClick={() => removeEditableLine(line.id)} className="text-gray-400 hover:text-red-500">
+                            <X className="w-3.5 h-3.5" />
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+
+                  {/* Add new item button row */}
+                  <tr>
+                    <td colSpan={4} className="pt-1">
+                      <button
+                        onClick={addNewItemLine}
+                        className="flex items-center gap-1 text-xs text-green-600 hover:text-green-700 hover:bg-green-100/50 px-2 py-1 rounded transition-colors"
+                      >
+                        <span className="text-sm font-bold">+</span> Add item
+                      </button>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+            {/* Action buttons inside recommendation box */}
+            <div className="flex items-center gap-2 mt-3 pt-3 border-t border-blue-200">
+              <button
+                onClick={() => onApplyChange(proposal.id, editableLines)}
+                disabled={isApplying || isDismissing}
+                className="flex items-center gap-1 px-4 py-2 bg-green-600 text-white text-sm font-medium rounded-lg hover:bg-green-700 transition-colors disabled:opacity-50"
+              >
+                {isApplying ? (
+                  <><Loader2 className="w-4 h-4 animate-spin" /> Applying...</>
+                ) : (
+                  <><Check className="w-4 h-4" /> Apply Changes</>
+                )}
+              </button>
+              <button
+                onClick={() => onDismiss(proposal.id)}
+                disabled={isDismissing || isApplying}
+                className="flex items-center gap-1 px-4 py-2 bg-white text-gray-600 text-sm font-medium rounded-lg border border-gray-200 hover:bg-gray-50 transition-colors disabled:opacity-50"
+              >
+                {isDismissing ? (
+                  <><Loader2 className="w-4 h-4 animate-spin" /> Dismissing...</>
+                ) : (
+                  <><X className="w-4 h-4" /> Dismiss</>
+                )}
+              </button>
+              <button
+                onClick={(e) => { e.stopPropagation(); setShowCorrection(!showCorrection); }}
+                className="ml-auto text-xs text-gray-400 hover:text-gray-600 transition-colors"
+              >
+                Something wrong?
+              </button>
+            </div>
             {showCorrection && (
-              <div className="mt-3 pt-3 border-t border-blue-200 flex items-center gap-2">
+              <div className="flex items-center gap-2 mt-2">
                 <button
                   onClick={() => onOpenCreateNewOrderModal(proposal.id)}
                   className="flex-1 px-3 py-2 text-sm font-medium text-blue-700 bg-white border border-blue-200 rounded-lg hover:bg-blue-100 transition-colors text-center"
@@ -3123,192 +3833,6 @@ const InboxCard: React.FC<InboxCardProps> = ({
           </div>
         </div>
       )}
-
-      {/* 3. Customer & date fields — hidden for unmatched proposals (user must pick action first) */}
-
-      {/* 4. Proposed changes — hidden for undetermined proposals */}
-      {!isUndetermined && <>
-      <p className="text-xs text-gray-400 uppercase tracking-wider font-medium mb-2">
-        {isCreateNew ? 'Items' : 'Changes'}
-      </p>
-      <table className="w-full text-sm">
-        <tbody>
-          {/* For matched proposals: show existing order items with diff annotations */}
-          {!isUndetermined && !isCreateNew && matchedOrder && matchedOrder.items.map((item, idx) => {
-            const modification = editableLines.find(l => l.change_type === 'modify' && l.item_name === item.name);
-            const removal = editableLines.find(l => l.change_type === 'remove' && l.item_name === item.name);
-
-            return (
-              <React.Fragment key={idx}>
-                <tr
-                  className={`${removal || modification ? 'opacity-50' : 'group hover:bg-gray-50 cursor-pointer'}`}
-                  onDoubleClick={() => {
-                    if (!removal && !modification) addModificationForItem(item);
-                  }}
-                  title={!removal && !modification ? 'Double-click to modify' : undefined}
-                >
-                  <td className={`py-1.5 text-gray-700 ${removal || modification ? 'line-through' : ''}`}>{item.name}</td>
-                  <td className={`py-1.5 text-center text-gray-500 ${removal || modification ? 'line-through' : ''}`}>{item.size}</td>
-                  <td className={`py-1.5 text-center text-gray-700 font-medium ${removal || modification ? 'line-through' : ''}`}>{item.quantity}</td>
-                  <td className="py-1.5">
-                    {!removal && !modification && (
-                      <button
-                        onClick={() => addRemovalForItem(item)}
-                        className="text-gray-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity"
-                        title="Remove item"
-                      >
-                        <X className="w-3.5 h-3.5" />
-                      </button>
-                    )}
-                  </td>
-                </tr>
-                {modification && (
-                  <tr className="bg-blue-50">
-                    <td className="py-1.5 pl-5 text-blue-700 text-sm">
-                      <span className="text-blue-400 mr-1">&#8627;</span>
-                      {modification.item_name}
-                    </td>
-                    <td className="py-1.5 text-center">
-                      <select
-                        value={modification.size}
-                        onChange={(e) => updateEditableLine(modification.id, { size: e.target.value })}
-                        className="px-1 py-0.5 text-xs border border-blue-300 rounded bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
-                      >
-                        <option value="Small">S</option>
-                        <option value="Medium">M</option>
-                        <option value="Large">L</option>
-                        <option value="T20">T20</option>
-                      </select>
-                    </td>
-                    <td className="py-1.5 text-center">
-                      <input
-                        type="number"
-                        min="1"
-                        value={modification.quantity}
-                        onChange={(e) => updateEditableLine(modification.id, { quantity: parseInt(e.target.value) || 1 })}
-                        className="w-12 px-1 py-0.5 text-sm text-center border border-blue-300 rounded bg-white focus:outline-none focus:ring-1 focus:ring-blue-500 font-semibold"
-                      />
-                    </td>
-                    <td className="py-1.5">
-                      <button onClick={() => removeEditableLine(modification.id)} className="text-gray-400 hover:text-red-500">
-                        <X className="w-3.5 h-3.5" />
-                      </button>
-                    </td>
-                  </tr>
-                )}
-                {removal && (
-                  <tr>
-                    <td colSpan={3} className="pb-1.5">
-                      <div className="ml-4 px-2 py-1 bg-red-50 border border-red-200 rounded text-xs text-red-600 inline-flex items-center gap-2">
-                        <span>&#8627; remove</span>
-                      </div>
-                    </td>
-                    <td className="pb-1.5">
-                      <button onClick={() => removeEditableLine(removal.id)} className="text-gray-400 hover:text-red-500">
-                        <X className="w-3.5 h-3.5" />
-                      </button>
-                    </td>
-                  </tr>
-                )}
-              </React.Fragment>
-            );
-          })}
-
-          {/* Separator before add rows (matched proposals) */}
-          {!isUndetermined && !isCreateNew && editableLines.filter(l => l.change_type === 'add').length > 0 && (
-            <tr>
-              <td colSpan={4} className="py-1">
-                <div className="border-t border-dashed border-gray-300"></div>
-              </td>
-            </tr>
-          )}
-
-          {/* Add/new item rows — editable green rows */}
-          {editableLines
-            .filter(l => l.change_type === 'add')
-            .map(line => (
-              <tr key={line.id} className="bg-green-50">
-                <td className="py-1.5 pl-1">
-                  <div className="flex items-center gap-1">
-                    <span className="text-green-600 text-xs font-bold">+</span>
-                    <ItemSearchDropdown
-                      value={line.item_name}
-                      onChange={(val) => updateEditableLine(line.id, { item_name: val })}
-                    />
-                  </div>
-                </td>
-                <td className="py-1.5 text-center">
-                  <select
-                    value={line.size}
-                    onChange={(e) => updateEditableLine(line.id, { size: e.target.value })}
-                    className="px-1 py-0.5 text-xs border border-green-300 rounded bg-white focus:outline-none focus:ring-1 focus:ring-green-500"
-                  >
-                    <option value="Small">S</option>
-                    <option value="Medium">M</option>
-                    <option value="Large">L</option>
-                    <option value="T20">T20</option>
-                  </select>
-                </td>
-                <td className="py-1.5 text-center">
-                  <input
-                    type="number"
-                    min="1"
-                    value={line.quantity}
-                    onChange={(e) => updateEditableLine(line.id, { quantity: parseInt(e.target.value) || 1 })}
-                    className="w-12 px-1 py-0.5 text-sm text-center border border-green-300 rounded bg-white focus:outline-none focus:ring-1 focus:ring-green-500"
-                  />
-                </td>
-                <td className="py-1.5">
-                  <button onClick={() => removeEditableLine(line.id)} className="text-gray-400 hover:text-red-500">
-                    <X className="w-3.5 h-3.5" />
-                  </button>
-                </td>
-              </tr>
-            ))}
-
-          {/* Add new item button row */}
-          <tr>
-            <td colSpan={4} className="pt-1">
-              <button
-                onClick={addNewItemLine}
-                className="flex items-center gap-1 text-xs text-green-600 hover:text-green-700 hover:bg-green-50 px-2 py-1 rounded transition-colors"
-              >
-                <span className="text-sm font-bold">+</span> Add item
-              </button>
-            </td>
-          </tr>
-        </tbody>
-      </table>
-      </>}
-
-      {/* 5. Action buttons */}
-      <div className="flex items-center gap-2 mt-3 flex-wrap">
-        {isCreateNew && (
-          <button
-            onClick={() => onCreateOrder(proposal.id, editableLines, customerName, deliveryDate)}
-            className="flex items-center gap-1 px-4 py-2 bg-green-600 text-white text-sm font-medium rounded-lg hover:bg-green-700 transition-colors"
-          >
-            <Check className="w-4 h-4" />
-            Create Order
-          </button>
-        )}
-        {!isUndetermined && !isCreateNew && (
-          <button
-            onClick={() => onApplyChange(proposal.id, editableLines)}
-            className="flex items-center gap-1 px-4 py-2 bg-green-600 text-white text-sm font-medium rounded-lg hover:bg-green-700 transition-colors"
-          >
-            <Check className="w-4 h-4" />
-            Apply Changes
-          </button>
-        )}
-        <button
-          onClick={() => onDismiss(proposal.id)}
-          className="flex items-center gap-1 px-4 py-2 bg-gray-100 text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-200 transition-colors"
-        >
-          <X className="w-4 h-4" />
-          Dismiss
-        </button>
-      </div>
         </div>
       )}
     </div>
@@ -3318,18 +3842,24 @@ const InboxCard: React.FC<InboxCardProps> = ({
 interface InboxFeedProps {
   proposals: Proposal[];
   orders: Order[];
+  customers: Customer[];
   onApplyChange: (proposalId: string, lines: ProposalLine[]) => void;
-  onCreateOrder: (proposalId: string, lines: ProposalLine[], customerName?: string, deliveryDate?: string) => void;
+  onCreateOrder: (proposalId: string, lines: ProposalLine[], customerName?: string, deliveryDate?: string) => Promise<void>;
   onDismiss: (proposalId: string) => void;
   onOpenCreateNewOrderModal: (proposalId: string) => void;
   onOpenAssignToOrderModal: (proposalId: string, sourceOrderId: string | null) => void;
+  onUpdateOrderFrequency: (proposalId: string, value: 'one-time' | 'recurring') => void;
+  onRefresh?: () => Promise<void>;
+  isRefreshing?: boolean;
+  dismissingProposalId?: string | null;
+  applyingProposalId?: string | null;
 }
 
 type InboxSortMode = 'recent' | 'urgent' | 'channel' | 'needs-input';
 
 const InboxFeed: React.FC<InboxFeedProps> = ({
-  proposals, orders, onApplyChange, onCreateOrder, onDismiss,
-  onOpenCreateNewOrderModal, onOpenAssignToOrderModal
+  proposals, orders, customers, onApplyChange, onCreateOrder, onDismiss,
+  onOpenCreateNewOrderModal, onOpenAssignToOrderModal, onUpdateOrderFrequency, onRefresh, isRefreshing, dismissingProposalId, applyingProposalId
 }) => {
   const [sortMode, setSortMode] = useState<InboxSortMode>('recent');
 
@@ -3396,6 +3926,18 @@ const InboxFeed: React.FC<InboxFeedProps> = ({
               {label}
             </button>
           ))}
+          {/* Refresh button temporarily disabled - use page reload instead
+          {onRefresh && (
+            <button
+              onClick={onRefresh}
+              disabled={isRefreshing}
+              className="ml-1 p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors disabled:opacity-50"
+              title="Refresh inbox"
+            >
+              <RefreshCw className={`w-4 h-4 ${isRefreshing ? 'animate-spin' : ''}`} />
+            </button>
+          )}
+          */}
         </div>
       </div>
       <div className="space-y-4">
@@ -3405,11 +3947,15 @@ const InboxFeed: React.FC<InboxFeedProps> = ({
             proposal={proposal}
             matchedOrder={orders.find(o => o.id === proposal.order_id) || null}
             orders={orders}
+            customers={customers}
             onApplyChange={onApplyChange}
             onCreateOrder={onCreateOrder}
             onDismiss={onDismiss}
             onOpenCreateNewOrderModal={onOpenCreateNewOrderModal}
             onOpenAssignToOrderModal={onOpenAssignToOrderModal}
+            onUpdateOrderFrequency={onUpdateOrderFrequency}
+            isDismissing={dismissingProposalId === proposal.id}
+            isApplying={applyingProposalId === proposal.id}
           />
         ))}
       </div>
@@ -3421,12 +3967,20 @@ const InboxFeed: React.FC<InboxFeedProps> = ({
 // MAIN COMPONENT
 // ============================================================================
 
-const DashboardV3: React.FC<DashboardV3Props> = ({ organizationId, layout = 'default' }) => {
+interface CatalogItem {
+  id: string;
+  sku: string;
+  name: string;
+  item_variants: { id: string; variant_code: string; variant_name: string }[];
+}
+
+const DashboardV3: React.FC<DashboardV3Props> = ({ organizationId, layout = 'default', headerContent }) => {
   const [viewMode, setViewMode] = useState<ViewMode>('week');
-  const [sidebarTab, setSidebarTab] = useState<'inbox' | 'orders' | 'upload' | 'analytics'>('inbox');
-  const [orders, setOrders] = useState<Order[]>(MOCK_STANDING_ORDERS);
+  const [sidebarTab, setSidebarTab] = useState<'inbox' | 'orders' | 'upload' | 'analytics' | 'catalog'>('inbox');
+  const [orders, setOrders] = useState<Order[]>([]);
   const [proposals, setProposals] = useState<Proposal[]>(MOCK_PROPOSALS);
   const [isLoading, setIsLoading] = useState(true);
+  const [isRefreshingInbox, setIsRefreshingInbox] = useState(false);
   const [expandedDates, setExpandedDates] = useState<Set<string>>(new Set());
   const [selectedCustomer, setSelectedCustomer] = useState<{ date: string; customer: string } | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
@@ -3436,10 +3990,41 @@ const DashboardV3: React.FC<DashboardV3Props> = ({ organizationId, layout = 'def
   const [createNewOrderModal, setCreateNewOrderModal] = useState<{ proposal: Proposal } | null>(null);
   const [assignToOrderModal, setAssignToOrderModal] = useState<{ proposal: Proposal; sourceOrderId: string | null } | null>(null);
 
-  // Load orders
+  // Catalog state
+  const [catalogItems, setCatalogItems] = useState<CatalogItem[]>([]);
+  const [catalogLoading, setCatalogLoading] = useState(false);
+  const [catalogSearch, setCatalogSearch] = useState('');
+  const [expandedCatalogItems, setExpandedCatalogItems] = useState<Set<string>>(new Set());
+
+  // Customers state (for searchable customer dropdown)
+  const [customers, setCustomers] = useState<Customer[]>([]);
+
+  // Sidebar collapsed state
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+
+  // Toast state
+  const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
+
+  // Dismissing proposal state (tracks which proposal is being dismissed)
+  const [dismissingProposalId, setDismissingProposalId] = useState<string | null>(null);
+
+  // Applying proposal state (tracks which proposal is being applied)
+  const [applyingProposalId, setApplyingProposalId] = useState<string | null>(null);
+
+  // Show toast helper
+  const showToast = (message: string, type: 'success' | 'error' = 'success') => {
+    setToast({ message, type });
+    setTimeout(() => setToast(null), 3000);
+  };
+
+  // Load orders, proposals, and customers
   useEffect(() => {
     if (organizationId) {
       loadOrders();
+      loadProposals();
+      loadCustomers();
+    } else {
+      setIsLoading(false);
     }
   }, [organizationId]);
 
@@ -3459,14 +4044,18 @@ const DashboardV3: React.FC<DashboardV3Props> = ({ organizationId, layout = 'def
     setExpandedDates(new Set([todayStr, tomorrowStr, ...proposalDates]));
   }, [proposals]);
 
-  const loadOrders = async () => {
+  // Load catalog when switching to catalog tab
+  useEffect(() => {
+    if (sidebarTab === 'catalog' && catalogItems.length === 0 && organizationId) {
+      loadCatalog();
+    }
+  }, [sidebarTab, organizationId]);
+
+  const loadOrders = async (showFullPageLoading = true) => {
     if (!organizationId) return;
 
-    setIsLoading(true);
+    if (showFullPageLoading) setIsLoading(true);
     try {
-      const { data: { session } } = await supabaseClient.auth.getSession();
-      if (!session) return;
-
       const { data, error } = await supabaseClient
         .from('orders')
         .select(`
@@ -3477,35 +4066,227 @@ const DashboardV3: React.FC<DashboardV3Props> = ({ organizationId, layout = 'def
           created_at,
           updated_at,
           source_channel,
-          order_lines!inner(count)
+          order_lines (
+            id,
+            product_name,
+            quantity,
+            status,
+            item_id,
+            item_variant_id,
+            items ( name ),
+            item_variants ( variant_code )
+          )
         `)
         .eq('organization_id', organizationId)
-        .eq('order_lines.status', 'active')
-        .order('delivery_date', { ascending: true });
+        .neq('status', 'cancelled')
+        .order('delivery_date', { ascending: true })
+        .order('created_at', { ascending: true });
 
       if (error) {
         console.error('Error loading orders:', error);
         return;
       }
+      const transformedOrders: Order[] = (data || []).map((order: any) => {
+        const activeLines = (order.order_lines || []).filter((l: any) => l.status === 'active');
+        return {
+          id: order.id,
+          customer_name: order.customer_name || 'Unknown Customer',
+          status: order.status || 'pending',
+          source: order.source_channel || 'manual',
+          delivery_date: order.delivery_date,
+          created_at: order.created_at,
+          items: activeLines.map((line: any) => ({
+            order_line_id: line.id,
+            name: line.items?.name || line.product_name || 'Unknown',
+            size: line.item_variants?.variant_code || '',
+            quantity: line.quantity || 0,
+          })),
+          line_count: activeLines.length,
+        };
+      });
 
-      const transformedOrders: Order[] = (data || []).map((order: any) => ({
-        id: order.id,
-        customer_name: order.customer_name || 'Unknown Customer',
-        status: order.status || 'pending',
-        source: order.source_channel || 'manual',
-        delivery_date: order.delivery_date,
-        created_at: order.created_at,
-        items: [],
-        line_count: order.order_lines?.[0]?.count || 0,
-      }));
-
-      // Merge with mock standing orders for UI development
-      const allOrders = [...transformedOrders, ...MOCK_STANDING_ORDERS];
-      setOrders(allOrders);
+      setOrders(transformedOrders);
     } catch (error) {
       console.error('Error loading orders:', error);
     } finally {
-      setIsLoading(false);
+      if (showFullPageLoading) setIsLoading(false);
+    }
+  };
+
+  // Helper to refresh both orders and proposals together, awaiting both
+  // This ensures both complete before the loading spinner stops
+  const refreshAll = async (showFullPageLoading = false) => {
+    setIsRefreshingInbox(true);
+    try {
+      await Promise.all([loadOrders(showFullPageLoading), loadProposalsInternal()]);
+    } finally {
+      setIsRefreshingInbox(false);
+    }
+  };
+
+  // Internal function that loads proposals without managing loading state
+  const loadProposalsInternal = async () => {
+    if (!organizationId) return;
+
+    const { data, error } = await supabaseClient
+      .from('order_change_proposals')
+      .select(`
+        id,
+        order_id,
+        status,
+        intake_event_id,
+        created_at,
+        tags,
+        orders ( customer_name, delivery_date ),
+        intake_events ( channel, raw_content, created_at ),
+        order_change_proposal_lines (
+          id, change_type, item_name, item_id, item_variant_id,
+          proposed_values, order_line_id,
+          items ( id, item_variants ( id, variant_code, variant_name ) )
+        )
+      `)
+      .eq('organization_id', organizationId)
+      .eq('status', 'pending')
+      .order('created_at', { ascending: false });
+
+    if (error) {
+      console.error('Error loading proposals:', error);
+      return;
+    }
+
+    const transformed: Proposal[] = (data || []).map((row: any) => {
+      const ie = row.intake_events;
+      const order = row.orders;
+      const channel = ie?.channel || 'email';
+      const rawContent = ie?.raw_content || {};
+
+      // Build message preview from raw_content
+      // Legacy cleanup for emails stored before UTF-8 decode fix
+      const sanitizeText = (text: string) => text
+        .replace(/\u00c2(?=[\u00a0\s]|[A-Z]|$)/g, '')
+        .replace(/\u00a0/g, ' ');
+      let messagePreview = '';
+      if (channel === 'sms') {
+        messagePreview = rawContent.body || '';
+      } else {
+        messagePreview = sanitizeText(rawContent.body_text || rawContent.subject || '');
+      }
+
+      // Build timeline from intake event
+      const timeline: TimelineEvent[] = [];
+      if (ie) {
+        timeline.push({
+          id: `comm-${row.id}`,
+          type: 'communication',
+          timestamp: ie.created_at,
+          channel: channel as 'email' | 'sms',
+          content: channel === 'sms' ? rawContent.body : (rawContent.body_text || ''),
+          subject: rawContent.subject,
+          from: rawContent.from,
+        });
+      }
+      timeline.push({
+        id: `ai-${row.id}`,
+        type: 'event',
+        timestamp: row.created_at,
+        eventType: 'ai_analysis',
+      });
+
+      // Map proposal lines with available variants from joined items
+      const lines: ProposalLine[] = (row.order_change_proposal_lines || []).map((pl: any) => ({
+        id: pl.id,
+        change_type: pl.change_type,
+        order_line_id: pl.order_line_id,
+        item_id: pl.item_id,
+        item_variant_id: pl.item_variant_id,
+        item_name: pl.item_name,
+        size: pl.proposed_values?.variant_code || '',
+        quantity: pl.proposed_values?.quantity || 0,
+        original_quantity: pl.proposed_values?.original_quantity,
+        original_size: pl.proposed_values?.original_variant_code,
+        available_variants: pl.items?.item_variants?.map((v: { id: string; variant_code: string; variant_name: string }) => ({
+          id: v.id,
+          code: v.variant_code,
+          name: v.variant_name
+        })) || [],
+      }));
+
+      // Derive order_frequency from tags if present
+      const tags: Record<string, string> = row.tags || {};
+      const orderType = (tags.order_frequency === 'recurring' ? 'recurring' : tags.order_frequency === 'one-time' ? 'one-time' : undefined) as Proposal['order_frequency'];
+
+      return {
+        id: row.id,
+        order_id: row.order_id,
+        intake_event_id: row.intake_event_id,
+        action: row.order_id ? 'assign' : 'create',
+        order_frequency: orderType,
+        customer_name: order?.customer_name
+          || (row.order_change_proposal_lines || [])[0]?.proposed_values?.customer_name
+          || rawContent.from
+          || 'Unknown',
+        delivery_date: order?.delivery_date
+          || (row.order_change_proposal_lines || [])[0]?.proposed_values?.delivery_date
+          || new Date().toISOString().split('T')[0],
+        message_count: 1,
+        channel: channel as 'email' | 'sms',
+        created_at: row.created_at,
+        message_preview: messagePreview.substring(0, 200),
+        message_full: messagePreview,
+        message_html: rawContent.body_html || undefined,
+        sender: rawContent.from || undefined,
+        subject: rawContent.subject || undefined,
+        email_date: rawContent.date || undefined,
+        lines,
+        timeline,
+      } as Proposal;
+    });
+
+    setProposals(transformed);
+  };
+
+  // Wrapper that manages loading state for standalone calls
+  const loadProposals = async () => {
+    setIsRefreshingInbox(true);
+    try {
+      await loadProposalsInternal();
+    } finally {
+      setIsRefreshingInbox(false);
+    }
+  };
+
+  // Load catalog items
+  const loadCatalog = async () => {
+    if (!organizationId) return;
+    setCatalogLoading(true);
+    const { data, error } = await supabaseClient
+      .from('items')
+      .select('id, sku, name, item_variants(id, variant_code, variant_name)')
+      .eq('organization_id', organizationId)
+      .eq('active', true)
+      .order('name');
+
+    if (error) {
+      console.error('Error loading catalog:', error);
+    } else {
+      setCatalogItems(data || []);
+    }
+    setCatalogLoading(false);
+  };
+
+  // Load customers for searchable dropdown
+  const loadCustomers = async () => {
+    if (!organizationId) return;
+    const { data, error } = await supabaseClient
+      .from('customers')
+      .select('id, name, email, phone')
+      .eq('organization_id', organizationId)
+      .order('name');
+
+    if (error) {
+      console.error('Error loading customers:', error);
+    } else {
+      setCustomers(data || []);
     }
   };
 
@@ -3522,44 +4303,252 @@ const DashboardV3: React.FC<DashboardV3Props> = ({ organizationId, layout = 'def
     return proposals.filter(p => p.order_id === null && p.delivery_date === dateKey);
   };
 
-  // Handlers (mock - just remove from state)
-  const handleApplyChange = (proposalId: string, lines: ProposalLine[]) => {
-    console.log('Applying changes:', proposalId, lines);
-    setProposals(prev => prev.filter(p => p.id !== proposalId));
-  };
-
-  const handleDismiss = (proposalId: string) => {
-    console.log('Dismissing proposal:', proposalId);
-    setProposals(prev => prev.filter(p => p.id !== proposalId));
-  };
-
-  const handleCreateOrder = (proposalId: string, lines: ProposalLine[], overrideCustomerName?: string, overrideDeliveryDate?: string) => {
+  // Handlers — apply changes to order, update DB, then remove from local state
+  const handleApplyChange = async (proposalId: string, lines: ProposalLine[]) => {
+    // Find the proposal to get the order_id
     const proposal = proposals.find(p => p.id === proposalId);
-    if (proposal) {
+    if (!proposal) return;
+
+    setApplyingProposalId(proposalId);
+    let orderId = proposal.order_id;
+
+    try {
+      // Check if this is a "delete order" scenario (all proposal lines are removals, no adds/modifies)
+      // This check must happen BEFORE creating a new order
+      const removeLines = lines.filter(l => l.change_type === 'remove');
+      const addLines = lines.filter(l => l.change_type === 'add');
+      const modifyLines = lines.filter(l => l.change_type === 'modify');
+
+      // Only allow delete if there's an existing order AND all lines are removals
+      const isDeleteOrder = orderId && lines.length > 0 &&
+        removeLines.length === lines.length &&
+        addLines.length === 0 &&
+        modifyLines.length === 0;
+
+      if (isDeleteOrder) {
+        // Cancel the existing order
+        const { error: cancelError } = await supabaseClient
+          .from('orders')
+          .update({ status: 'cancelled' })
+          .eq('id', orderId);
+
+        if (cancelError) {
+          console.error('Error cancelling order:', cancelError);
+          showToast('Failed to cancel order', 'error');
+          return;
+        }
+
+        await supabaseClient
+          .from('order_change_proposals')
+          .update({ status: 'accepted', order_id: orderId })
+          .eq('id', proposalId);
+
+        setProposals(prev => prev.filter(p => p.id !== proposalId));
+        loadOrders(false);
+        showToast('Order cancelled');
+        return;
+      }
+
+      // If no order_id, this is a new order - create it first
+      if (!orderId) {
+        // Look up customer_id from customer name
+        const matchedCustomer = customers.find(c => c.name.toLowerCase() === proposal.customer_name.toLowerCase());
+
+        const { data: newOrder, error: createError } = await supabaseClient
+          .from('orders')
+          .insert({
+            organization_id: organizationId,
+            customer_id: matchedCustomer?.id || null,
+            customer_name: proposal.customer_name,
+            status: 'pending_review',
+            source_channel: proposal.channel,
+            delivery_date: proposal.delivery_date,
+          })
+          .select()
+          .single();
+
+        if (createError || !newOrder) {
+          console.error('Error creating order:', createError);
+          showToast('Failed to create order', 'error');
+          return;
+        }
+
+        orderId = newOrder.id;
+      }
+
+      // Get max line_number for new lines
+      const { data: existingLines } = await supabaseClient
+        .from('order_lines')
+        .select('line_number')
+        .eq('order_id', orderId)
+        .order('line_number', { ascending: false })
+        .limit(1);
+      let nextLineNumber = (existingLines?.[0]?.line_number || 0) + 1;
+
+      for (const line of lines) {
+        if (line.change_type === 'add') {
+          // Look up item_variant_id from available_variants on the line (loaded with proposal)
+          let variantId = line.item_variant_id || null;
+          if (line.size && line.available_variants?.length && !variantId) {
+            const variant = line.available_variants.find(v => v.code === line.size);
+            if (variant) {
+              variantId = variant.id;
+            }
+          }
+
+          await supabaseClient.from('order_lines').insert({
+            order_id: orderId,
+            line_number: nextLineNumber++,
+            product_name: line.item_name,
+            quantity: line.quantity,
+            item_id: line.item_id || null,
+            item_variant_id: variantId,
+            status: 'active',
+          });
+        } else if (line.change_type === 'remove' && line.order_line_id) {
+          await supabaseClient
+            .from('order_lines')
+            .update({ status: 'deleted' })
+            .eq('id', line.order_line_id);
+        } else if (line.change_type === 'modify' && line.order_line_id) {
+          const updates: Record<string, unknown> = { quantity: line.quantity };
+
+          // Look up item_variant_id from available_variants on the line (loaded with proposal)
+          if (line.size && line.available_variants?.length) {
+            const variant = line.available_variants.find(v => v.code === line.size);
+            if (variant) {
+              updates.item_variant_id = variant.id;
+            }
+          } else if (line.item_variant_id) {
+            // Fallback to existing item_variant_id if no lookup possible
+            updates.item_variant_id = line.item_variant_id;
+          }
+
+          await supabaseClient
+            .from('order_lines')
+            .update(updates)
+            .eq('id', line.order_line_id);
+        }
+      }
+
+      await supabaseClient
+        .from('order_change_proposals')
+        .update({ status: 'accepted', order_id: orderId })
+        .eq('id', proposalId);
+      setProposals(prev => prev.filter(p => p.id !== proposalId));
+      loadOrders(false);
+      showToast('Changes applied');
+    } catch (error) {
+      console.error('Error applying changes:', error);
+      showToast('Failed to apply changes', 'error');
+    } finally {
+      setApplyingProposalId(null);
+    }
+  };
+
+  const handleDismiss = async (proposalId: string) => {
+    setDismissingProposalId(proposalId);
+    try {
+      await supabaseClient
+        .from('order_change_proposals')
+        .update({ status: 'rejected' })
+        .eq('id', proposalId);
+      setProposals(prev => prev.filter(p => p.id !== proposalId));
+      showToast('Proposal dismissed');
+    } catch (error) {
+      console.error('Error dismissing proposal:', error);
+      showToast('Failed to dismiss proposal', 'error');
+    } finally {
+      setDismissingProposalId(null);
+    }
+  };
+
+  const handleCreateOrder = async (proposalId: string, lines: ProposalLine[], overrideCustomerName?: string, overrideDeliveryDate?: string) => {
+    const proposal = proposals.find(p => p.id === proposalId);
+    if (!proposal || !organizationId) return;
+
+    try {
+      // Look up customer_id from customer name
+      const customerName = overrideCustomerName || proposal.customer_name;
+      const matchedCustomer = customers.find(c => c.name.toLowerCase() === customerName.toLowerCase());
+
+      // 1. Create the order in the database
+      const { data: newOrderData, error: orderError } = await supabaseClient
+        .from('orders')
+        .insert({
+          organization_id: organizationId,
+          customer_id: matchedCustomer?.id || null,
+          customer_name: customerName,
+          status: 'ready',
+          source_channel: proposal.channel,
+          delivery_date: overrideDeliveryDate || proposal.delivery_date,
+        })
+        .select()
+        .single();
+
+      if (orderError) {
+        console.error('Error creating order:', orderError);
+        return;
+      }
+
+      // 2. Create order lines
+      const orderLines = lines.map((line, index) => ({
+        order_id: newOrderData.id,
+        line_number: index + 1,
+        item_id: line.item_id || null,
+        item_variant_id: line.item_variant_id || null,
+        product_name: line.item_name,
+        quantity: line.quantity,
+        status: 'active',
+      }));
+
+      const { error: linesError } = await supabaseClient
+        .from('order_lines')
+        .insert(orderLines);
+
+      if (linesError) {
+        console.error('Error creating order lines:', linesError);
+        // Optionally rollback order creation here
+        return;
+      }
+
+      // 3. Update proposal status to accepted
+      await supabaseClient
+        .from('order_change_proposals')
+        .update({ status: 'accepted', order_id: newOrderData.id })
+        .eq('id', proposalId);
+
+      // 4. Update local state
       const newOrder: Order = {
-        id: `order-${proposalId}-${Date.now()}`,
+        id: newOrderData.id,
         customer_name: overrideCustomerName || proposal.customer_name,
-        status: 'analyzed',
-        source: proposal.channel === 'email' ? 'email' : proposal.channel === 'sms' ? 'text' : 'manual',
+        status: 'ready',
+        source: proposal.channel,
         delivery_date: overrideDeliveryDate || proposal.delivery_date,
-        created_at: new Date().toISOString(),
+        created_at: newOrderData.created_at,
         items: lines.map(line => ({
+          order_line_id: line.id,
           name: line.item_name,
-          size: line.size === 'Large' ? 'L' : line.size === 'Small' ? 'S' : line.size || 'L',
+          size: line.size || '',
           quantity: line.quantity,
         })),
         line_count: lines.length,
       };
       setOrders(prev => [...prev, newOrder]);
+      setProposals(prev => prev.filter(p => p.id !== proposalId));
+      setCreateNewOrderModal(null);
+      showToast('Order created');
+    } catch (error) {
+      console.error('Error creating order:', error);
+      showToast('Failed to create order', 'error');
     }
-    setProposals(prev => prev.filter(p => p.id !== proposalId));
-    setCreateNewOrderModal(null);
   };
 
-  const handleReassignToOrder = (proposalId: string, targetOrderId: string) => {
-    console.log('Reassigning proposal to order:', proposalId, targetOrderId);
-    setProposals(prev => prev.filter(p => p.id !== proposalId));
-    setAssignToOrderModal(null);
+  const handleUpdateOrderFrequency = async (proposalId: string, value: 'one-time' | 'recurring') => {
+    await supabaseClient
+      .from('order_change_proposals')
+      .update({ tags: { order_frequency: value } })
+      .eq('id', proposalId);
   };
 
   const handleOpenCreateNewOrderModal = (proposalId: string) => {
@@ -3691,16 +4680,42 @@ const DashboardV3: React.FC<DashboardV3Props> = ({ organizationId, layout = 'def
     <InboxFeed
       proposals={proposals}
       orders={orders}
+      customers={customers}
       onApplyChange={handleApplyChange}
       onCreateOrder={handleCreateOrder}
       onDismiss={handleDismiss}
       onOpenCreateNewOrderModal={handleOpenCreateNewOrderModal}
       onOpenAssignToOrderModal={handleOpenAssignToOrderModal}
+      onUpdateOrderFrequency={handleUpdateOrderFrequency}
+      onRefresh={refreshAll}
+      isRefreshing={isRefreshingInbox}
+      dismissingProposalId={dismissingProposalId}
+      applyingProposalId={applyingProposalId}
     />
   ) : (
-    <div className="flex flex-col items-center justify-center py-12 text-gray-400">
-      <Check className="w-8 h-8 mb-2" />
-      <p className="text-sm">All caught up!</p>
+    <div>
+      <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2">
+            <Bell className="w-5 h-5 text-amber-600" />
+            <h3 className="text-lg font-semibold text-gray-900">Inbox</h3>
+          </div>
+        </div>
+        {/* Refresh button temporarily disabled - use page reload instead
+        <button
+          onClick={refreshAll}
+          disabled={isRefreshingInbox}
+          className="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors disabled:opacity-50"
+          title="Refresh inbox"
+        >
+          <RefreshCw className={`w-4 h-4 ${isRefreshingInbox ? 'animate-spin' : ''}`} />
+        </button>
+        */}
+      </div>
+      <div className="flex flex-col items-center justify-center py-12 text-gray-400">
+        <Check className="w-8 h-8 mb-2" />
+        <p className="text-sm">All caught up!</p>
+      </div>
     </div>
   );
 
@@ -3723,6 +4738,15 @@ const DashboardV3: React.FC<DashboardV3Props> = ({ organizationId, layout = 'def
             <span>Hide days with no orders</span>
           </label>
         )}
+        {/* Reload */}
+        <button
+          onClick={() => { loadOrders(); loadProposals(); }}
+          disabled={isLoading}
+          className="p-2 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-lg transition-colors disabled:opacity-50"
+          title="Reload orders & proposals"
+        >
+          <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} />
+        </button>
         {/* View Toggle */}
         <div className="flex items-center bg-gray-100 rounded-lg p-1">
           <button
@@ -3757,6 +4781,7 @@ const DashboardV3: React.FC<DashboardV3Props> = ({ organizationId, layout = 'def
       {createNewOrderModal && (
         <CreateNewOrderModal
           proposal={createNewOrderModal.proposal}
+          customers={customers}
           onCreateOrder={handleCreateOrder}
           onClose={() => setCreateNewOrderModal(null)}
         />
@@ -3766,51 +4791,118 @@ const DashboardV3: React.FC<DashboardV3Props> = ({ organizationId, layout = 'def
           proposal={assignToOrderModal.proposal}
           sourceOrderId={assignToOrderModal.sourceOrderId}
           allOrders={orders}
-          onReassignToOrder={handleReassignToOrder}
           onClose={() => setAssignToOrderModal(null)}
+          onRefresh={refreshAll}
         />
       )}
     </>
   );
 
+  // Frootful brand color
+  const frootfulGreen = '#53AD6D';
+
   if (layout === 'sidebar') {
     return (
-      <div className="flex gap-0" style={{ minHeight: 'calc(100vh - 73px)' }}>
-        {/* Side Nav */}
-        <nav className="w-56 flex-shrink-0 bg-white border-r border-gray-200 py-4">
-          <div className="space-y-1 px-3">
-            <button
-              onClick={() => setSidebarTab('inbox')}
-              className={`w-full flex items-center justify-between px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
-                sidebarTab === 'inbox'
-                  ? 'bg-green-50 text-green-700'
-                  : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
-              }`}
-            >
-              <div className="flex items-center space-x-3">
-                <Inbox className="w-5 h-5" />
-                <span>Inbox</span>
-              </div>
-              {proposals.length > 0 && (
-                <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${
+      <div className="flex h-screen">
+        {/* Side Nav - Frootful style (light theme) */}
+        <nav className={`${sidebarCollapsed ? 'w-16' : 'w-56'} flex-shrink-0 bg-white border-r border-gray-200 flex flex-col transition-all duration-200`}>
+          {/* Logo / Brand area with collapse toggle */}
+          <div className={`h-16 flex items-center justify-between ${sidebarCollapsed ? 'px-2' : 'px-4'} border-b border-gray-100`}>
+            {sidebarCollapsed ? (
+              /* Collapsed: just the logo icon, clickable to expand */
+              <button
+                onClick={() => setSidebarCollapsed(false)}
+                className="w-full flex justify-center p-2 rounded-lg hover:bg-gray-100 transition-colors"
+                title="Expand sidebar"
+              >
+                <svg width="28" height="28" viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
+                  <path d="M50 10 L85 45 L75 55 L50 30 L25 55 L15 45 Z" fill={frootfulGreen} rx="8"/>
+                  <path d="M50 35 L75 60 L65 70 L50 55 L35 70 L25 60 Z" fill={frootfulGreen} rx="8"/>
+                </svg>
+              </button>
+            ) : (
+              /* Expanded: logo + text + collapse button */
+              <>
+                <div className="flex items-center gap-2">
+                  <svg width="28" height="28" viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <path d="M50 10 L85 45 L75 55 L50 30 L25 55 L15 45 Z" fill={frootfulGreen} rx="8"/>
+                    <path d="M50 35 L75 60 L65 70 L50 55 L35 70 L25 60 Z" fill={frootfulGreen} rx="8"/>
+                  </svg>
+                  <span className="text-2xl font-bold" style={{ color: frootfulGreen }}>Frootful</span>
+                </div>
+                <button
+                  onClick={() => setSidebarCollapsed(true)}
+                  className="p-1.5 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors"
+                  title="Collapse sidebar"
+                >
+                  <ChevronLeft className="w-5 h-5" />
+                </button>
+              </>
+            )}
+          </div>
+
+          {/* Nav items */}
+          <div className="flex-1 py-4">
+            <div className={`space-y-1 ${sidebarCollapsed ? 'px-2' : 'px-3'}`}>
+              <button
+                onClick={() => setSidebarTab('inbox')}
+                className={`relative w-full flex items-center ${sidebarCollapsed ? 'justify-center' : ''} gap-3 px-3 py-2.5 rounded-lg transition-colors ${
                   sidebarTab === 'inbox'
-                    ? 'bg-green-200 text-green-800'
-                    : 'bg-gray-200 text-gray-600'
-                }`}>
-                  {proposals.length}
-                </span>
-              )}
-            </button>
+                    ? 'text-white'
+                    : 'text-gray-600 hover:bg-gray-100'
+                }`}
+                style={sidebarTab === 'inbox' ? { backgroundColor: frootfulGreen } : undefined}
+                title="Inbox"
+              >
+                <Inbox className="w-5 h-5 flex-shrink-0" />
+                {!sidebarCollapsed && <span className="font-medium">Inbox</span>}
+                {proposals.length > 0 && (
+                  <span className={`${sidebarCollapsed ? 'absolute -top-1 -right-1' : 'ml-auto'} min-w-[20px] h-5 flex items-center justify-center bg-red-500 text-white text-xs font-bold rounded-full px-1`}>
+                    {proposals.length > 99 ? '99+' : proposals.length}
+                  </span>
+                )}
+              </button>
+              <button
+                onClick={() => setSidebarTab('orders')}
+                className={`w-full flex items-center ${sidebarCollapsed ? 'justify-center' : ''} gap-3 px-3 py-2.5 rounded-lg transition-colors ${
+                  sidebarTab === 'orders'
+                    ? 'text-white'
+                    : 'text-gray-600 hover:bg-gray-100'
+                }`}
+                style={sidebarTab === 'orders' ? { backgroundColor: frootfulGreen } : undefined}
+                title="Orders"
+              >
+                <Package className="w-5 h-5 flex-shrink-0" />
+                {!sidebarCollapsed && <span className="font-medium">Orders</span>}
+              </button>
+              <button
+                onClick={() => setSidebarTab('catalog')}
+                className={`w-full flex items-center ${sidebarCollapsed ? 'justify-center' : ''} gap-3 px-3 py-2.5 rounded-lg transition-colors ${
+                  sidebarTab === 'catalog'
+                    ? 'text-white'
+                    : 'text-gray-600 hover:bg-gray-100'
+                }`}
+                style={sidebarTab === 'catalog' ? { backgroundColor: frootfulGreen } : undefined}
+                title="Catalog"
+              >
+                <ShoppingBag className="w-5 h-5 flex-shrink-0" />
+                {!sidebarCollapsed && <span className="font-medium">Catalog</span>}
+              </button>
+            </div>
+          </div>
+
+          {/* Bottom collapse/expand arrow */}
+          <div className={`border-t border-gray-100 p-2 ${sidebarCollapsed ? 'px-2' : 'px-3'}`}>
             <button
-              onClick={() => setSidebarTab('orders')}
-              className={`w-full flex items-center space-x-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
-                sidebarTab === 'orders'
-                  ? 'bg-green-50 text-green-700'
-                  : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
-              }`}
+              onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
+              className="w-full flex items-center justify-center p-2 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors"
+              title={sidebarCollapsed ? 'Expand navigation' : 'Collapse navigation'}
             >
-              <Package className="w-5 h-5" />
-              <span>Orders</span>
+              {sidebarCollapsed ? (
+                <ChevronRight className="w-5 h-5" />
+              ) : (
+                <ChevronLeft className="w-5 h-5" />
+              )}
             </button>
             <button
               onClick={() => setSidebarTab('upload')}
@@ -3835,38 +4927,283 @@ const DashboardV3: React.FC<DashboardV3Props> = ({ organizationId, layout = 'def
               <span>Analytics</span>
             </button>
           </div>
+
         </nav>
 
-        {/* Main Content */}
-        <main className="flex-1 min-w-0 p-6 overflow-y-auto">
-          {sidebarTab === 'inbox' && (
+        {/* Right side: Header + Content */}
+        <div className="flex-1 flex flex-col min-w-0">
+          {/* Header */}
+          {headerContent && (
+            <header className="h-16 bg-white border-b border-gray-200 flex items-center justify-between px-6 flex-shrink-0">
+              <div className="flex items-center space-x-3">
+                {headerContent.organization ? (
+                  <div className="flex items-center space-x-2 px-3 py-1 bg-green-50 rounded-lg border border-green-200">
+                    <Building2 className="w-4 h-4 text-green-600" />
+                    <span className="text-sm font-medium text-green-900">{headerContent.organization.name}</span>
+                  </div>
+                ) : (
+                  <div className="flex items-center space-x-2 px-3 py-1 bg-red-50 rounded-lg border border-red-200">
+                    <AlertCircle className="w-4 h-4 text-red-600" />
+                    <span className="text-sm font-medium text-red-900">No Organization</span>
+                  </div>
+                )}
+              </div>
+
+              <div className="flex items-center space-x-4">
+                {/* PWA Install Button */}
+                {headerContent.isInstallable && (
+                  <button
+                    onClick={headerContent.onInstallPWA}
+                    className="flex items-center space-x-2 px-3 py-1.5 text-sm bg-green-100 text-green-700 rounded-lg hover:bg-green-200 transition-colors"
+                  >
+                    <Smartphone className="w-4 h-4" />
+                    <span>Install App</span>
+                  </button>
+                )}
+
+                {headerContent.user && (
+                  <div className="flex items-center space-x-3">
+                    <div className="text-right">
+                      <p className="text-sm font-medium text-gray-900">{headerContent.user.user_metadata?.full_name || headerContent.user.email}</p>
+                      <p className="text-xs text-gray-500">Connected to Gmail</p>
+                    </div>
+                    {headerContent.user.user_metadata?.avatar_url && (
+                      <img
+                        src={headerContent.user.user_metadata.avatar_url}
+                        alt="Profile"
+                        className="w-8 h-8 rounded-full"
+                      />
+                    )}
+                  </div>
+                )}
+                <div className="relative group">
+                  <button className="p-2 text-gray-400 hover:text-gray-600 transition-colors rounded-lg hover:bg-gray-100">
+                    <Settings className="w-5 h-5" />
+                  </button>
+                  <div className="absolute right-0 mt-2 w-48 bg-white rounded-lg shadow-lg py-1 z-10 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 border border-gray-200">
+                    <button
+                      onClick={headerContent.onNavigateSettings}
+                      className="flex items-center gap-2 w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
+                    >
+                      <Settings className="w-4 h-4" />
+                      Settings
+                    </button>
+                    <button
+                      onClick={headerContent.onSignOut}
+                      disabled={headerContent.isSigningOut}
+                      className="flex items-center gap-2 w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {headerContent.isSigningOut ? (
+                        <>
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                          <span>Signing out...</span>
+                        </>
+                      ) : (
+                        <>
+                          <LogOut className="w-4 h-4" />
+                          <span>Sign Out</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </header>
+          )}
+
+          {/* Main Content */}
+          <main className="flex-1 min-w-0 p-6 overflow-y-auto bg-gray-50">
+            {sidebarTab === 'inbox' && (
             <div className="space-y-4">
               {proposals.length > 0 ? (
                 inboxFeedElement
               ) : (
-                <div className="bg-white rounded-xl border border-gray-200 p-12 text-center text-gray-500">
-                  <Inbox className="w-12 h-12 mx-auto mb-3 text-gray-300" />
-                  <p className="text-lg font-medium text-gray-900 mb-1">All caught up</p>
-                  <p>No new messages to review</p>
+                <div className="bg-white rounded-xl border border-gray-200">
+                  <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
+                    <div className="flex items-center gap-2">
+                      <Bell className="w-5 h-5 text-amber-600" />
+                      <h3 className="text-lg font-semibold text-gray-900">Inbox</h3>
+                    </div>
+                    {/* Refresh button temporarily disabled - use page reload instead
+                    <button
+                      onClick={loadProposals}
+                      disabled={isRefreshingInbox}
+                      className="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors disabled:opacity-50"
+                      title="Refresh inbox"
+                    >
+                      <RefreshCw className={`w-4 h-4 ${isRefreshingInbox ? 'animate-spin' : ''}`} />
+                    </button>
+                    */}
+                  </div>
+                  <div className="p-12 text-center text-gray-500">
+                    <Inbox className="w-12 h-12 mx-auto mb-3 text-gray-300" />
+                    <p className="text-lg font-medium text-gray-900 mb-1">All caught up</p>
+                    <p>No new messages to review</p>
+                  </div>
                 </div>
               )}
             </div>
           )}
 
-          {sidebarTab === 'upload' && <UploadOrdersSection />}
+          {/* Upload content - hidden for now */}
+          {/* {sidebarTab === 'upload' && <UploadOrdersSection />} */}
 
-          {sidebarTab === 'analytics' && <AnalyticsDashboard />}
+          {/* Analytics content - hidden for now */}
+          {/* {sidebarTab === 'analytics' && <AnalyticsDashboard />} */}
+
+          {sidebarTab === 'catalog' && (
+            <div className="bg-white rounded-xl border border-gray-200">
+              <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
+                <div className="flex items-center gap-2">
+                  <ShoppingBag className="w-5 h-5 text-green-600" />
+                  <h3 className="text-lg font-semibold text-gray-900">Catalog ({catalogItems.length} items)</h3>
+                </div>
+                <button
+                  onClick={loadCatalog}
+                  disabled={catalogLoading}
+                  className="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors disabled:opacity-50"
+                  title="Refresh catalog"
+                >
+                  <RefreshCw className={`w-4 h-4 ${catalogLoading ? 'animate-spin' : ''}`} />
+                </button>
+              </div>
+
+              {/* Search */}
+              <div className="px-6 py-3 border-b border-gray-100">
+                <div className="relative">
+                  <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
+                  <input
+                    type="text"
+                    placeholder="Search items..."
+                    value={catalogSearch}
+                    onChange={(e) => setCatalogSearch(e.target.value)}
+                    className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 text-sm"
+                  />
+                </div>
+              </div>
+
+              {catalogLoading ? (
+                <div className="flex items-center justify-center py-12">
+                  <Loader2 className="w-6 h-6 animate-spin text-green-600" />
+                </div>
+              ) : catalogItems.length === 0 ? (
+                <div className="p-12 text-center text-gray-500">
+                  <ShoppingBag className="w-12 h-12 mx-auto mb-3 text-gray-300" />
+                  <p className="text-lg font-medium text-gray-900 mb-1">No items in catalog</p>
+                  <p>Items will appear here once added to your organization.</p>
+                </div>
+              ) : (
+                <div className="divide-y divide-gray-100 max-h-[calc(100vh-280px)] overflow-y-auto">
+                  {catalogItems
+                    .filter(item =>
+                      catalogSearch === '' ||
+                      item.name.toLowerCase().includes(catalogSearch.toLowerCase()) ||
+                      item.sku.toLowerCase().includes(catalogSearch.toLowerCase())
+                    )
+                    .map((item) => {
+                      const isExpanded = expandedCatalogItems.has(item.id);
+                      const hasVariants = item.item_variants && item.item_variants.length > 0;
+
+                      return (
+                        <div key={item.id}>
+                          <button
+                            onClick={() => {
+                              if (hasVariants) {
+                                const newExpanded = new Set(expandedCatalogItems);
+                                if (isExpanded) {
+                                  newExpanded.delete(item.id);
+                                } else {
+                                  newExpanded.add(item.id);
+                                }
+                                setExpandedCatalogItems(newExpanded);
+                              }
+                            }}
+                            className={`w-full px-6 py-3 text-left flex items-center justify-between hover:bg-gray-50 ${hasVariants ? 'cursor-pointer' : 'cursor-default'}`}
+                          >
+                            <div className="flex items-center space-x-3">
+                              {hasVariants ? (
+                                isExpanded ? (
+                                  <ChevronDown className="w-4 h-4 text-gray-400" />
+                                ) : (
+                                  <ChevronRight className="w-4 h-4 text-gray-400" />
+                                )
+                              ) : (
+                                <div className="w-4 h-4" />
+                              )}
+                              <div>
+                                <p className="font-medium text-sm text-gray-900">{item.name}</p>
+                                <p className="text-xs text-gray-500 font-mono">{item.sku}</p>
+                              </div>
+                            </div>
+                            {hasVariants && (
+                              <span className="text-xs text-gray-400">
+                                {item.item_variants.length} variant{item.item_variants.length !== 1 ? 's' : ''}
+                              </span>
+                            )}
+                          </button>
+
+                          {/* Variants (expanded) */}
+                          {isExpanded && hasVariants && (
+                            <div className="bg-gray-50 border-t border-gray-100">
+                              <table className="w-full text-sm">
+                                <thead>
+                                  <tr className="text-xs text-gray-500 border-b border-gray-200">
+                                    <th className="text-left px-6 py-2 pl-14">Variant</th>
+                                    <th className="text-left px-4 py-2">Code</th>
+                                    <th className="text-left px-4 py-2">Full SKU</th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {item.item_variants.map((variant) => (
+                                    <tr key={variant.id} className="border-b border-gray-100 last:border-b-0">
+                                      <td className="px-6 py-2 pl-14 text-gray-700">{variant.variant_name}</td>
+                                      <td className="px-4 py-2">
+                                        <span className="inline-block px-2 py-0.5 bg-green-100 text-green-700 rounded text-xs font-medium">
+                                          {variant.variant_code}
+                                        </span>
+                                      </td>
+                                      <td className="px-4 py-2 text-gray-500 font-mono text-xs">{item.sku}-{variant.variant_code}</td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                </div>
+              )}
+            </div>
+          )}
 
           {sidebarTab === 'orders' && (
             <div className="space-y-6">
               {headerElement}
+
+              {!isLoading && (
+                (viewMode === 'week' && filteredDisplayDates.length === 0) ||
+                (viewMode === 'list' && filteredOrders.length === 0)
+              ) && (
+                <div className="bg-gray-50 border border-gray-200 rounded-xl p-8 text-center">
+                  <svg className="mx-auto h-12 w-12 text-gray-400 mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+                  </svg>
+                  <h3 className="text-lg font-medium text-gray-900 mb-1">No orders found</h3>
+                  <p className="text-sm text-gray-500">No orders found for the next 7 days. Orders will appear here once they are created or imported.</p>
+                </div>
+              )}
 
               {viewMode === 'week' ? (
                 <div className="space-y-4">
                   {filteredDisplayDates.map(date => {
                     const dateKey = date.toISOString().split('T')[0];
                     const customersForDate = getOrdersForDate(date);
-                    const customerNames = Object.keys(customersForDate);
+                    const customerNames = Object.keys(customersForDate).sort((a, b) => {
+                      const aFirst = customersForDate[a][0]?.created_at || '';
+                      const bFirst = customersForDate[b][0]?.created_at || '';
+                      return aFirst.localeCompare(bFirst);
+                    });
                     const totalOrders = getTotalOrdersForDate(date);
                     const isExpanded = expandedDates.has(dateKey);
                     const today = isToday(date);
@@ -3961,6 +5298,29 @@ const DashboardV3: React.FC<DashboardV3Props> = ({ organizationId, layout = 'def
                                           </div>
                                         </div>
                                         <div className="flex items-center space-x-3">
+                                          {/* Source labels for this customer's orders */}
+                                          <div className="flex items-center gap-1">
+                                            {[...new Set(customerOrders.map(o => o.source))].map(source => (
+                                              <Tooltip
+                                                key={source}
+                                                text={`${source === 'sms' || source === 'text' ? 'SMS' : source === 'erp' ? 'ERP' : source === 'edi' ? 'EDI' : 'Email'} order`}
+                                                position="bottom"
+                                              >
+                                                <div
+                                                  className={`flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium ${
+                                                    source === 'email' ? 'bg-blue-100 text-blue-600' :
+                                                    source === 'sms' || source === 'text' ? 'bg-purple-100 text-purple-600' :
+                                                    source === 'edi' ? 'bg-orange-100 text-orange-600' :
+                                                    source === 'erp' ? 'bg-teal-100 text-teal-600' :
+                                                    'bg-gray-100 text-gray-600'
+                                                  }`}
+                                                >
+                                                  {getSourceIcon(source)}
+                                                  <span>{source === 'sms' || source === 'text' ? 'SMS' : source === 'erp' ? 'ERP' : source === 'edi' ? 'EDI' : 'Email'}</span>
+                                                </div>
+                                              </Tooltip>
+                                            ))}
+                                          </div>
                                           {isCustomerSelected ? (
                                             <ChevronUp className="w-4 h-4 text-gray-400" />
                                           ) : (
@@ -3986,7 +5346,7 @@ const DashboardV3: React.FC<DashboardV3Props> = ({ organizationId, layout = 'def
                                                           <th className="pb-2 font-medium w-12 text-center">Qty</th>
                                                         </tr>
                                                       </thead>
-                                                      <tbody className="divide-y divide-gray-50">
+                                                      <tbody className="divide-y divide-gray-100">
                                                         {order.items.map((item, idx) => (
                                                           <tr key={idx}>
                                                             <td className="py-1.5 text-gray-700">{item.name}</td>
@@ -4107,9 +5467,24 @@ const DashboardV3: React.FC<DashboardV3Props> = ({ organizationId, layout = 'def
               )}
             </div>
           )}
-        </main>
+          </main>
+        </div>
 
         {modalsElement}
+
+        {/* Toast notification */}
+        {toast && (
+          <div className={`fixed bottom-4 right-4 px-4 py-3 rounded-lg shadow-lg flex items-center gap-2 z-50 ${
+            toast.type === 'success' ? 'bg-green-600 text-white' : 'bg-red-600 text-white'
+          }`}>
+            {toast.type === 'success' ? (
+              <Check className="w-4 h-4" />
+            ) : (
+              <X className="w-4 h-4" />
+            )}
+            {toast.message}
+          </div>
+        )}
       </div>
     );
   }
@@ -4128,7 +5503,11 @@ const DashboardV3: React.FC<DashboardV3Props> = ({ organizationId, layout = 'def
             {filteredDisplayDates.map(date => {
               const dateKey = date.toISOString().split('T')[0];
               const customersForDate = getOrdersForDate(date);
-              const customerNames = Object.keys(customersForDate);
+              const customerNames = Object.keys(customersForDate).sort((a, b) => {
+                const aFirst = customersForDate[a][0]?.created_at || '';
+                const bFirst = customersForDate[b][0]?.created_at || '';
+                return aFirst.localeCompare(bFirst);
+              });
               const totalOrders = getTotalOrdersForDate(date);
               const isExpanded = expandedDates.has(dateKey);
               const today = isToday(date);
@@ -4229,6 +5608,29 @@ const DashboardV3: React.FC<DashboardV3Props> = ({ organizationId, layout = 'def
                                   </div>
 
                                   <div className="flex items-center space-x-3">
+                                    {/* Source labels for this customer's orders */}
+                                    <div className="flex items-center gap-1">
+                                      {[...new Set(customerOrders.map(o => o.source))].map(source => (
+                                        <Tooltip
+                                          key={source}
+                                          text={`${source === 'sms' || source === 'text' ? 'SMS' : source === 'erp' ? 'ERP' : source === 'edi' ? 'EDI' : 'Email'} order`}
+                                          position="bottom"
+                                        >
+                                          <div
+                                            className={`flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium ${
+                                              source === 'email' ? 'bg-blue-100 text-blue-600' :
+                                              source === 'sms' || source === 'text' ? 'bg-purple-100 text-purple-600' :
+                                              source === 'edi' ? 'bg-orange-100 text-orange-600' :
+                                              source === 'erp' ? 'bg-teal-100 text-teal-600' :
+                                              'bg-gray-100 text-gray-600'
+                                            }`}
+                                          >
+                                            {getSourceIcon(source)}
+                                            <span>{source === 'sms' || source === 'text' ? 'SMS' : source === 'erp' ? 'ERP' : source === 'edi' ? 'EDI' : 'Email'}</span>
+                                          </div>
+                                        </Tooltip>
+                                      ))}
+                                    </div>
                                     {isCustomerSelected ? (
                                       <ChevronUp className="w-4 h-4 text-gray-400" />
                                     ) : (
@@ -4255,7 +5657,7 @@ const DashboardV3: React.FC<DashboardV3Props> = ({ organizationId, layout = 'def
                                                     <th className="pb-2 font-medium w-12 text-center">Qty</th>
                                                   </tr>
                                                 </thead>
-                                                <tbody className="divide-y divide-gray-50">
+                                                <tbody className="divide-y divide-gray-100">
                                                   {order.items.map((item, idx) => (
                                                     <tr key={idx}>
                                                       <td className="py-1.5 text-gray-700">{item.name}</td>
@@ -4423,6 +5825,20 @@ const DashboardV3: React.FC<DashboardV3Props> = ({ organizationId, layout = 'def
       )}
 
       {modalsElement}
+
+      {/* Toast notification */}
+      {toast && (
+        <div className={`fixed bottom-4 right-4 px-4 py-3 rounded-lg shadow-lg flex items-center gap-2 z-50 ${
+          toast.type === 'success' ? 'bg-green-600 text-white' : 'bg-red-600 text-white'
+        }`}>
+          {toast.type === 'success' ? (
+            <Check className="w-4 h-4" />
+          ) : (
+            <X className="w-4 h-4" />
+          )}
+          {toast.message}
+        </div>
+      )}
     </div>
   );
 };

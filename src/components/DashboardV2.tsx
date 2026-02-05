@@ -1003,7 +1003,7 @@ function printPackingSummary(dateStr: string, orders: Order[]) {
       </tr>
     </tbody>
   </table>
-  <div class="footer">Generated from Frootful Sales Aggregation</div>
+  <div class="footer">Generated from Frootful</div>
   <script>window.onload = function() { window.print(); }</script>
 </body>
 </html>`;
