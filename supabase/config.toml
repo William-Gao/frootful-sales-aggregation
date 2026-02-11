@@ -270,6 +270,10 @@ verify_jwt = false
 [functions.process-intake-event]
 verify_jwt = false
 
+# Sync orders to Google Sheet - called by database trigger
+[functions.sync-google-sheet]
+verify_jwt = false
+
 [analytics]
 enabled = true
 port = 54327
