@@ -158,7 +158,7 @@ interface HeaderContentProps {
   onNavigateSettings: () => void;
 }
 
-interface DashboardV3Props {
+interface DashboardProps {
   organizationId: string | null;
   layout?: 'default' | 'sidebar';
   headerContent?: HeaderContentProps;
@@ -3974,7 +3974,7 @@ interface CatalogItem {
   item_variants: { id: string; variant_code: string; variant_name: string }[];
 }
 
-const DashboardV3: React.FC<DashboardV3Props> = ({ organizationId, layout = 'default', headerContent }) => {
+const Dashboard: React.FC<DashboardProps> = ({ organizationId, layout = 'default', headerContent }) => {
   const [viewMode, setViewMode] = useState<ViewMode>('week');
   const [sidebarTab, setSidebarTab] = useState<'inbox' | 'orders' | 'upload' | 'analytics' | 'catalog'>('inbox');
   const [orders, setOrders] = useState<Order[]>([]);
@@ -4449,10 +4449,31 @@ const DashboardV3: React.FC<DashboardV3Props> = ({ organizationId, layout = 'def
   const handleDismiss = async (proposalId: string) => {
     setDismissingProposalId(proposalId);
     try {
+      const proposal = proposals.find(p => p.id === proposalId);
+
+      // Update proposal status
       await supabaseClient
         .from('order_change_proposals')
-        .update({ status: 'rejected' })
+        .update({
+          status: 'rejected',
+          reviewed_at: new Date().toISOString()
+        })
         .eq('id', proposalId);
+
+      // Create order event for rejected change (only for change proposals to existing orders)
+      if (proposal && proposal.order_id) {
+        await supabaseClient
+          .from('order_events')
+          .insert({
+            order_id: proposal.order_id,
+            type: 'change_rejected',
+            metadata: {
+              proposal_id: proposalId,
+              changes_rejected: proposal.lines.length
+            }
+          });
+      }
+
       setProposals(prev => prev.filter(p => p.id !== proposalId));
       showToast('Proposal dismissed');
     } catch (error) {
@@ -5026,10 +5047,10 @@ const DashboardV3: React.FC<DashboardV3Props> = ({ organizationId, layout = 'def
           )}
 
           {/* Upload content - hidden for now */}
-          {/* {sidebarTab === 'upload' && <UploadOrdersSection />} */}
+          {sidebarTab === 'upload' && <UploadOrdersSection />}
 
           {/* Analytics content - hidden for now */}
-          {/* {sidebarTab === 'analytics' && <AnalyticsDashboard />} */}
+          {sidebarTab === 'analytics' && <AnalyticsDashboard />}
 
           {sidebarTab === 'catalog' && (
             <div className="bg-white rounded-xl border border-gray-200">
@@ -5823,4 +5844,4 @@ const DashboardV3: React.FC<DashboardV3Props> = ({ organizationId, layout = 'def
   );
 };
 
-export default DashboardV3;
+export default Dashboard;

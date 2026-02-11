@@ -1,7 +1,7 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Building2, Settings } from 'lucide-react';
-import DashboardV3 from '../components/DashboardV3';
+import Dashboard from '../components/Dashboard';
 
 const MOCK_USER = {
   name: 'Test User',
@@ -60,7 +60,7 @@ const DashboardDemo: React.FC = () => {
       </header>
 
       {/* Content */}
-      <DashboardV3 organizationId={MOCK_ORG.id} layout="sidebar" />
+      <Dashboard organizationId={MOCK_ORG.id} layout="sidebar" />
     </div>
   );
 };
