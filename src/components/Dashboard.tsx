@@ -31,6 +31,8 @@ import {
 } from 'lucide-react';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { supabaseClient } from '../supabaseClient';
+import UploadOrdersSection from './UploadOrdersSection';
+import AnalyticsDashboard from './AnalyticsDashboard';
 
 // ============================================================================
 // TOOLTIP COMPONENT
@@ -5045,8 +5047,10 @@ const Dashboard: React.FC<DashboardProps> = ({ organizationId, layout = 'default
           )}
 
           {/* Upload content - hidden for now */}
+          {sidebarTab === 'upload' && <UploadOrdersSection />}
 
           {/* Analytics content - hidden for now */}
+          {sidebarTab === 'analytics' && <AnalyticsDashboard />}
 
           {sidebarTab === 'catalog' && (
             <div className="bg-white rounded-xl border border-gray-200">
