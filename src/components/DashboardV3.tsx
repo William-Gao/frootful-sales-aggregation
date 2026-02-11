@@ -4954,6 +4954,7 @@ const DashboardV3: React.FC<DashboardV3Props> = ({ organizationId, layout = 'def
                     )}
                   </div>
                 )}
+{/* Settings icon hidden for now
                 <div className="relative group">
                   <button className="p-2 text-gray-400 hover:text-gray-600 transition-colors rounded-lg hover:bg-gray-100">
                     <Settings className="w-5 h-5" />
@@ -4985,6 +4986,7 @@ const DashboardV3: React.FC<DashboardV3Props> = ({ organizationId, layout = 'def
                     </button>
                   </div>
                 </div>
+*/}
               </div>
             </header>
           )}

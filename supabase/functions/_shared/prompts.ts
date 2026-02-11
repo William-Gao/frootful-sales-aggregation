@@ -142,13 +142,15 @@ Products come in different sizes. Each variant has:
 - "name": the variant name (e.g., "Small Clamshell", "Large Clamshell")
 - "notes": additional info like oz weight (e.g., "1.5oz", "3oz")
 
-When matching sizes from customer messages:
-- Match "small", "S" → variant with code "S"
-- Match "large", "L" → variant with code "L"
-- Match "tray" → variant with code containing "T"
-- Match oz weights (e.g., "3oz", "1.5oz") to the variant whose "notes" field contains that weight
+CRITICAL: Match oz weights to variants by looking at each item's variant "notes" field.
+- If customer says "3oz", find the variant whose "notes" contains "3oz"
+- Do NOT assume 3oz = Large or 1.5oz = Small
+- The oz-to-variant mapping varies by item, so always check the "notes" field
 
-Use the variant "notes" field to match oz weights to the correct variant code.
+For general size references (when oz not specified):
+- "small", "S" → variant with code "S"
+- "large", "L" → variant with code "L"
+- "tray" → variant with code containing "T"
 
 CUSTOMER IDENTIFICATION:
 Customers often identify themselves at the start of SMS messages (e.g., "311 Boston - Hi...").
@@ -178,7 +180,76 @@ Return JSON:
 
 IMPORTANT:
 - Only include items with a matching ID from the available items list
-- When customer specifies oz weight, find the variant whose "notes" field matches (e.g., customer says "3oz" → find variant with notes "3oz")
+- CRITICAL: When customer specifies oz weight, look at each item's variants and find the one whose "notes" field contains that oz weight. Do NOT assume oz weights map to specific sizes.
+- Look for day references like "this Tuesday" to determine delivery date
+- If no delivery date mentioned, omit requestedDeliveryDate`
+  },
+
+  // Boston Microgreens - production organization
+  'e047b512-0012-4287-bb74-dc6d4f7e673f': {
+    system: (ctx) => {
+      const simplifiedItems = ctx.itemsList.map(item => ({
+        id: item.id,
+        name: item.displayName,
+        ...(item.variants && item.variants.length > 0 ? { variants: item.variants } : {})
+      }));
+      const simplifiedCustomers = ctx.customersList.map(customer => ({
+        id: customer.id,
+        name: customer.displayName
+      }));
+
+      return `You are an expert sales associate at a premium microgreens producer. You help process orders from restaurant chefs and food service customers.
+
+Available microgreens products: ${JSON.stringify(simplifiedItems)}
+Available customers (restaurants, chefs, food service): ${JSON.stringify(simplifiedCustomers)}
+
+IMPORTANT: Today's date is ${ctx.currentDate}. Microgreens orders typically need delivery within 1-2 days for freshness.
+
+ITEM VARIANTS:
+Products come in different sizes. Each variant has:
+- "code": the variant code (e.g., "S", "L", "T20")
+- "name": the variant name (e.g., "Small Clamshell", "Large Clamshell")
+- "notes": additional info like oz weight (e.g., "1.5oz", "3oz")
+
+CRITICAL: Match oz weights to variants by looking at each item's variant "notes" field.
+- If customer says "3oz", find the variant whose "notes" contains "3oz"
+- Do NOT assume 3oz = Large or 1.5oz = Small
+- The oz-to-variant mapping varies by item, so always check the "notes" field
+
+For general size references (when oz not specified):
+- "small", "S" → variant with code "S"
+- "large", "L" → variant with code "L"
+- "tray" → variant with code containing "T"
+
+CUSTOMER IDENTIFICATION:
+Customers often identify themselves at the start of SMS messages (e.g., "311 Boston - Hi...").
+Match the customer name/number to the available customers list.
+
+ORDER FREQUENCY:
+- "weekly", "every week", "standing order", "recurring", "regular", "same as usual" → orderFrequency: "recurring"
+- Otherwise → orderFrequency: "one-time"`;
+    },
+
+    user: (ctx) => `Extract the microgreens order from this message. Match products and customer to the available lists.
+
+Message:
+${ctx.content}
+
+Return JSON:
+{
+  "orderLines": [{
+    "itemId": "matched item id (REQUIRED)",
+    "variantCode": "S, L, or T20 if size specified",
+    "quantity": number
+  }],
+  "customerId": "matched customer id",
+  "requestedDeliveryDate": "YYYY-MM-DD",
+  "orderFrequency": "one-time" or "recurring"
+}
+
+IMPORTANT:
+- Only include items with a matching ID from the available items list
+- CRITICAL: When customer specifies oz weight, look at each item's variants and find the one whose "notes" field contains that oz weight. Do NOT assume oz weights map to specific sizes.
 - Look for day references like "this Tuesday" to determine delivery date
 - If no delivery date mentioned, omit requestedDeliveryDate`
   },
@@ -210,11 +281,15 @@ Some items have size/type variants listed under "variants" with:
 - "name": variant name (e.g., "Small Clamshell", "Large Clamshell", "Price Live Tray")
 - "notes": additional info like oz weight (e.g., "1.5oz", "3oz")
 
-When the customer specifies a size, match to the correct variant:
-- If they say "small", "S", "1.5oz" → use variant code "S"
-- If they say "large", "L", "3oz" → use variant code "L"
-- If they say "tray", "T20" → use variant code "T20"
-- Use the "notes" field to match oz weights to the correct variant code
+CRITICAL: Match oz weights to variants by looking at each item's variant "notes" field.
+- If customer says "3oz", find the variant whose "notes" contains "3oz"
+- Do NOT assume 3oz = Large or 1.5oz = Small
+- The oz-to-variant mapping varies by item, so always check the "notes" field
+
+For general size references (when oz not specified):
+- "small", "S" → variant with code "S"
+- "large", "L" → variant with code "L"
+- "tray", "T20" → variant with code "T20"
 
 Return the "code" value as "variantCode" in your response. If no size specified, omit variantCode.
 

@@ -244,11 +244,15 @@ Each item may have variants with:
 - "name": variant name (Small Clamshell, Large Clamshell, Price Live Tray)
 - "notes": additional info like oz weight (e.g., "1.5oz", "3oz")
 
-When matching sizes from customer messages:
-- Match "small", "S", or oz weights like "1.5oz" → variant code "S"
-- Match "large", "L", or oz weights like "3oz" → variant code "L"
-- Match "tray", "T20" → variant code "T20"
-- Use the "notes" field to match oz weights to the correct variant code
+CRITICAL: Match oz weights to variants by looking at each item's variant "notes" field.
+- If customer says "3oz", find the variant whose "notes" contains "3oz"
+- Do NOT assume 3oz = Large or 1.5oz = Small
+- The oz-to-variant mapping varies by item, so always check the "notes" field
+
+For general size references (when oz not specified):
+- "small", "S" → variant with code "S"
+- "large", "L" → variant with code "L"
+- "tray", "T20" → variant with code "T20"
 
 EXISTING ORDER CONTEXT:
 Customer: ${targetOrder.customer_name}
@@ -268,6 +272,14 @@ Only include changes that are clearly indicated in the message.`;
 MESSAGE:
 ${messageContent}
 
+IMPORTANT RULES FOR MODIFICATIONS:
+1. When customer requests ONLY a variant/size change (e.g., "change X to large", "switch X to T20"):
+   - Keep the SAME quantity from the existing order line
+   - Only change the variant code
+   - Do NOT modify the quantity unless explicitly specified
+2. When customer specifies a quantity AND variant, use both values
+3. When customer specifies only a quantity change, keep the existing variant
+
 Return JSON in this format:
 {
   "proposedChanges": [
@@ -276,7 +288,7 @@ Return JSON in this format:
       "itemId": "item UUID from catalog (required for add)",
       "variantCode": "variant code if specified (e.g. S, L, T20)",
       "itemName": "human readable item name",
-      "quantity": number (for add/modify),
+      "quantity": number (for add/modify - use existing quantity if only changing variant),
       "orderLineId": "existing order line ID (for modify/remove)"
     }
   ]

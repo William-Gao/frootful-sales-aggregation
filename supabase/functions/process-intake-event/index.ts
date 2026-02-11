@@ -1162,9 +1162,19 @@ Your task is to:
 4. Identify modifications (items where quantity or variant/size changed)
 
 ITEM VARIANTS:
-Each item may have size variants. When the customer specifies a size:
-- "small", "S", "1.5oz" → variant_code: "S"
-- "large", "L", "3oz" → variant_code: "L"
+Each item may have size variants with:
+- "code": variant code (S, L, T20)
+- "name": variant name
+- "notes": additional info like oz weight (e.g., "1.5oz", "3oz")
+
+CRITICAL: Match oz weights to variants by looking at each item's variant "notes" field.
+- If customer says "3oz", find the variant whose "notes" contains "3oz"
+- Do NOT assume 3oz = Large or 1.5oz = Small
+- The oz-to-variant mapping varies by item, so always check the "notes" field
+
+For general size references (when oz not specified):
+- "small", "S" → variant_code: "S"
+- "large", "L" → variant_code: "L"
 - "tray", "T20" → variant_code: "T20"
 
 Use the catalog items list to find the correct item_id and variant_code.
@@ -1221,7 +1231,15 @@ Return JSON with this structure:
   "reasoning": "brief explanation of what changed"
 }
 
-IMPORTANT:
+IMPORTANT RULES FOR MODIFICATIONS:
+1. When customer requests ONLY a variant/size change (e.g., "change X to large", "switch X to T20"):
+   - Keep the SAME quantity from the existing order line
+   - Only change the variant code
+   - Do NOT modify the quantity unless explicitly specified
+2. When customer specifies a quantity AND variant, use both values
+3. When customer specifies only a quantity change, keep the existing variant
+
+OTHER RULES:
 - For "modify": Match to the existing order line by product name and include its order_line_id
 - For "add": New items not in the original order, order_line_id should be null
 - For "remove": Items in original order but not in the change request, include order_line_id

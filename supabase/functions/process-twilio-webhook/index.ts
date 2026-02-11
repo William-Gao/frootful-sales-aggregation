@@ -70,15 +70,57 @@ Deno.serve(async (req) => {
       throw new Error('Missing required webhook data: From or Body');
     }
 
-    // Create intake_event - database webhook will handle analysis and order creation
-    // TODO: In the future, look up organization by the "To" phone number
-    // For now, hardcode to the test organization (microgreens producer)
-    const TEST_ORGANIZATION_ID = 'ac3dd72d-373d-4424-8085-55b3b1844459';
+    // Look up organization from sender's phone number (user phone → user_organizations)
+    const normalizedPhone = webhookData.From.replace(/\s+/g, '');
+    console.log(`🔍 Looking up organization for phone: ${normalizedPhone}`);
 
+    let organizationId: string | null = null;
+
+    // Try to find user by phone number using existing RPC
+    const { data: userId } = await supabase
+      .rpc('get_user_id_by_phone', { user_phone: normalizedPhone });
+
+    if (userId) {
+      const { data: userOrg } = await supabase
+        .from('user_organizations')
+        .select('organization_id')
+        .eq('user_id', userId)
+        .single();
+
+      if (userOrg) {
+        organizationId = userOrg.organization_id;
+        console.log(`✅ Resolved org ${organizationId} from phone ${normalizedPhone}`);
+      }
+    } else {
+      // Try without + prefix (some systems store without it)
+      const phoneWithoutPlus = normalizedPhone.replace(/^\+/, '');
+      const { data: altUserId } = await supabase
+        .rpc('get_user_id_by_phone', { user_phone: phoneWithoutPlus });
+
+      if (altUserId) {
+        const { data: userOrg } = await supabase
+          .from('user_organizations')
+          .select('organization_id')
+          .eq('user_id', altUserId)
+          .single();
+
+        if (userOrg) {
+          organizationId = userOrg.organization_id;
+          console.log(`✅ Resolved org ${organizationId} from phone ${phoneWithoutPlus} (without +)`);
+        }
+      }
+    }
+
+    // Error if no organization found - don't silently route to wrong org
+    if (!organizationId) {
+      throw new Error(`No organization found for phone number: ${normalizedPhone}`);
+    }
+
+    // Create intake_event with resolved organization
     const { data: intakeEvent, error: intakeError } = await supabase
       .from('intake_events')
       .insert({
-        organization_id: TEST_ORGANIZATION_ID,
+        organization_id: organizationId,
         channel: 'sms',
         provider: 'twilio',
         provider_message_id: webhookData.MessageSid,
