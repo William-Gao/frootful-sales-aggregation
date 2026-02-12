@@ -113,12 +113,12 @@ Deno.serve(async (req) => {
                 isReply = true;
                 console.log(`Found parent order ${parentOrder.id} in thread ${processedEmailData.threadId}`);
 
-                // Update parent order status to needs_review and store the update email details
-                console.log('Updating parent order status to needs_review...');
+                // Update parent order status to pending_review and store the update email details
+                console.log('Updating parent order status to pending_review...');
                 const { error: updateError } = await supabase
                     .from('email_orders')
                     .update({
-                        status: 'needs_review',
+                        status: 'pending_review',
                         updated_at: new Date().toISOString(),
                         analysis_data: {
                             ...parentOrder.analysis_data,

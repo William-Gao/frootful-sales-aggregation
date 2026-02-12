@@ -681,7 +681,7 @@ Deno.serve(async (req) => {
           order_id: null, // NULL indicates this is a new order proposal
           intake_event_id: intakeEvent.id,
           status: 'pending',
-          tags: { order_frequency: analysisResult.orderFrequency || 'one-time' }
+          tags: { intent: 'new_order', order_frequency: analysisResult.orderFrequency || 'one-time' }
         })
         .select()
         .single();
@@ -814,7 +814,10 @@ Deno.serve(async (req) => {
         items
       );
 
-      orgLogger.info('Changes determined', { changeCount: changesResult.proposedChanges?.length || 0 });
+      // Ensure proposedChanges is always an array (AI may return undefined/null for large emails)
+      const proposedChanges = changesResult.proposedChanges || [];
+
+      orgLogger.info('Changes determined', { changeCount: proposedChanges.length });
 
       // Create proposal
       const { data: proposal, error: proposalError } = await supabase
@@ -824,7 +827,7 @@ Deno.serve(async (req) => {
           order_id: matchedOrder.id,
           intake_event_id: intakeEvent.id,
           status: 'pending',
-          tags: { order_frequency: analysisResult.orderFrequency || 'one-time' }
+          tags: { intent: 'change_order', order_frequency: analysisResult.orderFrequency || 'one-time' }
         })
         .select()
         .single();
@@ -842,8 +845,8 @@ Deno.serve(async (req) => {
         metadata: {
           proposal_id: proposal.id,
           channel: intakeEvent.channel,
-          change_count: changesResult.proposedChanges.length,
-          changes_summary: changesResult.proposedChanges.map((c: any) => ({
+          change_count: proposedChanges.length,
+          changes_summary: proposedChanges.map((c: any) => ({
             type: c.change_type,
             item: c.item_name
           }))
@@ -854,7 +857,7 @@ Deno.serve(async (req) => {
       // Build a map of valid item IDs to their official data
       const itemsById = new Map<string, Item>(items.map((item: Item) => [item.id, item]));
 
-      const proposalLines = changesResult.proposedChanges.map((change: any, _index: number) => {
+      const proposalLines = proposedChanges.map((change: any, _index: number) => {
         // Validate item_id exists in current items list
         const itemId = change.item_id;
         const matchedItem = itemId ? itemsById.get(itemId) : null;
@@ -911,7 +914,7 @@ Deno.serve(async (req) => {
       // Update order status to needs_review
       await supabase
         .from('orders')
-        .update({ status: 'needs_review' })
+        .update({ status: 'pending_review' })
         .eq('id', matchedOrder.id);
 
       return new Response(
@@ -930,8 +933,101 @@ Deno.serve(async (req) => {
           }
         }
       );
+    } else if (intentResult.intent === 'CANCEL_ORDER') {
+      // Handle order cancellation - no need to analyze individual line changes
+      const matchedOrderId = intentResult.matchedOrderId;
+      orgLogger.info('Processing order cancellation', { matchedOrderId });
+
+      if (!matchedOrderId) {
+        orgLogger.warn('CANCEL_ORDER intent but no matchedOrderId');
+        return new Response(
+          JSON.stringify({
+            success: true,
+            data: {
+              intake_event_id: intakeEventId,
+              intent: intentResult.intent,
+              message: 'Cancel intent detected but no order matched'
+            }
+          }),
+          {
+            headers: {
+              'Content-Type': 'application/json',
+              ...corsHeaders
+            }
+          }
+        );
+      }
+
+      // Search both upcoming and past orders for the matched order
+      const allOrders = [...upcomingOrders, ...pastOrders];
+      const matchedOrder = allOrders.find(o => o.id === matchedOrderId);
+      if (!matchedOrder) {
+        orgLogger.error('Matched order not found for cancellation', undefined, { matchedOrderId });
+        throw new Error(`Matched order ${matchedOrderId} not found`);
+      }
+
+      orgLogger.info('Order found for cancellation', {
+        orderId: matchedOrder.id,
+        customer: matchedOrder.customer_name,
+        deliveryDate: matchedOrder.delivery_date
+      });
+
+      // Create a cancel proposal (simpler than change proposal - no line analysis needed)
+      // Cancel orders are typically one-time actions (cancelling a specific order)
+      const { data: proposal, error: proposalError } = await supabase
+        .from('order_change_proposals')
+        .insert({
+          organization_id: organizationId,
+          order_id: matchedOrder.id,
+          intake_event_id: intakeEvent.id,
+          status: 'pending',
+          tags: { intent: 'cancel_order', order_frequency: 'one-time' }
+        })
+        .select()
+        .single();
+
+      if (proposalError) throw proposalError;
+
+      const proposalLogger = orgLogger.child({ proposalId: proposal.id, orderId: matchedOrder.id });
+      proposalLogger.info('Created cancel proposal');
+
+      // Create order event for cancellation proposal
+      await supabase.from('order_events').insert({
+        order_id: matchedOrder.id,
+        intake_event_id: intakeEvent.id,
+        type: 'cancel_proposed',
+        metadata: {
+          proposal_id: proposal.id,
+          channel: intakeEvent.channel,
+          reasoning: intentResult.reasoning
+        }
+      });
+
+      // Update order status to needs_review
+      await supabase
+        .from('orders')
+        .update({ status: 'pending_review' })
+        .eq('id', matchedOrder.id);
+
+      return new Response(
+        JSON.stringify({
+          success: true,
+          data: {
+            proposal_id: proposal.id,
+            order_id: matchedOrder.id,
+            intake_event_id: intakeEventId,
+            intent: 'CANCEL_ORDER'
+          }
+        }),
+        {
+          headers: {
+            'Content-Type': 'application/json',
+            ...corsHeaders
+          }
+        }
+      );
     } else {
-      // Unknown intent or not relevant
+      // Unknown intent or not relevant (CONFIRMATION, IRRELEVANT)
       orgLogger.info('No action taken for intent', { intent: intentResult.intent });
 
       return new Response(
@@ -996,10 +1092,19 @@ async function determineOrderIntent(
         content: `You are an expert at analyzing order-related messages and determining if they represent:
 1. A NEW order (customer placing a fresh order with multiple items)
 2. A CHANGE to an existing order (modifying quantities, adding/removing items, changing delivery date)
-3. A CONFIRMATION or acknowledgment (no action needed)
-4. IRRELEVANT (not order-related)
+3. A CANCEL order (customer wants to cancel their entire order - NOT individual item removals)
+4. A CONFIRMATION or acknowledgment (no action needed)
+5. IRRELEVANT (not order-related)
 
 CRITICAL RULE: If there is ALREADY an order for this customer on the requested delivery date (in UPCOMING orders), the intent is ALWAYS CHANGE_ORDER, not NEW_ORDER. The customer is modifying their existing order for that day.
+
+CANCEL vs CHANGE_ORDER - THIS IS CRITICAL:
+- CANCEL_ORDER: Customer wants to cancel THE ENTIRE ORDER with NO specific items mentioned (e.g., "cancel my order", "cancel everything", "I don't need my order anymore", "please cancel", "we won't need the delivery")
+- CHANGE_ORDER: Customer mentions ANY SPECIFIC ITEM by name, even if they say "remove" (e.g., "remove the radish", "take off the basil", "remove the cabbage from all orders", "please remove X going forward")
+
+IMPORTANT: If the message mentions a SPECIFIC ITEM NAME (like "cabbage", "radish", "sunflower", etc.), it is ALWAYS a CHANGE_ORDER, even if they say "remove from all orders" or "going forward". The key distinction is:
+- Specific item mentioned → CHANGE_ORDER (removing that item from orders)
+- No specific item mentioned, just "cancel" → CANCEL_ORDER (cancelling entire order)
 
 CUSTOMER NAME MATCHING: If Customer ID is "Unknown", look at the customer_name in the UPCOMING orders and try to match by name. Names may be spelled slightly differently (e.g., "Deauxave" might match "Deuxave" or "Deaux Ave"). Use fuzzy matching logic - if a customer name in the message is similar to an order's customer_name, consider it a match.
 
@@ -1008,10 +1113,19 @@ CRITICAL: If a customer with upcoming orders asks to "add", "remove", or "change
 Change/modification indicators (→ CHANGE_ORDER):
 - "can we add", "add a", "add one more", "add to my order"
 - "change", "update", "modify", "increase", "decrease"
-- "remove", "cancel", "take off"
+- "remove [specific item]", "take off [item]", "drop the [item]"
+- "remove X from all orders", "remove X going forward" (still CHANGE_ORDER because specific item is named)
 - "just for this [day]" (implies modifying a specific delivery)
 - Single item requests from customers with existing orders
 - ANY request that mentions a date where the customer already has an order
+- ANY message that names a specific product/item
+
+Cancel indicators (→ CANCEL_ORDER):
+- "cancel my order", "cancel the order", "cancel everything"
+- "we don't need", "we won't need the delivery"
+- "please cancel", "need to cancel"
+- NO specific items/products mentioned, just cancelling the whole order
+- The word "cancel" WITHOUT any specific item names
 
 New order indicators (→ NEW_ORDER):
 - Full order lists with multiple items AND no existing order for that date
@@ -1070,22 +1184,23 @@ ${JSON.stringify(pastOrders.map(o => ({
 
 Return JSON with this structure:
 {
-  "intent": "NEW_ORDER" | "CHANGE_ORDER" | "CONFIRMATION" | "IRRELEVANT",
-  "matchedOrderId": "uuid-if-change-order" | null,
+  "intent": "NEW_ORDER" | "CHANGE_ORDER" | "CANCEL_ORDER" | "CONFIRMATION" | "IRRELEVANT",
+  "matchedOrderId": "uuid-if-change-or-cancel-order" | null,
   "confidence": 0.0 to 1.0,
   "reasoning": "brief explanation"
 }
 
-For CHANGE_ORDER:
+For CHANGE_ORDER and CANCEL_ORDER:
 - Match to the most relevant order based on delivery date
-- Return the order ID that should be modified
+- Return the order ID that should be modified or cancelled
 - If the message mentions a specific day (e.g., "this Tuesday", "2/10"), match to the order with that delivery date
-- ALWAYS return matchedOrderId if intent is CHANGE_ORDER
+- ALWAYS return matchedOrderId if intent is CHANGE_ORDER or CANCEL_ORDER
 
 CRITICAL:
-1. If there's an EXACT DATE MATCH (shown above), intent MUST be CHANGE_ORDER with the matched order ID
+1. If there's an EXACT DATE MATCH (shown above), intent MUST be CHANGE_ORDER or CANCEL_ORDER with the matched order ID
 2. If a customer says "can we add X" or "remove X" or "change X" and has an upcoming order, this is a CHANGE_ORDER
-3. Only use NEW_ORDER if there is NO existing order for this customer on the requested date
+3. If a customer wants to cancel THE ENTIRE ORDER (not just specific items), use CANCEL_ORDER
+4. Only use NEW_ORDER if there is NO existing order for this customer on the requested date
 `
       }
     ],
@@ -1250,7 +1365,7 @@ OTHER RULES:
       }
     ],
     temperature: 0.3,
-    max_completion_tokens: 2000,
+    max_completion_tokens: 16384,
     response_format: { type: "json_object" }
   };
 
@@ -1263,7 +1378,13 @@ OTHER RULES:
       response_format: requestData.response_format
     });
 
-    const result = JSON.parse(completion.choices[0].message.content || '{}');
+    const responseContent = completion.choices[0].message.content || '{}';
+    console.info('[determineOrderChanges] AI response length:', responseContent.length);
+    console.info('[determineOrderChanges] Finish reason:', completion.choices[0].finish_reason);
+
+    const result = JSON.parse(responseContent);
+    console.info('[determineOrderChanges] Parsed changes count:', result.proposedChanges?.length || 0);
+
     return result;
   } catch (error) {
     console.error('========== ERROR IN determineOrderChanges ==========');

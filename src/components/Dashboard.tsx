@@ -10,6 +10,7 @@ import {
   ChevronLeft,
   ChevronRight,
   ChevronUp,
+  Clock,
   Filter,
   Inbox,
   LayoutGrid,
@@ -22,6 +23,7 @@ import {
   Printer,
   Search,
   RefreshCw,
+  Repeat,
   Settings,
   ShoppingBag,
   Smartphone,
@@ -139,6 +141,7 @@ interface Proposal {
   lines: ProposalLine[];
   timeline: TimelineEvent[];
   order_frequency?: 'one-time' | 'recurring';
+  tags?: { intent?: string; order_frequency?: string };
 }
 
 interface Customer {
@@ -146,6 +149,41 @@ interface Customer {
   name: string;
   email?: string | null;
   phone?: string | null;
+}
+
+interface IntakeHistoryProposalLine {
+  id: string;
+  change_type: 'add' | 'modify' | 'remove';
+  item_name: string;
+  proposed_values?: {
+    quantity?: number;
+    variant_code?: string;
+  };
+}
+
+interface IntakeHistoryItem {
+  id: string;
+  channel: 'email' | 'sms';
+  provider: string;
+  created_at: string;
+  raw_content: {
+    from?: string;
+    subject?: string;
+    body?: string;
+    body_text?: string;
+  };
+  // Assignment info
+  assigned_order_id?: string | null;
+  assigned_order_number?: string | null;
+  assigned_customer_name?: string | null;
+  proposal_status?: 'pending' | 'accepted' | 'rejected' | null;
+  proposal_lines?: IntakeHistoryProposalLine[];
+  proposal_id?: string | null;
+  proposal_tags?: {
+    intent?: string;
+    order_frequency?: 'one-time' | 'recurring';
+    erp_sync_status?: 'pending' | 'synced';
+  };
 }
 
 interface HeaderContentProps {
@@ -3226,11 +3264,12 @@ const InboxCard: React.FC<InboxCardProps> = ({
         </div>
       </div>
 
-      {/* Collapsible body */}
+      {/* Collapsible body - side by side on desktop, stacked on mobile */}
       {!collapsed && (
-        <div className="px-5 pb-5">
-      {/* 1. Message — email-style viewer */}
-      <div className="mb-3">
+        <div className="px-4 pb-4">
+          <div className="flex flex-col lg:flex-row lg:gap-3 lg:items-start">
+      {/* LEFT SIDE: Message — email-style viewer */}
+      <div className="lg:w-1/2 lg:flex-shrink-0 mb-4 lg:mb-0">
         <div className="border border-gray-200 rounded-lg overflow-hidden bg-white shadow-sm">
           {/* Email header */}
           {proposal.channel === 'email' ? (
@@ -3375,6 +3414,8 @@ const InboxCard: React.FC<InboxCardProps> = ({
         )}
       </div>
 
+      {/* RIGHT SIDE: AI Recommendation */}
+      <div className="lg:w-1/2 lg:flex-shrink-0">
       {/* 2. System suggestion banner */}
       {isUndetermined ? (
         /* Undetermined — could not determine action */
@@ -3574,7 +3615,7 @@ const InboxCard: React.FC<InboxCardProps> = ({
                   {new Date(proposal.delivery_date + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
                 </p>
               </div>
-              {matchedOrder && matchedOrder.items.length > 0 && (
+              {matchedOrder && matchedOrder.items.length > 0 && proposal.tags?.intent !== 'cancel_order' && (
                 showOrderItems ? <ChevronUp className="w-4 h-4 text-blue-400" /> : <ChevronDown className="w-4 h-4 text-blue-400" />
               )}
             </div>
@@ -3601,8 +3642,8 @@ const InboxCard: React.FC<InboxCardProps> = ({
                   : 'This will update the customer\u2019s standing order for this day of the week.'}
               </div>
             </div>
-            {/* Expandable current order items */}
-            {showOrderItems && matchedOrder && matchedOrder.items.length > 0 && (
+            {/* Expandable current order items - hidden for cancel proposals */}
+            {showOrderItems && matchedOrder && matchedOrder.items.length > 0 && proposal.tags?.intent !== 'cancel_order' && (
               <div className="mt-2 px-3 py-2 bg-white border border-blue-200 rounded-lg">
                 <p className="text-xs text-gray-400 uppercase tracking-wider mb-1">Current order items</p>
                 <div className="text-sm text-gray-600 space-y-0.5">
@@ -3619,8 +3660,16 @@ const InboxCard: React.FC<InboxCardProps> = ({
             {/* Changes table inside recommendation box */}
             <div className="border-t border-blue-200 mt-3 pt-2">
               <p className="text-xs text-blue-600/70 uppercase tracking-wider font-medium mb-1.5">Changes</p>
+              {/* Cancel Order proposal - shown when intent is cancel_order */}
+              {matchedOrder && proposal.tags?.intent === 'cancel_order' && (
+                <div className="mb-2 px-3 py-2 bg-red-100 border border-red-300 rounded-lg">
+                  <p className="text-sm font-semibold text-red-700">Cancel Order</p>
+                  <p className="text-xs text-red-600">Customer requested to cancel this entire order.</p>
+                </div>
+              )}
               {/* Delete Order label - shown when all lines are removals with no adds */}
               {matchedOrder &&
+               !proposal.tags?.intent &&
                editableLines.length > 0 &&
                editableLines.every(l => l.change_type === 'remove') && (
                 <div className="mb-2 px-3 py-2 bg-red-100 border border-red-300 rounded-lg">
@@ -3628,6 +3677,8 @@ const InboxCard: React.FC<InboxCardProps> = ({
                   <p className="text-xs text-red-600">This order will be cancelled.</p>
                 </div>
               )}
+              {/* Hide changes table for cancel_order intent - no line-level changes */}
+              {proposal.tags?.intent !== 'cancel_order' && (
               <table className="w-full text-sm">
                 <thead>
                   <tr className="text-xs text-blue-600/60 uppercase tracking-wider">
@@ -3782,16 +3833,23 @@ const InboxCard: React.FC<InboxCardProps> = ({
                   </tr>
                 </tbody>
               </table>
+              )}
             </div>
             {/* Action buttons inside recommendation box */}
             <div className="flex items-center gap-2 mt-3 pt-3 border-t border-blue-200">
               <button
                 onClick={() => onApplyChange(proposal.id, editableLines)}
                 disabled={isApplying || isDismissing}
-                className="flex items-center gap-1 px-4 py-2 bg-green-600 text-white text-sm font-medium rounded-lg hover:bg-green-700 transition-colors disabled:opacity-50"
+                className={`flex items-center gap-1 px-4 py-2 text-white text-sm font-medium rounded-lg transition-colors disabled:opacity-50 ${
+                  proposal.tags?.intent === 'cancel_order'
+                    ? 'bg-red-600 hover:bg-red-700'
+                    : 'bg-green-600 hover:bg-green-700'
+                }`}
               >
                 {isApplying ? (
-                  <><Loader2 className="w-4 h-4 animate-spin" /> Applying...</>
+                  <><Loader2 className="w-4 h-4 animate-spin" /> {proposal.tags?.intent === 'cancel_order' ? 'Cancelling...' : 'Applying...'}</>
+                ) : proposal.tags?.intent === 'cancel_order' ? (
+                  <><X className="w-4 h-4" /> Cancel Order</>
                 ) : (
                   <><Check className="w-4 h-4" /> Apply Changes</>
                 )}
@@ -3833,6 +3891,10 @@ const InboxCard: React.FC<InboxCardProps> = ({
           </div>
         </div>
       )}
+      </div>
+      {/* End RIGHT SIDE */}
+          </div>
+          {/* End flex container */}
         </div>
       )}
     </div>
@@ -3976,7 +4038,7 @@ interface CatalogItem {
 
 const Dashboard: React.FC<DashboardProps> = ({ organizationId, layout = 'default', headerContent }) => {
   const [viewMode, setViewMode] = useState<ViewMode>('week');
-  const [sidebarTab, setSidebarTab] = useState<'inbox' | 'orders' | 'upload' | 'analytics' | 'catalog'>('inbox');
+  const [sidebarTab, setSidebarTab] = useState<'inbox' | 'orders' | 'upload' | 'analytics' | 'catalog' | 'history'>('inbox');
   const [orders, setOrders] = useState<Order[]>([]);
   const [proposals, setProposals] = useState<Proposal[]>(MOCK_PROPOSALS);
   const [isLoading, setIsLoading] = useState(true);
@@ -3998,6 +4060,12 @@ const Dashboard: React.FC<DashboardProps> = ({ organizationId, layout = 'default
 
   // Customers state (for searchable customer dropdown)
   const [customers, setCustomers] = useState<Customer[]>([]);
+
+  // History state
+  const [intakeHistory, setIntakeHistory] = useState<IntakeHistoryItem[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [expandedHistoryItems, setExpandedHistoryItems] = useState<Set<string>>(new Set());
+  const [historyFilter, setHistoryFilter] = useState<'7d' | '30d'>('7d');
 
   // Sidebar collapsed state
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
@@ -4050,6 +4118,13 @@ const Dashboard: React.FC<DashboardProps> = ({ organizationId, layout = 'default
       loadCatalog();
     }
   }, [sidebarTab, organizationId]);
+
+  // Load history when switching to history tab or changing filter
+  useEffect(() => {
+    if (sidebarTab === 'history' && organizationId) {
+      loadHistory();
+    }
+  }, [sidebarTab, organizationId, historyFilter]);
 
   const loadOrders = async (showFullPageLoading = true) => {
     if (!organizationId) return;
@@ -4221,6 +4296,7 @@ const Dashboard: React.FC<DashboardProps> = ({ organizationId, layout = 'default
         intake_event_id: row.intake_event_id,
         action: row.order_id ? 'assign' : 'create',
         order_frequency: orderType,
+        tags: row.tags || undefined,
         customer_name: order?.customer_name
           || (row.order_change_proposal_lines || [])[0]?.proposed_values?.customer_name
           || rawContent.from
@@ -4290,6 +4366,72 @@ const Dashboard: React.FC<DashboardProps> = ({ organizationId, layout = 'default
     }
   };
 
+  // Load intake history
+  const loadHistory = async () => {
+    if (!organizationId) return;
+    setHistoryLoading(true);
+
+    // Calculate date threshold based on filter
+    const now = new Date();
+    const daysAgo = historyFilter === '7d' ? 7 : 30;
+    const dateThreshold = new Date(now.getTime() - daysAgo * 24 * 60 * 60 * 1000).toISOString();
+
+    // Get intake events with their proposal assignments and proposal lines
+    const { data, error } = await supabaseClient
+      .from('intake_events')
+      .select(`
+        id,
+        channel,
+        provider,
+        created_at,
+        raw_content,
+        order_change_proposals (
+          id,
+          status,
+          order_id,
+          tags,
+          orders ( id, customer_name, delivery_date ),
+          order_change_proposal_lines ( id, change_type, item_name, proposed_values )
+        )
+      `)
+      .eq('organization_id', organizationId)
+      .gte('created_at', dateThreshold)
+      .order('created_at', { ascending: false });
+
+    if (error) {
+      console.error('Error loading history:', error);
+    } else {
+      const transformed: IntakeHistoryItem[] = (data || []).map((item: any) => {
+        // Check for change proposal assignment
+        const proposal = item.order_change_proposals?.[0];
+        const order = proposal?.orders;
+        const lines = proposal?.order_change_proposal_lines || [];
+
+        return {
+          id: item.id,
+          channel: item.channel,
+          provider: item.provider,
+          created_at: item.created_at,
+          raw_content: item.raw_content,
+          assigned_order_id: order?.id || null,
+          assigned_order_number: order?.delivery_date || null,
+          assigned_customer_name: order?.customer_name || null,
+          proposal_status: proposal?.status || null,
+          proposal_lines: lines.map((l: any) => ({
+            id: l.id,
+            change_type: l.change_type,
+            item_name: l.item_name,
+            proposed_values: l.proposed_values,
+          })),
+          proposal_id: proposal?.id || null,
+          proposal_tags: proposal?.tags || null,
+        };
+      });
+      setIntakeHistory(transformed);
+    }
+    setHistoryLoading(false);
+  };
+
   // Get proposals for a specific order
   const getProposalsForOrder = (orderId: string, customerName: string, deliveryDate: string) => {
     return proposals.filter(p =>
@@ -4313,19 +4455,11 @@ const Dashboard: React.FC<DashboardProps> = ({ organizationId, layout = 'default
     let orderId = proposal.order_id;
 
     try {
-      // Check if this is a "delete order" scenario (all proposal lines are removals, no adds/modifies)
-      // This check must happen BEFORE creating a new order
-      const removeLines = lines.filter(l => l.change_type === 'remove');
-      const addLines = lines.filter(l => l.change_type === 'add');
-      const modifyLines = lines.filter(l => l.change_type === 'modify');
+      // Check if this is a cancel order proposal (intent: cancel_order)
+      // ONLY cancel when intent is explicitly cancel_order - removing specific items should NOT cancel the order
+      const isCancelOrder = proposal.tags?.intent === 'cancel_order' && orderId;
 
-      // Only allow delete if there's an existing order AND all lines are removals
-      const isDeleteOrder = orderId && lines.length > 0 &&
-        removeLines.length === lines.length &&
-        addLines.length === 0 &&
-        modifyLines.length === 0;
-
-      if (isDeleteOrder) {
+      if (isCancelOrder) {
         // Cancel the existing order
         const { error: cancelError } = await supabaseClient
           .from('orders')
@@ -4338,9 +4472,16 @@ const Dashboard: React.FC<DashboardProps> = ({ organizationId, layout = 'default
           return;
         }
 
+        // Set ERP sync status to pending for recurring cancel orders
+        const isCancelRecurring = proposal.tags?.order_frequency === 'recurring' || proposal.order_frequency === 'recurring';
+        const cancelTags = isCancelRecurring ? {
+          ...proposal.tags,
+          erp_sync_status: 'pending' as const
+        } : proposal.tags;
+
         await supabaseClient
           .from('order_change_proposals')
-          .update({ status: 'accepted', order_id: orderId })
+          .update({ status: 'accepted', order_id: orderId, tags: cancelTags })
           .eq('id', proposalId);
 
         setProposals(prev => prev.filter(p => p.id !== proposalId));
@@ -4431,9 +4572,16 @@ const Dashboard: React.FC<DashboardProps> = ({ organizationId, layout = 'default
         }
       }
 
+      // Set ERP sync status to pending for recurring orders
+      const isRecurring = proposal.tags?.order_frequency === 'recurring' || proposal.order_frequency === 'recurring';
+      const updatedTags = isRecurring ? {
+        ...proposal.tags,
+        erp_sync_status: 'pending' as const
+      } : proposal.tags;
+
       await supabaseClient
         .from('order_change_proposals')
-        .update({ status: 'accepted', order_id: orderId })
+        .update({ status: 'accepted', order_id: orderId, tags: updatedTags })
         .eq('id', proposalId);
       setProposals(prev => prev.filter(p => p.id !== proposalId));
       loadOrders(false);
@@ -4481,6 +4629,30 @@ const Dashboard: React.FC<DashboardProps> = ({ organizationId, layout = 'default
       showToast('Failed to dismiss proposal', 'error');
     } finally {
       setDismissingProposalId(null);
+    }
+  };
+
+  // Toggle ERP sync status for a proposal in History tab (admin only)
+  const handleToggleErpSync = async (proposalId: string, currentTags: IntakeHistoryItem['proposal_tags']) => {
+    const currentStatus = currentTags?.erp_sync_status || 'pending';
+    const newStatus = currentStatus === 'synced' ? 'pending' : 'synced';
+
+    const updatedTags = {
+      ...currentTags,
+      erp_sync_status: newStatus as 'pending' | 'synced'
+    };
+
+    const { error } = await supabaseClient
+      .from('order_change_proposals')
+      .update({ tags: updatedTags })
+      .eq('id', proposalId);
+
+    if (!error) {
+      loadHistory();
+      showToast(newStatus === 'synced' ? 'Marked as synced to ERP' : 'Marked as pending ERP sync');
+    } else {
+      console.error('Error updating ERP sync status:', error);
+      showToast('Failed to update ERP status', 'error');
     }
   };
 
@@ -4534,9 +4706,16 @@ const Dashboard: React.FC<DashboardProps> = ({ organizationId, layout = 'default
       }
 
       // 3. Update proposal status to accepted
+      // Set ERP sync status to pending for recurring orders
+      const isRecurringOrder = proposal.tags?.order_frequency === 'recurring' || proposal.order_frequency === 'recurring';
+      const createOrderTags = isRecurringOrder ? {
+        ...proposal.tags,
+        erp_sync_status: 'pending' as const
+      } : proposal.tags;
+
       await supabaseClient
         .from('order_change_proposals')
-        .update({ status: 'accepted', order_id: newOrderData.id })
+        .update({ status: 'accepted', order_id: newOrderData.id, tags: createOrderTags })
         .eq('id', proposalId);
 
       // 4. Update local state
@@ -4566,10 +4745,22 @@ const Dashboard: React.FC<DashboardProps> = ({ organizationId, layout = 'default
   };
 
   const handleUpdateOrderFrequency = async (proposalId: string, value: 'one-time' | 'recurring') => {
+    // Find the proposal to get existing tags
+    const proposal = proposals.find(p => p.id === proposalId);
+    const existingTags = proposal?.tags || {};
+
+    // Merge with existing tags to preserve intent and other fields
     await supabaseClient
       .from('order_change_proposals')
-      .update({ tags: { order_frequency: value } })
+      .update({ tags: { ...existingTags, order_frequency: value } })
       .eq('id', proposalId);
+
+    // Update local state
+    setProposals(prev => prev.map(p =>
+      p.id === proposalId
+        ? { ...p, tags: { ...p.tags, order_frequency: value }, order_frequency: value }
+        : p
+    ));
   };
 
   const handleOpenCreateNewOrderModal = (proposalId: string) => {
@@ -4909,6 +5100,19 @@ const Dashboard: React.FC<DashboardProps> = ({ organizationId, layout = 'default
                 <ShoppingBag className="w-5 h-5 flex-shrink-0" />
                 {!sidebarCollapsed && <span className="font-medium">Catalog</span>}
               </button>
+              <button
+                onClick={() => setSidebarTab('history')}
+                className={`w-full flex items-center ${sidebarCollapsed ? 'justify-center' : ''} gap-3 px-3 py-2.5 rounded-lg transition-colors ${
+                  sidebarTab === 'history'
+                    ? 'text-white'
+                    : 'text-gray-600 hover:bg-gray-100'
+                }`}
+                style={sidebarTab === 'history' ? { backgroundColor: frootfulGreen } : undefined}
+                title="History"
+              >
+                <Clock className="w-5 h-5 flex-shrink-0" />
+                {!sidebarCollapsed && <span className="font-medium">History</span>}
+              </button>
             </div>
           </div>
 
@@ -5173,6 +5377,270 @@ const Dashboard: React.FC<DashboardProps> = ({ organizationId, layout = 'default
                         </div>
                       );
                     })}
+                </div>
+              )}
+            </div>
+          )}
+
+          {sidebarTab === 'history' && (
+            <div className="bg-white rounded-xl border border-gray-200">
+              <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
+                <div className="flex items-center gap-2">
+                  <Clock className="w-5 h-5 text-blue-600" />
+                  <h3 className="text-lg font-semibold text-gray-900">Message History</h3>
+                </div>
+                <div className="flex items-center gap-2">
+                  {/* Date filter toggle */}
+                  <div className="flex items-center bg-gray-100 rounded-lg p-0.5">
+                    <button
+                      onClick={() => setHistoryFilter('7d')}
+                      className={`px-2.5 py-1 text-xs font-medium rounded-md transition-colors ${
+                        historyFilter === '7d'
+                          ? 'bg-white text-gray-900 shadow-sm'
+                          : 'text-gray-500 hover:text-gray-700'
+                      }`}
+                    >
+                      7 days
+                    </button>
+                    <button
+                      onClick={() => setHistoryFilter('30d')}
+                      className={`px-2.5 py-1 text-xs font-medium rounded-md transition-colors ${
+                        historyFilter === '30d'
+                          ? 'bg-white text-gray-900 shadow-sm'
+                          : 'text-gray-500 hover:text-gray-700'
+                      }`}
+                    >
+                      30 days
+                    </button>
+                  </div>
+                  <button
+                    onClick={loadHistory}
+                    disabled={historyLoading}
+                    className="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors disabled:opacity-50"
+                    title="Refresh history"
+                  >
+                    <RefreshCw className={`w-4 h-4 ${historyLoading ? 'animate-spin' : ''}`} />
+                  </button>
+                </div>
+              </div>
+
+              {historyLoading ? (
+                <div className="flex items-center justify-center py-12">
+                  <Loader2 className="w-6 h-6 animate-spin text-blue-600" />
+                </div>
+              ) : intakeHistory.length === 0 ? (
+                <div className="p-12 text-center text-gray-500">
+                  <Clock className="w-12 h-12 mx-auto mb-3 text-gray-300" />
+                  <p className="text-lg font-medium text-gray-900 mb-1">No messages yet</p>
+                  <p>Incoming messages will appear here.</p>
+                </div>
+              ) : (
+                <div className="divide-y divide-gray-100 max-h-[calc(100vh-200px)] overflow-y-auto">
+                  {intakeHistory.map((item) => {
+                    const isEmail = item.channel === 'email';
+                    const from = item.raw_content.from || 'Unknown sender';
+                    const subject = item.raw_content.subject || '';
+                    const body = isEmail ? (item.raw_content.body_text || '') : (item.raw_content.body || '');
+                    const preview = body.substring(0, 150).trim() + (body.length > 150 ? '...' : '');
+                    const date = new Date(item.created_at);
+                    const formattedDate = date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+                    const formattedTime = date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+                    const isExpanded = expandedHistoryItems.has(item.id);
+
+                    const toggleExpand = () => {
+                      const newExpanded = new Set(expandedHistoryItems);
+                      if (isExpanded) {
+                        newExpanded.delete(item.id);
+                      } else {
+                        newExpanded.add(item.id);
+                      }
+                      setExpandedHistoryItems(newExpanded);
+                    };
+
+                    return (
+                      <div key={item.id} className="border-b border-gray-100 last:border-b-0">
+                        {/* Clickable header */}
+                        <button
+                          onClick={toggleExpand}
+                          className="w-full px-6 py-4 hover:bg-gray-50 text-left"
+                        >
+                          <div className="flex items-start justify-between gap-4">
+                            <div className="flex items-start gap-3 min-w-0 flex-1">
+                              {/* Expand/collapse icon */}
+                              <div className="flex-shrink-0 mt-1">
+                                {isExpanded ? (
+                                  <ChevronDown className="w-4 h-4 text-gray-400" />
+                                ) : (
+                                  <ChevronRight className="w-4 h-4 text-gray-400" />
+                                )}
+                              </div>
+
+                              {/* Channel icon */}
+                              <div className={`flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center ${
+                                isEmail ? 'bg-purple-100' : 'bg-green-100'
+                              }`}>
+                                {isEmail ? (
+                                  <Mail className="w-4 h-4 text-purple-600" />
+                                ) : (
+                                  <MessageSquare className="w-4 h-4 text-green-600" />
+                                )}
+                              </div>
+
+                              {/* Content */}
+                              <div className="min-w-0 flex-1">
+                                <div className="flex items-center gap-2 mb-1">
+                                  <span className="text-sm font-medium text-gray-900 truncate">{from}</span>
+                                  <span className="text-xs text-gray-400">{formattedDate} at {formattedTime}</span>
+                                </div>
+                                {subject && (
+                                  <p className="text-sm text-gray-700 font-medium truncate mb-1">{subject}</p>
+                                )}
+                                {!isExpanded && (
+                                  <p className="text-sm text-gray-500 line-clamp-2">{preview}</p>
+                                )}
+
+                                {/* Assignment status with tooltips */}
+                                <div className="mt-2 flex items-center gap-2">
+                                  {item.assigned_customer_name ? (
+                                    <Tooltip
+                                      text={
+                                        item.proposal_status === 'accepted'
+                                          ? 'Proposal was accepted and applied to order'
+                                          : item.proposal_status === 'rejected'
+                                          ? 'Proposal was rejected/dismissed'
+                                          : 'Proposal is pending review'
+                                      }
+                                      position="bottom"
+                                    >
+                                      <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${
+                                        item.proposal_status === 'accepted'
+                                          ? 'bg-green-100 text-green-700'
+                                          : item.proposal_status === 'rejected'
+                                          ? 'bg-red-100 text-red-700'
+                                          : 'bg-amber-100 text-amber-700'
+                                      }`}>
+                                        {item.proposal_status === 'accepted' ? (
+                                          <Check className="w-3 h-3" />
+                                        ) : item.proposal_status === 'rejected' ? (
+                                          <X className="w-3 h-3" />
+                                        ) : (
+                                          <Clock className="w-3 h-3" />
+                                        )}
+                                        {item.assigned_customer_name}
+                                        {item.assigned_order_number && ` (${item.assigned_order_number})`}
+                                      </span>
+                                    </Tooltip>
+                                  ) : (
+                                    <Tooltip text="No order proposal was created for this message" position="bottom">
+                                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-500">
+                                        <AlertCircle className="w-3 h-3" />
+                                        Not assigned
+                                      </span>
+                                    </Tooltip>
+                                  )}
+
+                                  {/* Order Type badge - only for accepted proposals */}
+                                  {item.proposal_status === 'accepted' && item.proposal_tags?.order_frequency && (
+                                    <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${
+                                      item.proposal_tags.order_frequency === 'recurring'
+                                        ? 'bg-purple-100 text-purple-700'
+                                        : 'bg-gray-100 text-gray-600'
+                                    }`}>
+                                      {item.proposal_tags.order_frequency === 'recurring' ? (
+                                        <><Repeat className="w-3 h-3" /> Recurring</>
+                                      ) : (
+                                        'One-time'
+                                      )}
+                                    </span>
+                                  )}
+
+                                  {/* ERP Sync badge - only for accepted recurring proposals (display only) */}
+                                  {item.proposal_status === 'accepted' && item.proposal_tags?.order_frequency === 'recurring' && (
+                                    <Tooltip
+                                      text={
+                                        item.proposal_tags.erp_sync_status === 'synced'
+                                          ? 'Synced to ERP'
+                                          : 'Pending ERP sync'
+                                      }
+                                      position="bottom"
+                                    >
+                                      <span
+                                        className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${
+                                          item.proposal_tags.erp_sync_status === 'synced'
+                                            ? 'bg-green-100 text-green-700'
+                                            : 'bg-amber-100 text-amber-700'
+                                        }`}
+                                      >
+                                        {item.proposal_tags.erp_sync_status === 'synced' ? (
+                                          <><Check className="w-3 h-3" /> ERP</>
+                                        ) : (
+                                          <><RefreshCw className="w-3 h-3" /> Syncing with ERP</>
+                                        )}
+                                      </span>
+                                    </Tooltip>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        </button>
+
+                        {/* Expanded content */}
+                        {isExpanded && (
+                          <div className="px-6 pb-4 pl-20 space-y-3">
+                            {/* Original message */}
+                            <div className="bg-gray-50 rounded-lg p-4 border border-gray-200">
+                              <h4 className="text-xs font-semibold text-gray-500 uppercase mb-2">Original Message</h4>
+                              <p className="text-sm text-gray-700 whitespace-pre-wrap">{body}</p>
+                            </div>
+
+                            {/* AI Proposal (if exists) */}
+                            {(item.proposal_lines && item.proposal_lines.length > 0) || item.proposal_tags?.intent === 'cancel_order' ? (
+                              <div className="bg-blue-50 rounded-lg p-4 border border-blue-200">
+                                <h4 className="text-xs font-semibold text-blue-600 uppercase mb-2">
+                                  {item.proposal_tags?.intent === 'cancel_order' ? 'Cancel Order Proposal' : 'AI Proposed Changes'}
+                                </h4>
+                                {item.proposal_tags?.intent === 'cancel_order' ? (
+                                  <p className="text-sm text-blue-700">
+                                    Cancel entire order for {item.assigned_customer_name}
+                                  </p>
+                                ) : (
+                                  <div className="space-y-1">
+                                    {item.proposal_lines?.map((line) => (
+                                      <div key={line.id} className="flex items-center gap-2 text-sm">
+                                        <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium ${
+                                          line.change_type === 'add'
+                                            ? 'bg-green-100 text-green-700'
+                                            : line.change_type === 'remove'
+                                            ? 'bg-red-100 text-red-700'
+                                            : 'bg-amber-100 text-amber-700'
+                                        }`}>
+                                          {line.change_type === 'add' ? '+' : line.change_type === 'remove' ? '-' : '~'}
+                                        </span>
+                                        <span className="text-gray-700">{line.item_name}</span>
+                                        {line.proposed_values?.quantity && (
+                                          <span className="text-gray-500">× {line.proposed_values.quantity}</span>
+                                        )}
+                                        {line.proposed_values?.variant_code && (
+                                          <span className="text-xs bg-gray-200 text-gray-600 px-1 rounded">
+                                            {line.proposed_values.variant_code}
+                                          </span>
+                                        )}
+                                      </div>
+                                    ))}
+                                  </div>
+                                )}
+                              </div>
+                            ) : item.assigned_customer_name === null ? (
+                              <div className="bg-gray-100 rounded-lg p-4 border border-gray-200">
+                                <p className="text-sm text-gray-500 italic">No proposal was created for this message</p>
+                              </div>
+                            ) : null}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
                 </div>
               )}
             </div>

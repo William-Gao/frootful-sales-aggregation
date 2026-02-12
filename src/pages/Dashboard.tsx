@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Loader2 } from 'lucide-react';
 import { supabaseClient } from '../supabaseClient';
-import Dashboard from '../components/Dashboard';
+import DashboardComponent from '../components/Dashboard';
 
 interface User {
   id: string;
@@ -342,7 +342,7 @@ const Dashboard: React.FC = () => {
   }
 
   return (
-    <Dashboard
+    <DashboardComponent
       organizationId={organization?.id || null}
       layout="sidebar"
       headerContent={{
