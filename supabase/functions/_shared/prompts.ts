@@ -106,12 +106,16 @@ Return the data in JSON format:
   "orderLines": [{
     "itemId": "matched item id from available items list (REQUIRED)",
     "variantCode": "variant code if customer specified a size (e.g. S, L, T20), or omit if not specified",
-    "quantity": number
+    "quantity": number,
+    "requestedDeliveryDate": "YYYY-MM-DD (only if this line has a DIFFERENT delivery date from the top-level requestedDeliveryDate)"
   }],
   "customerId": "customer id if identified",
-  "requestedDeliveryDate": "YYYY-MM-DD",
+  "requestedDeliveryDate": "YYYY-MM-DD (default delivery date for all items)",
   "orderFrequency": "one-time" or "recurring"
 }
+
+MULTIPLE DELIVERY DATES:
+If the customer requests items for different delivery dates (e.g., "send tomatoes Feb 15 and lettuce Feb 20"), include a "requestedDeliveryDate" on each order line that differs from the top-level date. Items without a per-line date inherit the top-level requestedDeliveryDate.
 
 IMPORTANT: Only include items where you found a matching ID in the available items list. Skip any items you cannot confidently match. If no delivery date is mentioned, omit the requestedDeliveryDate field.`
   },
@@ -171,12 +175,16 @@ Return JSON:
   "orderLines": [{
     "itemId": "matched item id (REQUIRED)",
     "variantCode": "S, L, or T20 if size specified",
-    "quantity": number
+    "quantity": number,
+    "requestedDeliveryDate": "YYYY-MM-DD (only if this line has a DIFFERENT delivery date from the top-level requestedDeliveryDate)"
   }],
   "customerId": "matched customer id",
-  "requestedDeliveryDate": "YYYY-MM-DD",
+  "requestedDeliveryDate": "YYYY-MM-DD (default delivery date for all items)",
   "orderFrequency": "one-time" or "recurring"
 }
+
+MULTIPLE DELIVERY DATES:
+If the customer requests items for different delivery dates (e.g., "send microgreens Tuesday and more on Thursday"), include a "requestedDeliveryDate" on each order line that differs from the top-level date. Items without a per-line date inherit the top-level requestedDeliveryDate.
 
 IMPORTANT:
 - Only include items with a matching ID from the available items list
@@ -240,12 +248,16 @@ Return JSON:
   "orderLines": [{
     "itemId": "matched item id (REQUIRED)",
     "variantCode": "S, L, or T20 if size specified",
-    "quantity": number
+    "quantity": number,
+    "requestedDeliveryDate": "YYYY-MM-DD (only if this line has a DIFFERENT delivery date from the top-level requestedDeliveryDate)"
   }],
   "customerId": "matched customer id",
-  "requestedDeliveryDate": "YYYY-MM-DD",
+  "requestedDeliveryDate": "YYYY-MM-DD (default delivery date for all items)",
   "orderFrequency": "one-time" or "recurring"
 }
+
+MULTIPLE DELIVERY DATES:
+If the customer requests items for different delivery dates (e.g., "send microgreens Tuesday and more on Thursday"), include a "requestedDeliveryDate" on each order line that differs from the top-level date. Items without a per-line date inherit the top-level requestedDeliveryDate.
 
 IMPORTANT:
 - Only include items with a matching ID from the available items list
@@ -309,12 +321,16 @@ Return the data in JSON format:
   "orderLines": [{
     "itemId": "matched item id from available items list (REQUIRED)",
     "variantCode": "variant code if customer specified a size (e.g. S, L, T20), or omit if not specified",
-    "quantity": number
+    "quantity": number,
+    "requestedDeliveryDate": "YYYY-MM-DD (only if this line has a DIFFERENT delivery date from the top-level requestedDeliveryDate)"
   }],
   "customerId": "customer id if identified",
-  "requestedDeliveryDate": "YYYY-MM-DD",
+  "requestedDeliveryDate": "YYYY-MM-DD (default delivery date for all items)",
   "orderFrequency": "one-time" or "recurring"
 }
+
+MULTIPLE DELIVERY DATES:
+If the customer requests items for different delivery dates (e.g., "send tomatoes Feb 15 and lettuce Feb 20"), include a "requestedDeliveryDate" on each order line that differs from the top-level date. Items without a per-line date inherit the top-level requestedDeliveryDate.
 
 IMPORTANT: Only include items where you found a matching ID in the available items list. Skip any items you cannot confidently match.
 Look for delivery date phrases like "need by", "deliver by", "required by", "delivery date", "ship by", "due", etc.

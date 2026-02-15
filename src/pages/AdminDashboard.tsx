@@ -2769,6 +2769,8 @@ const AdminDashboard: React.FC = () => {
               fetchOrdersAndProposals(selectedOrg.id);
             }
           }}
+          catalogItems={items}
+          catalogCustomers={customers}
         />
       )}
 

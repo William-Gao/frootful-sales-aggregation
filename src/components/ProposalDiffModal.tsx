@@ -95,9 +95,11 @@ interface Props {
   orderId: string | null; // NULL for new order proposals
   onClose: () => void;
   onResolved: () => void;
+  catalogItems?: { id: string; sku: string; name: string; item_variants: { id: string; variant_code: string; variant_name: string }[] }[];
+  catalogCustomers?: { id: string; name: string; email: string | null; phone: string | null }[];
 }
 
-export default function ProposalDiffModal({ proposalId, orderId, onClose, onResolved }: Props) {
+export default function ProposalDiffModal({ proposalId, orderId, onClose, onResolved, catalogItems, catalogCustomers }: Props) {
   const [order, setOrder] = useState<Order | null>(null);
   const [proposalLines, setProposalLines] = useState<ProposalLine[]>([]);
   const [timeline, setTimeline] = useState<TimelineItem[]>([]);
@@ -179,44 +181,55 @@ export default function ProposalDiffModal({ proposalId, orderId, onClose, onReso
   }
 
   async function fetchCustomersAndItems() {
+    // Use catalog data passed as props from AdminDashboard (avoids RLS issues)
+    if (catalogItems) {
+      const transformed = catalogItems.map((i) => ({
+        id: i.id,
+        number: i.sku,
+        displayName: i.name,
+        item_variants: i.item_variants || [],
+      }));
+      setItems(transformed);
+    }
+    if (catalogCustomers) {
+      const transformed = catalogCustomers.map((c) => ({
+        id: c.id,
+        displayName: c.name,
+        email: c.email,
+        phoneNumber: c.phone,
+      }));
+      setCustomers(transformed);
+    }
+    if (catalogItems && catalogCustomers) return;
+
+    // Fallback: fetch via edge function if props not provided
     try {
-      const session = await supabaseClient.auth.getSession();
-      if (!session.data.session) return;
+      const { data: { session } } = await supabaseClient.auth.getSession();
+      if (!session) return;
 
-      // Fetch items using the same endpoint as OrdersSection
-      const itemsResponse = await fetch(
-        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/get-catalog-data?type=items`,
-        {
-          headers: {
-            'Authorization': `Bearer ${session.data.session.access_token}`,
-            'Content-Type': 'application/json'
-          }
-        }
-      );
+      const res = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/get-catalog-data`, {
+        headers: { Authorization: `Bearer ${session.access_token}` },
+      });
+      if (!res.ok) return;
+      const data = await res.json();
 
-      if (itemsResponse.ok) {
-        const itemsResult = await itemsResponse.json();
-        if (itemsResult.success && itemsResult.data) {
-          setItems(itemsResult.data);
-        }
+      if (!catalogItems && data.items) {
+        const transformed = data.items.map((i: any) => ({
+          id: i.id,
+          number: i.number,
+          displayName: i.displayName || i.name,
+          item_variants: [],
+        }));
+        setItems(transformed);
       }
-
-      // Fetch customers using the same endpoint as OrdersSection
-      const customersResponse = await fetch(
-        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/get-catalog-data?type=customers`,
-        {
-          headers: {
-            'Authorization': `Bearer ${session.data.session.access_token}`,
-            'Content-Type': 'application/json'
-          }
-        }
-      );
-
-      if (customersResponse.ok) {
-        const customersResult = await customersResponse.json();
-        if (customersResult.success && customersResult.data) {
-          setCustomers(customersResult.data);
-        }
+      if (!catalogCustomers && data.customers) {
+        const transformed = data.customers.map((c: any) => ({
+          id: c.id,
+          displayName: c.displayName || c.name,
+          email: c.email,
+          phoneNumber: c.phoneNumber || c.phone,
+        }));
+        setCustomers(transformed);
       }
     } catch (error) {
       console.error('Error fetching customers and items:', error);
@@ -484,6 +497,103 @@ export default function ProposalDiffModal({ proposalId, orderId, onClose, onReso
       console.error('Error fetching data:', error);
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function handleSaveEdits() {
+    try {
+      setProcessing(true);
+      const isNewOrderProposal = !orderId;
+
+      // Delete existing proposal lines
+      const { error: deleteError } = await supabaseClient
+        .from('order_change_proposal_lines')
+        .delete()
+        .eq('proposal_id', proposalId);
+
+      if (deleteError) throw deleteError;
+
+      if (isNewOrderProposal) {
+        // Save edited lines for new order proposals
+        const newLines = editedLines.map((line, idx) => ({
+          proposal_id: proposalId,
+          line_number: idx + 1,
+          change_type: line.change_type,
+          item_id: line.item_id,
+          item_variant_id: line.item_variant_id || null,
+          item_name: line.item_name,
+          proposed_values: line.proposed_values,
+        }));
+
+        const { error: insertError } = await supabaseClient
+          .from('order_change_proposal_lines')
+          .insert(newLines);
+
+        if (insertError) throw insertError;
+
+        // Update customer/delivery date on the proposal's proposed_values
+        if (editedCustomerName || editedDeliveryDate || editedCustomerId) {
+          // Re-fetch to update local state
+          const { data: updatedLines } = await supabaseClient
+            .from('order_change_proposal_lines')
+            .select('*')
+            .eq('proposal_id', proposalId)
+            .order('line_number', { ascending: true });
+
+          // Update proposed_values on first line with customer/delivery info
+          if (updatedLines && updatedLines.length > 0) {
+            const firstLine = updatedLines[0];
+            const updatedValues = {
+              ...(firstLine.proposed_values || {}),
+              customer_name: editedCustomerName || firstLine.proposed_values?.customer_name,
+              customer_id: editedCustomerId || firstLine.proposed_values?.customer_id,
+              delivery_date: editedDeliveryDate || firstLine.proposed_values?.delivery_date,
+            };
+
+            await supabaseClient
+              .from('order_change_proposal_lines')
+              .update({ proposed_values: updatedValues })
+              .eq('id', firstLine.id);
+          }
+        }
+      } else {
+        // Save edited diff rows for change proposals
+        const newLines = editedDiffRows
+          .filter((row) => row.changeType !== 'none')
+          .map((row, idx) => ({
+            proposal_id: proposalId,
+            order_line_id: row.orderLineId || null,
+            line_number: idx + 1,
+            change_type: row.changeType,
+            item_id: row.right?.item_id || null,
+            item_name: row.right?.product_name || row.left?.product_name || '',
+            proposed_values: row.right ? { quantity: row.right.quantity, variant_code: row.right.size } : null,
+          }));
+
+        if (newLines.length > 0) {
+          const { error: insertError } = await supabaseClient
+            .from('order_change_proposal_lines')
+            .insert(newLines);
+
+          if (insertError) throw insertError;
+        }
+      }
+
+      // Re-fetch data to update local state
+      await fetchData();
+
+      // Exit edit mode
+      setIsEditing(false);
+      setEditedLines([]);
+      setEditedDiffRows([]);
+      setEditedCustomerName('');
+      setEditedDeliveryDate('');
+      setEditedCustomerId(null);
+    } catch (error) {
+      console.error('Error saving proposal edits:', error);
+      alert('Failed to save changes. Please try again.');
+    } finally {
+      setProcessing(false);
     }
   }
 
@@ -1329,6 +1439,11 @@ export default function ProposalDiffModal({ proposalId, orderId, onClose, onReso
                           <div className="flex justify-between items-start">
                             <div className="text-sm font-medium text-gray-900 mb-1">
                               {line.item_name}
+                              {line.proposed_values?.variant_code && (
+                                <span className="ml-1.5 text-xs font-normal text-gray-500 bg-gray-100 px-1.5 py-0.5 rounded">
+                                  {line.proposed_values.variant_code}
+                                </span>
+                              )}
                             </div>
                             <button
                               onClick={() => {
@@ -1343,6 +1458,7 @@ export default function ProposalDiffModal({ proposalId, orderId, onClose, onReso
                               </svg>
                             </button>
                           </div>
+                          {/* Item + variant search dropdown */}
                           <div className="relative">
                             <input
                               type="text"
@@ -1353,40 +1469,86 @@ export default function ProposalDiffModal({ proposalId, orderId, onClose, onReso
                               }}
                               onFocus={() => setShowItemDropdown({...showItemDropdown, [index]: true})}
                               onBlur={() => setTimeout(() => setShowItemDropdown({...showItemDropdown, [index]: false}), 200)}
-                              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
+                              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 text-sm"
                               placeholder="Search to change item..."
                             />
                             {showItemDropdown[index] && (
                               <div className="absolute z-10 w-full mt-1 bg-white border border-gray-300 rounded-md shadow-lg max-h-60 overflow-auto">
                                 {items
-                                  .filter((item: any) =>
-                                    !itemSearchTerms[index] ||
-                                    item.displayName.toLowerCase().includes(itemSearchTerms[index].toLowerCase()) ||
-                                    item.number?.toLowerCase().includes(itemSearchTerms[index].toLowerCase()) ||
-                                    item.description?.toLowerCase().includes(itemSearchTerms[index].toLowerCase())
-                                  )
-                                  .map((item: any) => (
+                                  .filter((item: any) => {
+                                    const search = (itemSearchTerms[index] || '').toLowerCase();
+                                    if (!search) return true;
+                                    return item.displayName.toLowerCase().includes(search) ||
+                                      item.number?.toLowerCase().includes(search);
+                                  })
+                                  .flatMap((item: any) => {
+                                    const variants = item.item_variants || [];
+                                    if (variants.length > 0) {
+                                      return variants.map((v: any) => ({
+                                        item,
+                                        variant: v,
+                                        label: `${item.displayName} — ${v.variant_code} (${v.variant_name})`,
+                                        key: `${item.id}-${v.id}`,
+                                      }));
+                                    }
+                                    return [{ item, variant: null, label: item.displayName, key: item.id }];
+                                  })
+                                  .slice(0, 30)
+                                  .map((option: any) => (
                                     <div
-                                      key={item.id}
+                                      key={option.key}
                                       onClick={() => {
                                         const newLines = [...editedLines];
-                                        newLines[index].item_id = item.id;
-                                        newLines[index].item_name = item.displayName;
+                                        newLines[index].item_id = option.item.id;
+                                        newLines[index].item_name = option.item.displayName;
+                                        newLines[index].item_variant_id = option.variant?.id || null;
+                                        if (!newLines[index].proposed_values) {
+                                          newLines[index].proposed_values = {};
+                                        }
+                                        newLines[index].proposed_values!.variant_code = option.variant?.variant_code || null;
                                         setEditedLines(newLines);
                                         setItemSearchTerms({...itemSearchTerms, [index]: ''});
                                         setShowItemDropdown({...showItemDropdown, [index]: false});
                                       }}
                                       className="px-3 py-2 hover:bg-indigo-50 cursor-pointer"
                                     >
-                                      <div className="font-medium">{item.displayName}</div>
-                                      <div className="text-sm text-gray-500">
-                                        SKU: {item.number}
-                                      </div>
+                                      <div className="font-medium text-sm">{option.label}</div>
                                     </div>
                                   ))}
                               </div>
                             )}
                           </div>
+                          {/* Variant selector if item has variants but none selected yet */}
+                          {(() => {
+                            const currentItem = items.find((i: any) => i.id === line.item_id);
+                            const variants = currentItem?.item_variants || [];
+                            if (variants.length > 0) {
+                              return (
+                                <select
+                                  value={line.item_variant_id || ''}
+                                  onChange={(e) => {
+                                    const newLines = [...editedLines];
+                                    const selectedVariant = variants.find((v: any) => v.id === e.target.value);
+                                    newLines[index].item_variant_id = selectedVariant?.id || null;
+                                    if (!newLines[index].proposed_values) {
+                                      newLines[index].proposed_values = {};
+                                    }
+                                    newLines[index].proposed_values!.variant_code = selectedVariant?.variant_code || null;
+                                    setEditedLines(newLines);
+                                  }}
+                                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 text-sm"
+                                >
+                                  <option value="">Select size/variant...</option>
+                                  {variants.map((v: any) => (
+                                    <option key={v.id} value={v.id}>
+                                      {v.variant_code} — {v.variant_name}
+                                    </option>
+                                  ))}
+                                </select>
+                              );
+                            }
+                            return null;
+                          })()}
                           <input
                             type="number"
                             value={line.proposed_values?.quantity || 0}
@@ -1398,7 +1560,7 @@ export default function ProposalDiffModal({ proposalId, orderId, onClose, onReso
                               newLines[index].proposed_values!.quantity = parseInt(e.target.value) || 0;
                               setEditedLines(newLines);
                             }}
-                            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
+                            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 text-sm"
                             placeholder="Quantity"
                             min="1"
                           />
@@ -1406,7 +1568,14 @@ export default function ProposalDiffModal({ proposalId, orderId, onClose, onReso
                       ) : (
                         <div className="flex justify-between items-start">
                           <div className="flex-1">
-                            <div className="text-sm font-medium text-gray-900">{line.item_name}</div>
+                            <div className="text-sm font-medium text-gray-900">
+                              {line.item_name}
+                              {line.proposed_values?.variant_code && (
+                                <span className="ml-1.5 text-xs font-normal text-gray-500 bg-gray-100 px-1.5 py-0.5 rounded">
+                                  {line.proposed_values.variant_code}
+                                </span>
+                              )}
+                            </div>
                             {line.proposed_values?.raw_user_input && (
                               <div className="text-xs text-gray-400 mt-1">
                                 Original: {line.proposed_values.raw_user_input}
@@ -2353,6 +2522,13 @@ export default function ProposalDiffModal({ proposalId, orderId, onClose, onReso
                   className="px-6 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 disabled:opacity-50"
                 >
                   Cancel
+                </button>
+                <button
+                  onClick={handleSaveEdits}
+                  disabled={processing}
+                  className="px-6 py-2 border border-indigo-300 text-indigo-700 rounded-lg hover:bg-indigo-50 disabled:opacity-50"
+                >
+                  {processing ? 'Saving...' : 'Save'}
                 </button>
                 <button
                   onClick={handleAccept}

@@ -1,2 +1,0 @@
--- Placeholder: this migration was applied directly to the remote database.
--- No-op locally.

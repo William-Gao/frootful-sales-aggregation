@@ -13,7 +13,12 @@
     "preview": "vite preview",
     "deploy": "netlify deploy --prod --dir=dist",
     "deploy:preview": "netlify deploy --dir=dist",
-    "deploy:demo": "npm run build:demo && netlify deploy --prod --dir=dist-demo"
+    "deploy:demo": "npm run build:demo && netlify deploy --prod --dir=dist-demo",
+    "env:staging": "cp .env.staging .env && echo 'Switched to staging environment'",
+    "env:prod": "cp .env.production .env && echo 'Switched to production environment'",
+    "dev:staging": "cp .env.staging .env && vite",
+    "supabase:deploy:staging": "supabase functions deploy --project-ref laxhubapvubwwoafrewk",
+    "supabase:deploy:prod": "supabase functions deploy --project-ref zkglvdfppodwlgzhfgqs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.50.0",
