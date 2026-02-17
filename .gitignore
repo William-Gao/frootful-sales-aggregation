@@ -31,3 +31,10 @@ dist-ssr
 .env.production
 .env.staging
 .env.local
+
+# Credentials / secrets
+Client Secret*
+*.secret.json
+
+# Build outputs
+dist-demo

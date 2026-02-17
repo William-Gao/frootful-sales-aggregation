@@ -23,8 +23,6 @@ const Dashboard: React.FC = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [isSigningOut, setIsSigningOut] = useState(false);
   const [extensionLogoutInProgress, setExtensionLogoutInProgress] = useState(false);
-  const [installPrompt, setInstallPrompt] = useState<any>(null);
-  const [isInstallable, setIsInstallable] = useState(false);
 
   useEffect(() => {
     checkAuthState();
@@ -45,30 +43,6 @@ const Dashboard: React.FC = () => {
     };
   }, []);
 
-  // PWA Install Prompt
-  useEffect(() => {
-    const handleBeforeInstallPrompt = (e: any) => {
-      e.preventDefault();
-      setInstallPrompt(e);
-      setIsInstallable(true);
-    };
-
-    window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
-
-    return () => {
-      window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
-    };
-  }, []);
-
-  const handleInstallPWA = async () => {
-    if (!installPrompt) return;
-
-    const result = await installPrompt.prompt();
-    console.log('PWA install result:', result);
-    
-    setInstallPrompt(null);
-    setIsInstallable(false);
-  };
 
   // Handle sign out initiated by extension
   const handleExtensionSignOut = async () => {
@@ -348,9 +322,7 @@ const Dashboard: React.FC = () => {
       headerContent={{
         organization,
         user,
-        isInstallable,
         isSigningOut,
-        onInstallPWA: handleInstallPWA,
         onSignOut: handleSignOut,
         onNavigateSettings: () => navigate('/settings'),
       }}

@@ -1,7 +1,7 @@
 import { createClient } from 'npm:@supabase/supabase-js@2.39.7';
 import OpenAI from 'npm:openai@4.28.0';
 import { createLogger } from '../_shared/logger.ts';
-import { getAnalysisPrompt } from '../_shared/prompts.ts';
+import { getAnalysisPrompt, ExistingOrderContext } from '../_shared/prompts.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -244,6 +244,25 @@ Deno.serve(async (req) => {
       organizationId: intakeEvent.organization_id
     });
 
+    // Idempotency check: skip if proposals already exist for this intake event
+    const { count: existingProposalCount } = await supabase
+      .from('order_change_proposals')
+      .select('id', { count: 'exact', head: true })
+      .eq('intake_event_id', intakeEventId);
+
+    if (existingProposalCount && existingProposalCount > 0) {
+      eventLogger.info('Skipping - proposals already exist for this intake event', {
+        existingProposalCount
+      });
+      return new Response(
+        JSON.stringify({
+          success: true,
+          data: { intake_event_id: intakeEventId, skipped: true, reason: 'already_processed' }
+        }),
+        { headers: { 'Content-Type': 'application/json', ...corsHeaders } }
+      );
+    }
+
     // Determine organization_id if not set, and always resolve user_id for AI logging
     let organizationId = intakeEvent.organization_id;
     let createdByUserId: string | null = null;
@@ -414,6 +433,76 @@ Deno.serve(async (req) => {
 
     orgLogger.info('Loaded catalogs', { customerCount: customers?.length || 0, itemCount: items?.length || 0 });
 
+    // Pre-fetch existing orders for the customer (before AI analysis)
+    // This gives the AI context to resolve vague references like "each", "these items", "same as usual"
+    let preMatchedCustomerId: string | null = null;
+    let existingOrders: ExistingOrderContext[] = [];
+
+    if (intakeEvent.channel === 'sms') {
+      // For SMS, the "from" phone is the forwarder, NOT the customer.
+      // Instead, try to match a customer name from the message body text.
+      const smsBody = (intakeEvent.raw_content?.body || '').toLowerCase();
+      if (smsBody && customers) {
+        const matchedCustomer = customers.find((c: Customer) => {
+          if (!c.name) return false;
+          return smsBody.includes(c.name.toLowerCase());
+        });
+
+        if (matchedCustomer) {
+          preMatchedCustomerId = matchedCustomer.id;
+          orgLogger.info('Pre-matched customer from SMS body text', { customerId: matchedCustomer.id, customerName: matchedCustomer.name });
+        } else {
+          orgLogger.info('No customer name match found in SMS body');
+        }
+      }
+    } else if (intakeEvent.channel === 'email') {
+      // For email, try to match sender email to a customer
+      const fromEmail = intakeEvent.raw_content?.from;
+      if (fromEmail && customers) {
+        const emailMatch = fromEmail.match(/<([^>]+)>/) || [null, fromEmail];
+        const email = (emailMatch[1] || '').toLowerCase();
+        const matchedCustomer = customers.find((c: Customer) => {
+          if (!c.email) return false;
+          return c.email.toLowerCase() === email;
+        });
+
+        if (matchedCustomer) {
+          preMatchedCustomerId = matchedCustomer.id;
+          orgLogger.info('Pre-matched customer from email', { customerId: matchedCustomer.id, customerName: matchedCustomer.name });
+        }
+      }
+    }
+
+    // If we identified a customer, fetch their upcoming orders for AI context
+    if (preMatchedCustomerId) {
+      const today = new Date().toISOString().split('T')[0];
+      const { data: preOrders } = await supabase
+        .from('orders')
+        .select('id, customer_name, delivery_date, order_lines(product_name, quantity)')
+        .eq('organization_id', organizationId)
+        .eq('customer_id', preMatchedCustomerId)
+        .neq('status', 'cancelled')
+        .gte('delivery_date', today)
+        .order('delivery_date', { ascending: true })
+        .limit(5);
+
+      if (preOrders && preOrders.length > 0) {
+        existingOrders = preOrders.map((o: any) => ({
+          customerName: o.customer_name,
+          deliveryDate: o.delivery_date,
+          lines: (o.order_lines || []).map((l: any) => ({
+            productName: l.product_name,
+            quantity: Number(l.quantity)
+          }))
+        }));
+        orgLogger.info('Pre-fetched existing orders for AI context', {
+          customerName: preOrders[0].customer_name,
+          orderCount: existingOrders.length,
+          totalLines: existingOrders.reduce((sum, o) => sum + o.lines.length, 0)
+        });
+      }
+    }
+
     // Step 1: Process attachments from intake_files table
     let attachmentText = '';
 
@@ -539,7 +628,8 @@ Deno.serve(async (req) => {
       customers || [],
       attachmentText,
       organizationId,
-      createdByUserId
+      createdByUserId,
+      existingOrders
     );
 
     // Build maps for looking up customer/item by ID
@@ -580,6 +670,7 @@ Deno.serve(async (req) => {
         .eq('organization_id', organizationId)
         .eq('customer_id', analysisResult.customerId)
         .neq('status', 'cancelled')
+        .eq('order_lines.status', 'active')
         .gte('delivery_date', today)
         .order('delivery_date', { ascending: true })  // Nearest delivery first
         .limit(5);
@@ -608,6 +699,7 @@ Deno.serve(async (req) => {
         .eq('organization_id', organizationId)
         .eq('customer_id', analysisResult.customerId)
         .neq('status', 'cancelled')
+        .eq('order_lines.status', 'active')
         .lt('delivery_date', today)
         .order('delivery_date', { ascending: false })  // Most recent past first
         .limit(3);
@@ -647,6 +739,7 @@ Deno.serve(async (req) => {
         `)
         .eq('organization_id', organizationId)
         .neq('status', 'cancelled')
+        .eq('order_lines.status', 'active')
         .gte('delivery_date', today)
         .order('delivery_date', { ascending: true })
         .limit(20);  // Get more orders since we're doing name matching
@@ -668,11 +761,22 @@ Deno.serve(async (req) => {
       analysisResult.requestedDeliveryDate || null
     );
 
+    // Add cancel-only groups from cancelDates (dates with no order lines)
+    const cancelDates: string[] = analysisResult.cancelDates || [];
+    for (const cancelDate of cancelDates) {
+      const alreadyHasGroup = dateGroups.some(g => g.requestedDeliveryDate === cancelDate);
+      if (!alreadyHasGroup) {
+        dateGroups.push({ requestedDeliveryDate: cancelDate, orderLines: [] });
+      }
+    }
+
     orgLogger.info('Order lines grouped by delivery date', {
       groupCount: dateGroups.length,
+      cancelDates,
       groups: dateGroups.map(g => ({
         date: g.requestedDeliveryDate,
-        lineCount: g.orderLines.length
+        lineCount: g.orderLines.length,
+        isCancelOnly: cancelDates.includes(g.requestedDeliveryDate || '')
       }))
     });
 
@@ -683,8 +787,9 @@ Deno.serve(async (req) => {
     const createdProposals: any[] = [];
 
     for (const group of dateGroups) {
-      // Skip empty groups
-      if (group.orderLines.length === 0) {
+      // Skip empty groups (unless they're cancel-only groups from cancelDates)
+      const isCancelGroup = cancelDates.includes(group.requestedDeliveryDate || '');
+      if (group.orderLines.length === 0 && !isCancelGroup) {
         orgLogger.info('Skipping empty delivery date group', { date: group.requestedDeliveryDate });
         continue;
       }
@@ -727,20 +832,34 @@ Deno.serve(async (req) => {
           groupLogger.info('No requested delivery date for this group');
         }
 
-        // Determine if this is a NEW order or a CHANGE to existing order
-        const intentResult = await determineOrderIntent(
-          intakeEvent,
-          groupAnalysis,
-          upcomingOrders,
-          pastOrders,
-          exactDateMatchOrder
-        );
-
-        groupLogger.info('Order intent determined', {
-          intent: intentResult.intent,
-          matchedOrderId: intentResult.matchedOrderId,
-          confidence: intentResult.confidence
-        });
+        // Determine intent: skip AI for cancel-only groups from cancelDates
+        let intentResult;
+        if (isCancelGroup && group.orderLines.length === 0) {
+          // This group came from cancelDates — force CANCEL_ORDER intent
+          intentResult = {
+            intent: exactDateMatchOrder ? 'CANCEL_ORDER' : 'CANCEL_ORDER',
+            matchedOrderId: exactDateMatchOrder?.id || null,
+            confidence: 1.0,
+            reasoning: 'Cancel date specified by customer (from cancelDates)'
+          };
+          groupLogger.info('Cancel group — skipping AI intent detection', {
+            intent: intentResult.intent,
+            matchedOrderId: intentResult.matchedOrderId,
+          });
+        } else {
+          intentResult = await determineOrderIntent(
+            intakeEvent,
+            groupAnalysis,
+            upcomingOrders,
+            pastOrders,
+            exactDateMatchOrder
+          );
+          groupLogger.info('Order intent determined', {
+            intent: intentResult.intent,
+            matchedOrderId: intentResult.matchedOrderId,
+            confidence: intentResult.confidence
+          });
+        }
 
         // Step 4: Handle based on intent
         if (intentResult.intent === 'NEW_ORDER') {
@@ -755,6 +874,7 @@ Deno.serve(async (req) => {
               order_id: null, // NULL indicates this is a new order proposal
               intake_event_id: intakeEvent.id,
               status: 'pending',
+              type: 'new_order',
               tags: { intent: 'new_order', order_frequency: groupAnalysis.orderFrequency || 'one-time' }
             })
             .select()
@@ -888,6 +1008,7 @@ Deno.serve(async (req) => {
               order_id: matchedOrder.id,
               intake_event_id: intakeEvent.id,
               status: 'pending',
+              type: 'change_order',
               tags: { intent: 'change_order', order_frequency: groupAnalysis.orderFrequency || 'one-time' }
             })
             .select()
@@ -1015,6 +1136,7 @@ Deno.serve(async (req) => {
               order_id: matchedOrder.id,
               intake_event_id: intakeEvent.id,
               status: 'pending',
+              type: 'cancel_order',
               tags: { intent: 'cancel_order', order_frequency: 'one-time' }
             })
             .select()
@@ -1050,7 +1172,7 @@ Deno.serve(async (req) => {
           });
 
         } else {
-          // Unknown intent or not relevant (CONFIRMATION, IRRELEVANT)
+          // Unknown intent or not relevant
           groupLogger.info('No action taken for intent', { intent: intentResult.intent });
           createdProposals.push({
             intake_event_id: intakeEventId,
@@ -1070,6 +1192,20 @@ Deno.serve(async (req) => {
         });
       }
     }
+
+    // Summary log
+    orgLogger.info('═══ INTAKE PROCESSING COMPLETE ═══', {
+      intakeEventId,
+      totalGroups: dateGroups.length,
+      proposalsCreated: createdProposals.filter(p => p.proposal_id).length,
+      errors: createdProposals.filter(p => p.error).length,
+      results: createdProposals.map(p => ({
+        date: p.delivery_date,
+        intent: p.intent || (p.is_new_order_proposal ? 'NEW_ORDER' : p.order_id ? 'CHANGE_ORDER' : 'UNKNOWN'),
+        proposalId: p.proposal_id || null,
+        error: p.error || null,
+      }))
+    });
 
     // Return all created proposals
     return new Response(
@@ -1137,8 +1273,7 @@ async function determineOrderIntent(
 1. A NEW order (customer placing a fresh order with multiple items)
 2. A CHANGE to an existing order (modifying quantities, adding/removing items, changing delivery date)
 3. A CANCEL order (customer wants to cancel their entire order - NOT individual item removals)
-4. A CONFIRMATION or acknowledgment (no action needed)
-5. IRRELEVANT (not order-related)
+4. UNKNOWN (not clearly order-related or unclear intent)
 
 CRITICAL RULE: If there is ALREADY an order for this customer on the requested delivery date (in UPCOMING orders), the intent is ALWAYS CHANGE_ORDER, not NEW_ORDER. The customer is modifying their existing order for that day.
 
@@ -1228,7 +1363,7 @@ ${JSON.stringify(pastOrders.map(o => ({
 
 Return JSON with this structure:
 {
-  "intent": "NEW_ORDER" | "CHANGE_ORDER" | "CANCEL_ORDER" | "CONFIRMATION" | "IRRELEVANT",
+  "intent": "NEW_ORDER" | "CHANGE_ORDER" | "CANCEL_ORDER" | "UNKNOWN",
   "matchedOrderId": "uuid-if-change-or-cancel-order" | null,
   "confidence": 0.0 to 1.0,
   "reasoning": "brief explanation"
@@ -1447,7 +1582,8 @@ async function analyzeIntakeEvent(
   customers: Customer[],
   attachmentText: string = '',
   organizationId: string | null = null,
-  userId: string | null = null
+  userId: string | null = null,
+  existingOrders: ExistingOrderContext[] = []
 ): Promise<any> {
   if (items.length === 0) {
     return { orderLines: [] };
@@ -1509,7 +1645,8 @@ async function analyzeIntakeEvent(
       itemsList,
       customersList,
       currentDate,
-      content
+      content,
+      existingOrders
     });
 
     console.info(`[process-intake-event] Prompt retrieved: isCustomPrompt=${isCustomPrompt}, organizationId=${organizationId}`);

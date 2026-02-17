@@ -26,9 +26,9 @@ import {
   Repeat,
   Settings,
   ShoppingBag,
-  Smartphone,
   Upload,
   User,
+  Sparkles,
   X
 } from 'lucide-react';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
@@ -109,6 +109,7 @@ interface ProposalLine {
   original_quantity?: number;
   original_size?: string;
   available_variants?: { id: string; code: string; name: string }[];
+  delivery_date?: string;
 }
 
 interface TimelineEvent {
@@ -161,6 +162,20 @@ interface IntakeHistoryProposalLine {
   };
 }
 
+interface IntakeHistoryProposal {
+  id: string;
+  status: 'pending' | 'accepted' | 'rejected' | null;
+  customer_name: string | null;
+  delivery_date: string | null;
+  order_id: string | null;
+  lines: IntakeHistoryProposalLine[];
+  tags?: {
+    intent?: string;
+    order_frequency?: 'one-time' | 'recurring';
+    erp_sync_status?: 'pending' | 'synced';
+  };
+}
+
 interface IntakeHistoryItem {
   id: string;
   channel: 'email' | 'sms';
@@ -172,26 +187,13 @@ interface IntakeHistoryItem {
     body?: string;
     body_text?: string;
   };
-  // Assignment info
-  assigned_order_id?: string | null;
-  assigned_order_number?: string | null;
-  assigned_customer_name?: string | null;
-  proposal_status?: 'pending' | 'accepted' | 'rejected' | null;
-  proposal_lines?: IntakeHistoryProposalLine[];
-  proposal_id?: string | null;
-  proposal_tags?: {
-    intent?: string;
-    order_frequency?: 'one-time' | 'recurring';
-    erp_sync_status?: 'pending' | 'synced';
-  };
+  proposals: IntakeHistoryProposal[];
 }
 
 interface HeaderContentProps {
   organization: { id: string; name: string } | null;
   user: { email?: string; user_metadata?: { full_name?: string; avatar_url?: string } } | null;
-  isInstallable: boolean;
   isSigningOut: boolean;
-  onInstallPWA: () => void;
   onSignOut: () => void;
   onNavigateSettings: () => void;
 }
@@ -257,10 +259,14 @@ const TOMORROW = new Date(TODAY);
 TOMORROW.setDate(TOMORROW.getDate() + 1);
 const DAY_AFTER = new Date(TODAY);
 DAY_AFTER.setDate(DAY_AFTER.getDate() + 2);
+const DAY_3 = new Date(TODAY);
+DAY_3.setDate(TODAY.getDate() + 3);
+const DAY_4 = new Date(TODAY);
+DAY_4.setDate(TODAY.getDate() + 4);
 const FEB_3 = new Date(TODAY);
-FEB_3.setDate(TODAY.getDate() + 5); // 5 days from today (Feb 3 if today is Jan 29)
+FEB_3.setDate(TODAY.getDate() + 5);
 const FEB_4 = new Date(TODAY);
-FEB_4.setDate(TODAY.getDate() + 6); // 6 days from today (Feb 4 if today is Jan 29)
+FEB_4.setDate(TODAY.getDate() + 6);
 
 const MOCK_STANDING_ORDERS: Order[] = [
   // === Friday 1/30 orders ===
@@ -1367,197 +1373,387 @@ const MOCK_STANDING_ORDERS: Order[] = [
   },
 ];
 
+// Helper to build timeline entries concisely
+const mkTl = (id: string, minsAgo: number, ch: 'sms' | 'email', content: string, from: string, subject?: string): TimelineEvent[] => [
+  { id: `${id}-msg`, type: 'communication', timestamp: new Date(Date.now() - minsAgo * 60 * 1000).toISOString(), channel: ch, content, from, subject },
+  { id: `${id}-ai`, type: 'event', timestamp: new Date(Date.now() - (minsAgo - 1) * 60 * 1000).toISOString(), eventType: 'ai_analysis' },
+];
+
+const d = (dt: Date) => dt.toISOString().split('T')[0];
+const ago = (mins: number) => new Date(Date.now() - mins * 60 * 1000).toISOString();
+
 const MOCK_PROPOSALS: Proposal[] = [
-  // Change proposal for existing order (Bistro Du Midi - Friday)
+  // ━━━ SINGLES ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  // 1. Single ASSIGN — SMS modification to existing order
   {
-    id: 'prop-1',
-    order_id: 'fri-bistro',
-    action: 'assign',
-    order_frequency: 'one-time',
-    customer_name: 'Bistro Du Midi',
-    delivery_date: TOMORROW.toISOString().split('T')[0],
-    message_count: 1,
-    channel: 'sms',
-    created_at: new Date(Date.now() - 2 * 60 * 1000).toISOString(), // 2 min ago
-    message_preview: 'Bistro 1/30\nHey Bennett can we remove the cilantro and sunflower for this Friday. Also like to change Anise to 2 larges and add a 2 large shiso green',
-    message_full: 'Bistro 1/30\nHey Bennett can we remove the cilantro and sunflower for this Friday. Also like to change Anise to 2 larges and add a 2 large shiso green',
+    id: 'prop-1', intake_event_id: 'intake-1', order_id: 'fri-bistro', action: 'assign',
+    order_frequency: 'one-time', customer_name: 'Bistro Du Midi', delivery_date: d(TOMORROW),
+    message_count: 1, channel: 'sms', created_at: ago(2),
+    message_preview: 'Hey Bennett can we remove the cilantro and sunflower for this Friday. Also change Anise to 2 larges and add 2 large shiso green',
+    message_full: 'Hey Bennett can we remove the cilantro and sunflower for this Friday. Also change Anise to 2 larges and add 2 large shiso green',
     lines: [
-      { id: 'line-1', change_type: 'remove', item_name: 'Cilantro', size: 'Large', quantity: 1 },
-      { id: 'line-2', change_type: 'remove', item_name: 'Sunflower', size: 'Large', quantity: 1 },
-      { id: 'line-3', change_type: 'modify', item_name: 'Anise Hyssop', size: 'Large', quantity: 2, original_quantity: 1 },
-      { id: 'line-4', change_type: 'add', item_name: 'Shiso, Green', size: 'Large', quantity: 2 },
+      { id: 'l-1a', change_type: 'remove', item_name: 'Cilantro', size: 'Large', quantity: 1 },
+      { id: 'l-1b', change_type: 'remove', item_name: 'Sunflower', size: 'Large', quantity: 1 },
+      { id: 'l-1c', change_type: 'modify', item_name: 'Anise Hyssop', size: 'Large', quantity: 2, original_quantity: 1 },
+      { id: 'l-1d', change_type: 'add', item_name: 'Shiso, Green', size: 'Large', quantity: 2 },
     ],
-    timeline: [
-      {
-        id: 'tl-1',
-        type: 'event',
-        timestamp: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
-        eventType: 'order_created',
-      },
-      {
-        id: 'tl-2',
-        type: 'communication',
-        timestamp: new Date(Date.now() - 2 * 60 * 1000).toISOString(),
-        channel: 'sms',
-        content: 'Bistro 1/30\nHey Bennett can we remove the cilantro and sunflower for this Friday. Also like to change Anise to 2 larges and add a 2 large shiso green',
-        from: 'Bistro Du Midi',
-      },
-      {
-        id: 'tl-3',
-        type: 'event',
-        timestamp: new Date(Date.now() - 1 * 60 * 1000).toISOString(),
-        eventType: 'ai_analysis',
-      },
-    ]
+    timeline: mkTl('t1', 2, 'sms', 'Hey Bennett can we remove the cilantro and sunflower for this Friday. Also change Anise to 2 larges and add 2 large shiso green', 'Bistro Du Midi'),
   },
-  // AI incorrectly matched to Ocean Prime (actually from Mamma Maria via chef@mammamia.com)
+
+  // 2. Single ASSIGN — email with HTML (possible mismatch)
   {
-    id: 'prop-2',
-    order_id: 'fri-oceanaire',
-    action: 'assign',
-    order_frequency: 'one-time',
-    customer_name: 'The Oceanaire',
-    delivery_date: TOMORROW.toISOString().split('T')[0],
-    message_count: 1,
-    channel: 'email',
-    created_at: new Date(Date.now() - 15 * 60 * 1000).toISOString(), // 15 min ago
+    id: 'prop-2', intake_event_id: 'intake-2', order_id: 'fri-oceanaire', action: 'assign',
+    order_frequency: 'one-time', customer_name: 'The Oceanaire', delivery_date: d(TOMORROW),
+    message_count: 1, channel: 'email', created_at: ago(15),
     message_preview: 'Hey Bennett, could we modify our order for Sorrel to just 1 instead of 3? Just for this Friday\n\nThanks,\nMarco',
     message_full: 'Hey Bennett, could we modify our order for Sorrel to just 1 instead of 3? Just for this Friday\n\nThanks,\nMarco',
-    message_html: '<p>Hey Bennett,</p><p>Could we modify our order for Sorrel to just 1 instead of 3? Just for this Friday.</p><p>Thanks,<br/>Marco</p><div style="color:#888;font-size:12px;margin-top:16px;border-top:1px solid #eee;padding-top:8px"><b>Marco Rossi</b> | Executive Chef<br/>The Oceanaire Restaurant<br/>Phone: (617) 555-0142</div>',
-    sender: 'Marco <chef@mammamia.com>',
-    subject: 'Modification 1/30',
-    email_date: 'Thu, Jan 30, 2025 at 9:15 AM',
-    lines: [
-      { id: 'line-3', change_type: 'modify', item_name: 'Sorrel, Red Veined', size: 'Small', quantity: 1, original_quantity: 3 },
-    ],
-    timeline: [
-      {
-        id: 'tl-4',
-        type: 'event',
-        timestamp: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
-        eventType: 'order_created',
-      },
-      {
-        id: 'tl-5',
-        type: 'communication',
-        timestamp: new Date(Date.now() - 15 * 60 * 1000).toISOString(),
-        channel: 'email',
-        content: 'Hey Bennett, could we modify our order for Sorrel to just 1 instead of 3? Just for this Friday\n\nThanks,\nMarco',
-        subject: 'Modification 1/30',
-        from: 'Marco <chef@mammamia.com>',
-      },
-      {
-        id: 'tl-7',
-        type: 'event',
-        timestamp: new Date(Date.now() - 14 * 60 * 1000).toISOString(),
-        eventType: 'ai_analysis',
-      },
-    ]
+    message_html: '<p>Hey Bennett,</p><p>Could we modify our order for Sorrel to just 1 instead of 3? Just for this Friday.</p><p>Thanks,<br/>Marco</p>',
+    sender: 'Marco <chef@mammamia.com>', subject: 'Modification', email_date: 'Thu, Feb 13 at 9:15 AM',
+    lines: [{ id: 'l-2a', change_type: 'modify', item_name: 'Sorrel, Red Veined', size: 'Small', quantity: 1, original_quantity: 3 }],
+    timeline: mkTl('t2', 15, 'email', 'Hey Bennett, could we modify our order for Sorrel to just 1 instead of 3?', 'Marco <chef@mammamia.com>', 'Modification'),
   },
-  // Recurring add proposal (Uni - Friday, new standing order)
+
+  // 3. Single CREATE — new recurring order
   {
-    id: 'prop-3',
-    order_id: null,
-    action: 'create',
-    order_frequency: 'recurring',
-    customer_name: 'Uni',
-    delivery_date: TOMORROW.toISOString().split('T')[0],
-    message_count: 1,
-    channel: 'sms',
-    created_at: new Date(Date.now() - 5 * 60 * 1000).toISOString(), // 5 min ago
-    message_preview: 'Uni 1/30\nHey guys can we add on a 2oz micro cilantro and a micro shiso 2pm for fridays?\nThis would be weekly',
-    message_full: 'Uni 1/30\nHey guys can we add on a 2oz micro cilantro and a micro shiso 2pm for fridays?\nThis would be weekly',
+    id: 'prop-3', intake_event_id: 'intake-3', order_id: null, action: 'create',
+    order_frequency: 'recurring', customer_name: 'Uni', delivery_date: d(TOMORROW),
+    message_count: 1, channel: 'sms', created_at: ago(5),
+    message_preview: 'Hey guys can we add on a 2oz micro cilantro and a micro shiso for fridays? This would be weekly',
+    message_full: 'Hey guys can we add on a 2oz micro cilantro and a micro shiso for fridays? This would be weekly',
     lines: [
-      { id: 'line-6', change_type: 'add', item_name: 'Cilantro', size: 'Small', quantity: 1 },
-      { id: 'line-7', change_type: 'add', item_name: 'Shiso, Green', size: 'Small', quantity: 1 },
+      { id: 'l-3a', change_type: 'add', item_name: 'Cilantro', size: 'Small', quantity: 1 },
+      { id: 'l-3b', change_type: 'add', item_name: 'Shiso, Green', size: 'Small', quantity: 1 },
     ],
-    timeline: [
-      {
-        id: 'tl-8',
-        type: 'communication',
-        timestamp: new Date(Date.now() - 5 * 60 * 1000).toISOString(),
-        channel: 'sms',
-        content: ' add on a 2oz micro cilantro and a micro shiso 2pm for fridays?\nThis would be weekly',
-        from: 'Uni',
-      },
-      {
-        id: 'tl-9',
-        type: 'event',
-        timestamp: new Date(Date.now() - 4 * 60 * 1000).toISOString(),
-        eventType: 'ai_analysis',
-      },
-    ]
+    timeline: mkTl('t3', 5, 'sms', 'Hey guys can we add on a 2oz micro cilantro and a micro shiso for fridays? This would be weekly', 'Uni'),
   },
-  // Undetermined action (Ruka - day after)
+
+  // 4. Single UNDETERMINED
   {
-    id: 'prop-4',
-    order_id: null,
-    action: 'undetermined',
-    order_frequency: 'one-time',
-    customer_name: 'Ruka',
-    delivery_date: DAY_AFTER.toISOString().split('T')[0],
-    message_count: 1,
-    channel: 'email',
-    created_at: new Date(Date.now() - 30 * 60 * 1000).toISOString(), // 30 min ago
+    id: 'prop-4', intake_event_id: 'intake-4', order_id: null, action: 'undetermined',
+    customer_name: 'Ruka', delivery_date: d(DAY_AFTER),
+    message_count: 1, channel: 'email', created_at: ago(30),
     message_preview: 'Order for Wednesday: 5 cilantro small, 2 thai basil small',
     message_full: 'Order for Wednesday: 5 cilantro small, 2 thai basil small',
+    sender: 'Ruka <chef@ruka.com>', subject: 'Wednesday order', email_date: ago(30),
     lines: [
-      { id: 'line-8', change_type: 'add', item_name: 'Cilantro', size: 'Small', quantity: 5 },
-      { id: 'line-9', change_type: 'add', item_name: 'Basil, Thai', size: 'Small', quantity: 2 },
+      { id: 'l-4a', change_type: 'add', item_name: 'Cilantro', size: 'Small', quantity: 5 },
+      { id: 'l-4b', change_type: 'add', item_name: 'Basil, Thai', size: 'Small', quantity: 2 },
     ],
-    timeline: [
-      {
-        id: 'tl-10',
-        type: 'communication',
-        timestamp: new Date(Date.now() - 30 * 60 * 1000).toISOString(),
-        channel: 'email',
-        content: 'Order for Wednesday: 5 cilantro small, 2 thai basil small',
-        subject: 'Wednesday order',
-        from: 'Ruka <chef@ruka.com>',
-      },
-      {
-        id: 'tl-11',
-        type: 'event',
-        timestamp: new Date(Date.now() - 29 * 60 * 1000).toISOString(),
-        eventType: 'ai_analysis',
-      },
-    ]
+    timeline: mkTl('t4', 30, 'email', 'Order for Wednesday: 5 cilantro small, 2 thai basil small', 'Ruka <chef@ruka.com>', 'Wednesday order'),
   },
-  // AI determined: create new order (Desnuda - tomorrow)
+
+  // 5. Single CANCEL
   {
-    id: 'prop-desnuda',
-    order_id: null,
-    action: 'create',
-    order_frequency: 'one-time',
-    customer_name: 'Desnuda',
-    delivery_date: TOMORROW.toISOString().split('T')[0],
-    message_count: 1,
-    channel: 'sms',
-    created_at: new Date(Date.now() - 45 * 60 * 1000).toISOString(),
-    message_preview: 'Desnuda 1/30\n1 large cilantro\n1 large Tokyo\n1 large Thai basil',
-    message_full: 'Desnuda 1/30\n1 large cilantro\n1 large Tokyo\n1 large Thai basil',
+    id: 'prop-5', intake_event_id: 'intake-5', order_id: 'fri-capo', action: 'assign',
+    order_frequency: 'one-time', customer_name: 'Capo', delivery_date: d(TOMORROW),
+    message_count: 1, channel: 'sms', created_at: ago(10),
+    message_preview: 'Hey Bennett, we need to cancel our order for this Friday. Kitchen closed for renovations. Sorry!',
+    message_full: 'Hey Bennett, we need to cancel our order for this Friday. Kitchen closed for renovations. Sorry!',
+    tags: { intent: 'cancel_order' }, lines: [],
+    timeline: mkTl('t5', 10, 'sms', 'Hey Bennett, we need to cancel our order for this Friday. Kitchen closed for renovations. Sorry!', 'Capo'),
+  },
+
+  // 6. Single CREATE — simple one-time order
+  {
+    id: 'prop-6', intake_event_id: 'intake-6', order_id: null, action: 'create',
+    order_frequency: 'one-time', customer_name: 'Desnuda', delivery_date: d(TOMORROW),
+    message_count: 1, channel: 'sms', created_at: ago(45),
+    message_preview: 'Desnuda\n1 large cilantro\n1 large Tokyo\n1 large Thai basil',
+    message_full: 'Desnuda\n1 large cilantro\n1 large Tokyo\n1 large Thai basil',
     lines: [
-      { id: 'line-d1', change_type: 'add', item_name: 'Cilantro', size: 'Small', quantity: 2 },
-      { id: 'line-d2', change_type: 'add', item_name: 'Tokyo Onion', size: 'Large', quantity: 1 },
-      { id: 'line-d3', change_type: 'add', item_name: 'Basil, Thai', size: 'Large', quantity: 1 },
-      { id: 'line-d4', change_type: 'add', item_name: 'Anise Hyssop', size: 'Small', quantity: 2 },
+      { id: 'l-6a', change_type: 'add', item_name: 'Cilantro', size: 'Large', quantity: 1 },
+      { id: 'l-6b', change_type: 'add', item_name: 'Tokyo Onion', size: 'Large', quantity: 1 },
+      { id: 'l-6c', change_type: 'add', item_name: 'Basil, Thai', size: 'Large', quantity: 1 },
     ],
-    timeline: [
-      {
-        id: 'tl-d1',
-        type: 'communication',
-        timestamp: new Date(Date.now() - 45 * 60 * 1000).toISOString(),
-        channel: 'sms',
-        content: 'Desnuda 1/30\n1 large cilantro\n1 large Tokyo\n1 large Thai basil',
-        from: 'Desnuda',
-      },
-      {
-        id: 'tl-d2',
-        type: 'event',
-        timestamp: new Date(Date.now() - 44 * 60 * 1000).toISOString(),
-        eventType: 'ai_analysis',
-      },
-    ]
+    timeline: mkTl('t6', 45, 'sms', 'Desnuda\n1 large cilantro\n1 large Tokyo\n1 large Thai basil', 'Desnuda'),
+  },
+
+  // ━━━ TWO-ACTION COMBOS ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  // 7. CREATE + CREATE (two dates)
+  ...[
+    { id: 'prop-7a', date: d(TOMORROW), lines: [
+      { id: 'l-7a1', change_type: 'add' as const, item_name: 'Pea Shoots', size: 'Small', quantity: 3 },
+      { id: 'l-7a2', change_type: 'add' as const, item_name: 'Sunflower', size: 'Small', quantity: 2 },
+    ]},
+    { id: 'prop-7b', date: d(DAY_AFTER), lines: [
+      { id: 'l-7b1', change_type: 'add' as const, item_name: 'Arugula, Astro', size: 'Large', quantity: 4 },
+      { id: 'l-7b2', change_type: 'add' as const, item_name: 'Sorrel, Red Veined', size: 'Small', quantity: 1 },
+    ]},
+  ].map(p => ({
+    ...p, intake_event_id: 'intake-7', order_id: null, action: 'create' as const,
+    order_frequency: 'one-time' as const, customer_name: 'Oleana', delivery_date: p.date,
+    message_count: 1, channel: 'sms' as const, created_at: ago(8),
+    message_preview: 'Hey Bennett! For Tuesday 3 pea shoots sm, 2 sunflower sm. Thursday 4 arugula lg, 1 sorrel sm. Thanks!',
+    message_full: 'Hey Bennett! For Tuesday 3 pea shoots sm, 2 sunflower sm. Thursday 4 arugula lg, 1 sorrel sm. Thanks!',
+    timeline: mkTl('t7', 8, 'sms', 'Hey Bennett! For Tuesday 3 pea shoots sm, 2 sunflower sm. Thursday 4 arugula lg, 1 sorrel sm. Thanks!', 'Oleana'),
+  })),
+
+  // 8. CREATE + ASSIGN (new order Tue + modify existing Thu)
+  {
+    id: 'prop-8a', intake_event_id: 'intake-8', order_id: null, action: 'create',
+    order_frequency: 'one-time', customer_name: 'Mamma Maria', delivery_date: d(TOMORROW),
+    message_count: 1, channel: 'email', created_at: ago(12),
+    message_preview: 'Hi Bennett,\nTuesday: new order — 3 sm cilantro, 2 lg genovese, 1 sm borage.\nThursday: change arugula from 2→4, add 1 lg shiso.\nThanks, Marco',
+    message_full: 'Hi Bennett,\nTuesday: new order — 3 sm cilantro, 2 lg genovese, 1 sm borage.\nThursday: change arugula from 2→4, add 1 lg shiso.\nThanks, Marco',
+    message_html: '<p>Hi Bennett,</p><p>Tuesday: new order &mdash; 3 sm cilantro, 2 lg genovese, 1 sm borage.</p><p>Thursday: change arugula from 2&rarr;4, add 1 lg shiso.</p><p>Thanks, Marco</p>',
+    sender: 'Marco <chef@mammamaria.com>', subject: 'Orders for this week', email_date: ago(12),
+    lines: [
+      { id: 'l-8a1', change_type: 'add', item_name: 'Cilantro', size: 'Small', quantity: 3 },
+      { id: 'l-8a2', change_type: 'add', item_name: 'Basil, Genovese', size: 'Large', quantity: 2 },
+      { id: 'l-8a3', change_type: 'add', item_name: 'Borage', size: 'Small', quantity: 1 },
+    ],
+    timeline: mkTl('t8', 12, 'email', 'Tuesday: new order. Thursday: modify existing.', 'Marco <chef@mammamaria.com>', 'Orders for this week'),
+  },
+  {
+    id: 'prop-8b', intake_event_id: 'intake-8', order_id: 'fri-oceanaire', action: 'assign',
+    order_frequency: 'one-time', customer_name: 'Mamma Maria', delivery_date: d(DAY_AFTER),
+    message_count: 1, channel: 'email', created_at: ago(12),
+    message_preview: 'Hi Bennett,\nTuesday: new order — 3 sm cilantro, 2 lg genovese, 1 sm borage.\nThursday: change arugula from 2→4, add 1 lg shiso.\nThanks, Marco',
+    message_full: 'Hi Bennett,\nTuesday: new order — 3 sm cilantro, 2 lg genovese, 1 sm borage.\nThursday: change arugula from 2→4, add 1 lg shiso.\nThanks, Marco',
+    message_html: '<p>Hi Bennett,</p><p>Tuesday: new order &mdash; 3 sm cilantro, 2 lg genovese, 1 sm borage.</p><p>Thursday: change arugula from 2&rarr;4, add 1 lg shiso.</p><p>Thanks, Marco</p>',
+    sender: 'Marco <chef@mammamaria.com>', subject: 'Orders for this week', email_date: ago(12),
+    lines: [
+      { id: 'l-8b1', change_type: 'modify', item_name: 'Arugula, Astro', size: 'Large', quantity: 4, original_quantity: 2 },
+      { id: 'l-8b2', change_type: 'add', item_name: 'Shiso, Green', size: 'Large', quantity: 1 },
+    ],
+    timeline: mkTl('t8b', 12, 'email', 'Tuesday: new order. Thursday: modify existing.', 'Marco <chef@mammamaria.com>', 'Orders for this week'),
+  },
+
+  // 9. CREATE + UNDETERMINED (parsed one date, couldn't parse the other)
+  {
+    id: 'prop-9a', intake_event_id: 'intake-9', order_id: null, action: 'create',
+    customer_name: 'Row 34', delivery_date: d(TOMORROW),
+    message_count: 1, channel: 'sms', created_at: ago(25),
+    message_preview: 'For Tuesday: 2 sm pea shoots, 1 lg Tokyo onion. For Thursday the usual please.',
+    message_full: 'For Tuesday: 2 sm pea shoots, 1 lg Tokyo onion. For Thursday the usual please.',
+    lines: [
+      { id: 'l-9a1', change_type: 'add', item_name: 'Pea Shoots', size: 'Small', quantity: 2 },
+      { id: 'l-9a2', change_type: 'add', item_name: 'Tokyo Onion', size: 'Large', quantity: 1 },
+    ],
+    timeline: mkTl('t9', 25, 'sms', 'For Tuesday: 2 sm pea shoots, 1 lg Tokyo onion. For Thursday the usual please.', 'Row 34'),
+  },
+  {
+    id: 'prop-9b', intake_event_id: 'intake-9', order_id: null, action: 'undetermined',
+    customer_name: 'Row 34', delivery_date: d(DAY_AFTER),
+    message_count: 1, channel: 'sms', created_at: ago(25),
+    message_preview: 'For Tuesday: 2 sm pea shoots, 1 lg Tokyo onion. For Thursday the usual please.',
+    message_full: 'For Tuesday: 2 sm pea shoots, 1 lg Tokyo onion. For Thursday the usual please.',
+    lines: [],
+    timeline: mkTl('t9b', 25, 'sms', 'For Tuesday: 2 sm pea shoots, 1 lg Tokyo onion. For Thursday the usual please.', 'Row 34'),
+  },
+
+  // 10. CANCEL + CREATE (cancel one day, new order another)
+  {
+    id: 'prop-10a', intake_event_id: 'intake-10', order_id: 'fri-bistro', action: 'assign',
+    order_frequency: 'one-time', customer_name: 'Neptune Oyster', delivery_date: d(TOMORROW),
+    message_count: 1, channel: 'sms', created_at: ago(7),
+    message_preview: 'Hey cancel our Tuesday order please, kitchen flood. But we still need Thursday: 3 lg basil, 2 sm sorrel, 1 lg cilantro.',
+    message_full: 'Hey cancel our Tuesday order please, kitchen flood. But we still need Thursday: 3 lg basil, 2 sm sorrel, 1 lg cilantro.',
+    tags: { intent: 'cancel_order' }, lines: [],
+    timeline: mkTl('t10', 7, 'sms', 'Hey cancel our Tuesday order please, kitchen flood. But we still need Thursday: 3 lg basil, 2 sm sorrel, 1 lg cilantro.', 'Neptune Oyster'),
+  },
+  {
+    id: 'prop-10b', intake_event_id: 'intake-10', order_id: null, action: 'create',
+    order_frequency: 'one-time', customer_name: 'Neptune Oyster', delivery_date: d(DAY_AFTER),
+    message_count: 1, channel: 'sms', created_at: ago(7),
+    message_preview: 'Hey cancel our Tuesday order please, kitchen flood. But we still need Thursday: 3 lg basil, 2 sm sorrel, 1 lg cilantro.',
+    message_full: 'Hey cancel our Tuesday order please, kitchen flood. But we still need Thursday: 3 lg basil, 2 sm sorrel, 1 lg cilantro.',
+    lines: [
+      { id: 'l-10b1', change_type: 'add', item_name: 'Basil, Genovese', size: 'Large', quantity: 3 },
+      { id: 'l-10b2', change_type: 'add', item_name: 'Sorrel, Red Veined', size: 'Small', quantity: 2 },
+      { id: 'l-10b3', change_type: 'add', item_name: 'Cilantro', size: 'Large', quantity: 1 },
+    ],
+    timeline: mkTl('t10b', 7, 'sms', 'Hey cancel our Tuesday order please, kitchen flood. But we still need Thursday: 3 lg basil, 2 sm sorrel, 1 lg cilantro.', 'Neptune Oyster'),
+  },
+
+  // 11. ASSIGN + ASSIGN (modify two different existing orders from one email)
+  {
+    id: 'prop-11a', intake_event_id: 'intake-11', order_id: 'fri-bistro', action: 'assign',
+    order_frequency: 'one-time', customer_name: 'Island Creek Oyster Bar', delivery_date: d(TOMORROW),
+    message_count: 1, channel: 'email', created_at: ago(18),
+    message_preview: 'Bennett — Tue order: swap cilantro for parsley, keep everything else. Thu order: double the arugula and add 2 sm borage. Thanks!',
+    message_full: 'Bennett — Tue order: swap cilantro for parsley, keep everything else. Thu order: double the arugula and add 2 sm borage. Thanks!',
+    sender: 'ICOB <orders@islandcreek.com>', subject: 'Order updates this week', email_date: ago(18),
+    lines: [
+      { id: 'l-11a1', change_type: 'remove', item_name: 'Cilantro', size: 'Small', quantity: 2 },
+      { id: 'l-11a2', change_type: 'add', item_name: 'Parsley, Italian', size: 'Small', quantity: 2 },
+    ],
+    timeline: mkTl('t11', 18, 'email', 'Tue order: swap cilantro for parsley. Thu order: double arugula, add borage.', 'ICOB <orders@islandcreek.com>', 'Order updates this week'),
+  },
+  {
+    id: 'prop-11b', intake_event_id: 'intake-11', order_id: 'fri-capo', action: 'assign',
+    order_frequency: 'one-time', customer_name: 'Island Creek Oyster Bar', delivery_date: d(DAY_AFTER),
+    message_count: 1, channel: 'email', created_at: ago(18),
+    message_preview: 'Bennett — Tue order: swap cilantro for parsley, keep everything else. Thu order: double the arugula and add 2 sm borage. Thanks!',
+    message_full: 'Bennett — Tue order: swap cilantro for parsley, keep everything else. Thu order: double the arugula and add 2 sm borage. Thanks!',
+    sender: 'ICOB <orders@islandcreek.com>', subject: 'Order updates this week', email_date: ago(18),
+    lines: [
+      { id: 'l-11b1', change_type: 'modify', item_name: 'Arugula, Astro', size: 'Large', quantity: 4, original_quantity: 2 },
+      { id: 'l-11b2', change_type: 'add', item_name: 'Borage', size: 'Small', quantity: 2 },
+    ],
+    timeline: mkTl('t11b', 18, 'email', 'Tue order: swap cilantro for parsley. Thu order: double arugula, add borage.', 'ICOB <orders@islandcreek.com>', 'Order updates this week'),
+  },
+
+  // ━━━ BIG MULTI-ACTION COMBOS ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  // 12. CANCEL + CREATE + ASSIGN (three actions from one long email)
+  {
+    id: 'prop-12a', intake_event_id: 'intake-12', order_id: 'fri-oceanaire', action: 'assign',
+    order_frequency: 'one-time', customer_name: 'Toro', delivery_date: d(TOMORROW),
+    message_count: 1, channel: 'email', created_at: ago(3),
+    message_preview: 'Hi Bennett,\n\nCancel Monday order — we\'re closed.\nTuesday: modify arugula 2→5, remove sunflower.\nWednesday: new order — 4 lg cilantro, 2 sm pea shoots, 3 lg basil genovese.\n\nThanks!',
+    message_full: 'Hi Bennett,\n\nCancel Monday order — we\'re closed.\nTuesday: modify arugula 2→5, remove sunflower.\nWednesday: new order — 4 lg cilantro, 2 sm pea shoots, 3 lg basil genovese.\n\nThanks!',
+    message_html: '<p>Hi Bennett,</p><p>Cancel Monday order &mdash; we\'re closed.<br/>Tuesday: modify arugula 2&rarr;5, remove sunflower.<br/>Wednesday: new order &mdash; 4 lg cilantro, 2 sm pea shoots, 3 lg basil genovese.</p><p>Thanks!</p>',
+    sender: 'Toro <chef@toro-restaurant.com>', subject: 'This week\'s changes', email_date: ago(3),
+    tags: { intent: 'cancel_order' }, lines: [],
+    timeline: mkTl('t12', 3, 'email', 'Cancel Monday. Modify Tuesday. New order Wednesday.', 'Toro <chef@toro-restaurant.com>', 'This week\'s changes'),
+  },
+  {
+    id: 'prop-12b', intake_event_id: 'intake-12', order_id: 'fri-bistro', action: 'assign',
+    order_frequency: 'one-time', customer_name: 'Toro', delivery_date: d(DAY_AFTER),
+    message_count: 1, channel: 'email', created_at: ago(3),
+    message_preview: 'Hi Bennett,\n\nCancel Monday order — we\'re closed.\nTuesday: modify arugula 2→5, remove sunflower.\nWednesday: new order — 4 lg cilantro, 2 sm pea shoots, 3 lg basil genovese.\n\nThanks!',
+    message_full: 'Hi Bennett,\n\nCancel Monday order — we\'re closed.\nTuesday: modify arugula 2→5, remove sunflower.\nWednesday: new order — 4 lg cilantro, 2 sm pea shoots, 3 lg basil genovese.\n\nThanks!',
+    sender: 'Toro <chef@toro-restaurant.com>', subject: 'This week\'s changes', email_date: ago(3),
+    lines: [
+      { id: 'l-12b1', change_type: 'modify', item_name: 'Arugula, Astro', size: 'Large', quantity: 5, original_quantity: 2 },
+      { id: 'l-12b2', change_type: 'remove', item_name: 'Sunflower', size: 'Small', quantity: 1 },
+    ],
+    timeline: mkTl('t12b', 3, 'email', 'Cancel Monday. Modify Tuesday. New order Wednesday.', 'Toro <chef@toro-restaurant.com>', 'This week\'s changes'),
+  },
+  {
+    id: 'prop-12c', intake_event_id: 'intake-12', order_id: null, action: 'create',
+    order_frequency: 'one-time', customer_name: 'Toro', delivery_date: d(DAY_3),
+    message_count: 1, channel: 'email', created_at: ago(3),
+    message_preview: 'Hi Bennett,\n\nCancel Monday order — we\'re closed.\nTuesday: modify arugula 2→5, remove sunflower.\nWednesday: new order — 4 lg cilantro, 2 sm pea shoots, 3 lg basil genovese.\n\nThanks!',
+    message_full: 'Hi Bennett,\n\nCancel Monday order — we\'re closed.\nTuesday: modify arugula 2→5, remove sunflower.\nWednesday: new order — 4 lg cilantro, 2 sm pea shoots, 3 lg basil genovese.\n\nThanks!',
+    sender: 'Toro <chef@toro-restaurant.com>', subject: 'This week\'s changes', email_date: ago(3),
+    lines: [
+      { id: 'l-12c1', change_type: 'add', item_name: 'Cilantro', size: 'Large', quantity: 4 },
+      { id: 'l-12c2', change_type: 'add', item_name: 'Pea Shoots', size: 'Small', quantity: 2 },
+      { id: 'l-12c3', change_type: 'add', item_name: 'Basil, Genovese', size: 'Large', quantity: 3 },
+    ],
+    timeline: mkTl('t12c', 3, 'email', 'Cancel Monday. Modify Tuesday. New order Wednesday.', 'Toro <chef@toro-restaurant.com>', 'This week\'s changes'),
+  },
+
+  // 13. CREATE + CREATE + CREATE (three-date weekly order from one SMS)
+  ...[
+    { id: 'prop-13a', date: d(TOMORROW), lines: [
+      { id: 'l-13a1', change_type: 'add' as const, item_name: 'Cilantro', size: 'Small', quantity: 2 },
+      { id: 'l-13a2', change_type: 'add' as const, item_name: 'Sunflower', size: 'Large', quantity: 1 },
+    ]},
+    { id: 'prop-13b', date: d(DAY_3), lines: [
+      { id: 'l-13b1', change_type: 'add' as const, item_name: 'Pea Shoots', size: 'Small', quantity: 3 },
+      { id: 'l-13b2', change_type: 'add' as const, item_name: 'Arugula, Astro', size: 'Large', quantity: 2 },
+    ]},
+    { id: 'prop-13c', date: d(FEB_3), lines: [
+      { id: 'l-13c1', change_type: 'add' as const, item_name: 'Borage', size: 'Small', quantity: 1 },
+      { id: 'l-13c2', change_type: 'add' as const, item_name: 'Basil, Genovese', size: 'Large', quantity: 4 },
+      { id: 'l-13c3', change_type: 'add' as const, item_name: 'Shiso, Green', size: 'Small', quantity: 2 },
+    ]},
+  ].map(p => ({
+    ...p, intake_event_id: 'intake-13', order_id: null, action: 'create' as const,
+    order_frequency: 'one-time' as const, customer_name: 'Legal Sea Foods', delivery_date: p.date,
+    message_count: 1, channel: 'sms' as const, created_at: ago(20),
+    message_preview: 'Order for this week:\nMon: 2 sm cilantro, 1 lg sunflower\nWed: 3 sm pea shoots, 2 lg arugula\nFri: 1 sm borage, 4 lg genovese, 2 sm shiso',
+    message_full: 'Order for this week:\nMon: 2 sm cilantro, 1 lg sunflower\nWed: 3 sm pea shoots, 2 lg arugula\nFri: 1 sm borage, 4 lg genovese, 2 sm shiso',
+    timeline: mkTl('t13', 20, 'sms', 'Order for this week:\nMon: 2 sm cilantro, 1 lg sunflower\nWed: 3 sm pea shoots, 2 lg arugula\nFri: 1 sm borage, 4 lg genovese, 2 sm shiso', 'Legal Sea Foods'),
+  })),
+
+  // 14. CREATE + CANCEL + CREATE + ASSIGN (four actions, one email — the big one)
+  {
+    id: 'prop-14a', intake_event_id: 'intake-14', order_id: null, action: 'create',
+    order_frequency: 'one-time', customer_name: 'Sarma', delivery_date: d(TOMORROW),
+    message_count: 1, channel: 'email', created_at: ago(1),
+    message_preview: 'Bennett, big week ahead:\n1) Mon new order: 5 sm cilantro, 3 lg sunflower, 2 sm pea shoots\n2) Tue: CANCEL — closed for private event\n3) Wed new order: 2 lg basil thai, 1 sm borage, 4 lg arugula\n4) Thu: change shiso from 1→3, add 2 lg sorrel to existing\nThanks!',
+    message_full: 'Bennett, big week ahead:\n1) Mon new order: 5 sm cilantro, 3 lg sunflower, 2 sm pea shoots\n2) Tue: CANCEL — closed for private event\n3) Wed new order: 2 lg basil thai, 1 sm borage, 4 lg arugula\n4) Thu: change shiso from 1→3, add 2 lg sorrel to existing\nThanks!',
+    message_html: '<p>Bennett, big week ahead:</p><ol><li>Mon new order: 5 sm cilantro, 3 lg sunflower, 2 sm pea shoots</li><li>Tue: <b>CANCEL</b> &mdash; closed for private event</li><li>Wed new order: 2 lg basil thai, 1 sm borage, 4 lg arugula</li><li>Thu: change shiso from 1&rarr;3, add 2 lg sorrel to existing</li></ol><p>Thanks!</p>',
+    sender: 'Sarma <chef@sarmarestaurant.com>', subject: 'Full week order changes', email_date: ago(1),
+    lines: [
+      { id: 'l-14a1', change_type: 'add', item_name: 'Cilantro', size: 'Small', quantity: 5 },
+      { id: 'l-14a2', change_type: 'add', item_name: 'Sunflower', size: 'Large', quantity: 3 },
+      { id: 'l-14a3', change_type: 'add', item_name: 'Pea Shoots', size: 'Small', quantity: 2 },
+    ],
+    timeline: mkTl('t14', 1, 'email', 'Mon: new order. Tue: cancel. Wed: new order. Thu: modify existing.', 'Sarma <chef@sarmarestaurant.com>', 'Full week order changes'),
+  },
+  {
+    id: 'prop-14b', intake_event_id: 'intake-14', order_id: 'fri-capo', action: 'assign',
+    order_frequency: 'one-time', customer_name: 'Sarma', delivery_date: d(DAY_AFTER),
+    message_count: 1, channel: 'email', created_at: ago(1),
+    message_preview: 'Bennett, big week ahead:\n1) Mon new order: 5 sm cilantro, 3 lg sunflower, 2 sm pea shoots\n2) Tue: CANCEL — closed for private event\n3) Wed new order: 2 lg basil thai, 1 sm borage, 4 lg arugula\n4) Thu: change shiso from 1→3, add 2 lg sorrel to existing\nThanks!',
+    message_full: 'Bennett, big week ahead:\n1) Mon new order: 5 sm cilantro, 3 lg sunflower, 2 sm pea shoots\n2) Tue: CANCEL — closed for private event\n3) Wed new order: 2 lg basil thai, 1 sm borage, 4 lg arugula\n4) Thu: change shiso from 1→3, add 2 lg sorrel to existing\nThanks!',
+    sender: 'Sarma <chef@sarmarestaurant.com>', subject: 'Full week order changes', email_date: ago(1),
+    tags: { intent: 'cancel_order' }, lines: [],
+    timeline: mkTl('t14b', 1, 'email', 'Mon: new order. Tue: cancel. Wed: new order. Thu: modify existing.', 'Sarma <chef@sarmarestaurant.com>', 'Full week order changes'),
+  },
+  {
+    id: 'prop-14c', intake_event_id: 'intake-14', order_id: null, action: 'create',
+    order_frequency: 'one-time', customer_name: 'Sarma', delivery_date: d(DAY_3),
+    message_count: 1, channel: 'email', created_at: ago(1),
+    message_preview: 'Bennett, big week ahead:\n1) Mon new order: 5 sm cilantro, 3 lg sunflower, 2 sm pea shoots\n2) Tue: CANCEL — closed for private event\n3) Wed new order: 2 lg basil thai, 1 sm borage, 4 lg arugula\n4) Thu: change shiso from 1→3, add 2 lg sorrel to existing\nThanks!',
+    message_full: 'Bennett, big week ahead:\n1) Mon new order: 5 sm cilantro, 3 lg sunflower, 2 sm pea shoots\n2) Tue: CANCEL — closed for private event\n3) Wed new order: 2 lg basil thai, 1 sm borage, 4 lg arugula\n4) Thu: change shiso from 1→3, add 2 lg sorrel to existing\nThanks!',
+    sender: 'Sarma <chef@sarmarestaurant.com>', subject: 'Full week order changes', email_date: ago(1),
+    lines: [
+      { id: 'l-14c1', change_type: 'add', item_name: 'Basil, Thai', size: 'Large', quantity: 2 },
+      { id: 'l-14c2', change_type: 'add', item_name: 'Borage', size: 'Small', quantity: 1 },
+      { id: 'l-14c3', change_type: 'add', item_name: 'Arugula, Astro', size: 'Large', quantity: 4 },
+    ],
+    timeline: mkTl('t14c', 1, 'email', 'Mon: new order. Tue: cancel. Wed: new order. Thu: modify existing.', 'Sarma <chef@sarmarestaurant.com>', 'Full week order changes'),
+  },
+  {
+    id: 'prop-14d', intake_event_id: 'intake-14', order_id: 'fri-oceanaire', action: 'assign',
+    order_frequency: 'one-time', customer_name: 'Sarma', delivery_date: d(DAY_4),
+    message_count: 1, channel: 'email', created_at: ago(1),
+    message_preview: 'Bennett, big week ahead:\n1) Mon new order: 5 sm cilantro, 3 lg sunflower, 2 sm pea shoots\n2) Tue: CANCEL — closed for private event\n3) Wed new order: 2 lg basil thai, 1 sm borage, 4 lg arugula\n4) Thu: change shiso from 1→3, add 2 lg sorrel to existing\nThanks!',
+    message_full: 'Bennett, big week ahead:\n1) Mon new order: 5 sm cilantro, 3 lg sunflower, 2 sm pea shoots\n2) Tue: CANCEL — closed for private event\n3) Wed new order: 2 lg basil thai, 1 sm borage, 4 lg arugula\n4) Thu: change shiso from 1→3, add 2 lg sorrel to existing\nThanks!',
+    sender: 'Sarma <chef@sarmarestaurant.com>', subject: 'Full week order changes', email_date: ago(1),
+    lines: [
+      { id: 'l-14d1', change_type: 'modify', item_name: 'Shiso, Green', size: 'Small', quantity: 3, original_quantity: 1 },
+      { id: 'l-14d2', change_type: 'add', item_name: 'Sorrel, Red Veined', size: 'Large', quantity: 2 },
+    ],
+    timeline: mkTl('t14d', 1, 'email', 'Mon: new order. Tue: cancel. Wed: new order. Thu: modify existing.', 'Sarma <chef@sarmarestaurant.com>', 'Full week order changes'),
+  },
+
+  // 15. UNDETERMINED + UNDETERMINED (AI couldn't parse anything from a vague SMS)
+  {
+    id: 'prop-15a', intake_event_id: 'intake-15', order_id: null, action: 'undetermined',
+    customer_name: 'Spoke Wine Bar', delivery_date: d(TOMORROW),
+    message_count: 1, channel: 'sms', created_at: ago(35),
+    message_preview: 'Hey same as last week for both days but maybe swap a couple things? I\'ll call you later to confirm',
+    message_full: 'Hey same as last week for both days but maybe swap a couple things? I\'ll call you later to confirm',
+    lines: [],
+    timeline: mkTl('t15', 35, 'sms', 'Hey same as last week for both days but maybe swap a couple things? I\'ll call you later to confirm', 'Spoke Wine Bar'),
+  },
+  {
+    id: 'prop-15b', intake_event_id: 'intake-15', order_id: null, action: 'undetermined',
+    customer_name: 'Spoke Wine Bar', delivery_date: d(DAY_AFTER),
+    message_count: 1, channel: 'sms', created_at: ago(35),
+    message_preview: 'Hey same as last week for both days but maybe swap a couple things? I\'ll call you later to confirm',
+    message_full: 'Hey same as last week for both days but maybe swap a couple things? I\'ll call you later to confirm',
+    lines: [],
+    timeline: mkTl('t15b', 35, 'sms', 'Hey same as last week for both days but maybe swap a couple things? I\'ll call you later to confirm', 'Spoke Wine Bar'),
+  },
+
+  // 16. CANCEL + CANCEL (cancel two different days from one message)
+  {
+    id: 'prop-16a', intake_event_id: 'intake-16', order_id: 'fri-bistro', action: 'assign',
+    order_frequency: 'one-time', customer_name: 'O Ya', delivery_date: d(TOMORROW),
+    message_count: 1, channel: 'sms', created_at: ago(6),
+    message_preview: 'Bennett sorry but we need to cancel both our Tuesday AND Thursday orders this week. Closing for staff retreat. Back next week!',
+    message_full: 'Bennett sorry but we need to cancel both our Tuesday AND Thursday orders this week. Closing for staff retreat. Back next week!',
+    tags: { intent: 'cancel_order' }, lines: [],
+    timeline: mkTl('t16', 6, 'sms', 'Cancel both Tuesday AND Thursday orders this week. Closing for staff retreat.', 'O Ya'),
+  },
+  {
+    id: 'prop-16b', intake_event_id: 'intake-16', order_id: 'fri-capo', action: 'assign',
+    order_frequency: 'one-time', customer_name: 'O Ya', delivery_date: d(DAY_AFTER),
+    message_count: 1, channel: 'sms', created_at: ago(6),
+    message_preview: 'Bennett sorry but we need to cancel both our Tuesday AND Thursday orders this week. Closing for staff retreat. Back next week!',
+    message_full: 'Bennett sorry but we need to cancel both our Tuesday AND Thursday orders this week. Closing for staff retreat. Back next week!',
+    tags: { intent: 'cancel_order' }, lines: [],
+    timeline: mkTl('t16b', 6, 'sms', 'Cancel both Tuesday AND Thursday orders this week. Closing for staff retreat.', 'O Ya'),
   },
 ];
 
@@ -3136,40 +3332,23 @@ function printPackingSummary(dateStr: string, orders: Order[]) {
 // INBOX COMPONENTS
 // ============================================================================
 
-interface InboxCardProps {
+// Sub-component: one "Create New Order" section for a single proposal within a grouped card
+const CreateOrderSection: React.FC<{
   proposal: Proposal;
-  matchedOrder: Order | null;
-  orders: Order[];
   customers: Customer[];
-  onApplyChange: (proposalId: string, lines: ProposalLine[]) => void;
+  showMultiLabel: boolean;
   onCreateOrder: (proposalId: string, lines: ProposalLine[], customerName?: string, deliveryDate?: string) => Promise<void>;
   onDismiss: (proposalId: string) => void;
-  onOpenCreateNewOrderModal: (proposalId: string) => void;
-  onOpenAssignToOrderModal: (proposalId: string, sourceOrderId: string | null) => void;
   onUpdateOrderFrequency: (proposalId: string, value: 'one-time' | 'recurring') => void;
   isDismissing?: boolean;
-  isApplying?: boolean;
-}
-
-const InboxCard: React.FC<InboxCardProps> = ({
-  proposal, matchedOrder, orders, customers, onApplyChange, onCreateOrder, onDismiss,
-  onOpenCreateNewOrderModal, onOpenAssignToOrderModal, onUpdateOrderFrequency, isDismissing, isApplying
-}) => {
-  const isUndetermined = proposal.action === 'undetermined' || (!proposal.action && proposal.order_id === null);
-  const isCreateNew = proposal.action === 'create';
-  const isAssignExisting = !isUndetermined && !isCreateNew;
+}> = ({ proposal, customers, showMultiLabel, onCreateOrder, onDismiss, onUpdateOrderFrequency, isDismissing }) => {
   const [editableLines, setEditableLines] = useState<ProposalLine[]>(proposal.lines);
-  const [showAllMessages, setShowAllMessages] = useState(false);
-  const [showCorrection, setShowCorrection] = useState(false);
-  const [collapsed, setCollapsed] = useState(false);
-  const [showOrderItems, setShowOrderItems] = useState(false);
-  const [messageExpanded, setMessageExpanded] = useState(false);
-  const [contentNeedsExpand, setContentNeedsExpand] = useState(false);
   const [isCreating, setIsCreating] = useState(false);
+  const [isCollapsed, setIsCollapsed] = useState(false);
+  const [customerName, setCustomerName] = useState(proposal.customer_name);
   const [orderFrequency, setOrderFrequency] = useState<'one-time' | 'recurring'>(
     proposal.order_frequency || 'one-time'
   );
-  const [customerName, setCustomerName] = useState(proposal.customer_name);
   const [deliveryDate, setDeliveryDate] = useState(() => {
     if (proposal.delivery_date) return proposal.delivery_date;
     const tomorrow = new Date();
@@ -3177,11 +3356,9 @@ const InboxCard: React.FC<InboxCardProps> = ({
     return tomorrow.toISOString().split('T')[0];
   });
 
-  const allMessages = useMemo(() => {
-    return proposal.timeline
-      .filter(t => t.type === 'communication')
-      .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
-  }, [proposal.timeline]);
+  const formattedDate = proposal.delivery_date
+    ? new Date(proposal.delivery_date + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })
+    : 'No date specified';
 
   const removeEditableLine = (lineId: string) => {
     setEditableLines(prev => prev.filter(l => l.id !== lineId));
@@ -3193,43 +3370,579 @@ const InboxCard: React.FC<InboxCardProps> = ({
 
   const addNewItemLine = () => {
     const id = `user-add-${Date.now()}`;
-    setEditableLines(prev => [...prev, {
-      id,
-      change_type: 'add' as const,
-      item_name: '',
-      size: 'Small',
-      quantity: 1,
-    }]);
+    setEditableLines(prev => [...prev, { id, change_type: 'add' as const, item_name: '', size: '', quantity: 1 }]);
+  };
+
+  const getVariantsForLine = (line: ProposalLine) => {
+    if (line.available_variants && line.available_variants.length > 0) {
+      return line.available_variants;
+    }
+    return [{ id: 'default', code: line.size || 'S', name: line.size || 'Small' }];
+  };
+
+  return (
+    <div className="bg-green-50 border border-green-200 rounded-lg overflow-hidden">
+      <div
+        className="flex items-center justify-between px-3 py-2.5 cursor-pointer select-none hover:bg-green-100/50 transition-colors border-b border-green-200"
+        onClick={() => setIsCollapsed(!isCollapsed)}
+      >
+        <p className="text-xs text-green-700 uppercase tracking-wider font-semibold">
+          {showMultiLabel ? `Create New Order — ${formattedDate}` : 'Create New Order'}
+        </p>
+        {isCollapsed ? <ChevronDown className="w-3.5 h-3.5 text-green-500" /> : <ChevronUp className="w-3.5 h-3.5 text-green-500" />}
+      </div>
+      {!isCollapsed && (
+        <div className="px-3 pb-3">
+          <div className="flex items-center gap-3 px-3 py-2 bg-white border border-green-200 rounded-lg mt-2">
+            <div className="flex items-center gap-2 flex-1" onClick={(e) => e.stopPropagation()}>
+              <User className="w-4 h-4 text-green-500 flex-shrink-0" />
+              <CustomerSearchDropdown
+                value={customerName}
+                onChange={setCustomerName}
+                customers={customers}
+                className="text-sm font-medium text-gray-900 bg-transparent border-b border-transparent hover:border-gray-300 focus:border-green-500 focus:outline-none px-0 py-0.5 w-full"
+              />
+            </div>
+            <div className="flex items-center gap-2 flex-shrink-0">
+              <CalendarIcon className="w-4 h-4 text-green-500" />
+              <input
+                type="date"
+                value={deliveryDate}
+                onChange={(e) => setDeliveryDate(e.target.value)}
+                onClick={(e) => e.stopPropagation()}
+                className="text-xs text-gray-600 bg-transparent border-b border-transparent hover:border-gray-300 focus:border-green-500 focus:outline-none px-0 py-0.5"
+              />
+            </div>
+          </div>
+          {/* Order frequency toggle */}
+          <div className="mt-2 relative group/tag">
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                const newVal = orderFrequency === 'one-time' ? 'recurring' : 'one-time';
+                setOrderFrequency(newVal);
+                onUpdateOrderFrequency(proposal.id, newVal);
+              }}
+              className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium transition-all duration-200 active:scale-95 ${
+                orderFrequency === 'one-time'
+                  ? 'bg-orange-100 text-orange-700 hover:bg-orange-200'
+                  : 'bg-blue-100 text-blue-700 hover:bg-blue-200'
+              }`}
+            >
+              {orderFrequency === 'one-time' ? 'One-time' : 'Recurring'}
+              <ArrowUpDown className="w-3 h-3 opacity-40" />
+            </button>
+            <div className="absolute left-0 bottom-full mb-1 w-56 px-3 py-2 bg-gray-900 text-white text-xs rounded-lg shadow-lg opacity-0 invisible group-hover/tag:opacity-100 group-hover/tag:visible transition-all duration-200 z-50 pointer-events-none">
+              {orderFrequency === 'one-time'
+                ? 'This is a one-time order and will not recur.'
+                : 'This will create a recurring standing order for this day of the week.'}
+            </div>
+          </div>
+          {/* Items table */}
+          <div className="border-t border-green-200 mt-3 pt-2">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-xs text-green-600/60 uppercase tracking-wider">
+                  <th className="py-1 text-left font-medium">Item</th>
+                  <th className="py-1 text-center font-medium">Size</th>
+                  <th className="py-1 text-center font-medium">Qty</th>
+                  <th className="py-1 w-6"></th>
+                </tr>
+              </thead>
+              <tbody>
+                {editableLines
+                  .filter(l => l.change_type === 'add')
+                  .map(line => (
+                    <tr key={line.id} className="bg-green-50/50">
+                      <td className="py-1.5 pl-1">
+                        <div className="flex items-center gap-1">
+                          <span className="text-green-600 text-xs font-bold">+</span>
+                          <ItemSearchDropdown
+                            value={line.item_name}
+                            onChange={(val) => updateEditableLine(line.id, { item_name: val })}
+                          />
+                        </div>
+                      </td>
+                      <td className="py-1.5 text-center">
+                        <select
+                          value={line.size}
+                          onChange={(e) => updateEditableLine(line.id, { size: e.target.value })}
+                          className="px-1 py-0.5 text-xs border border-green-300 rounded bg-white focus:outline-none focus:ring-1 focus:ring-green-500"
+                        >
+                          {getVariantsForLine(line).map(v => (
+                            <option key={v.code} value={v.code}>{v.code}</option>
+                          ))}
+                        </select>
+                      </td>
+                      <td className="py-1.5 text-center">
+                        <input
+                          type="number"
+                          min="1"
+                          value={line.quantity}
+                          onChange={(e) => updateEditableLine(line.id, { quantity: parseInt(e.target.value) || 1 })}
+                          className="w-12 px-1 py-0.5 text-sm text-center border border-green-300 rounded bg-white focus:outline-none focus:ring-1 focus:ring-green-500"
+                        />
+                      </td>
+                      <td className="py-1.5">
+                        <button onClick={() => removeEditableLine(line.id)} className="text-gray-400 hover:text-red-500">
+                          <X className="w-3.5 h-3.5" />
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                <tr>
+                  <td colSpan={4} className="pt-1">
+                    <button
+                      onClick={addNewItemLine}
+                      className="flex items-center gap-1 text-xs text-green-600 hover:text-green-700 hover:bg-green-100/50 px-2 py-1 rounded transition-colors"
+                    >
+                      <span className="text-sm font-bold">+</span> Add item
+                    </button>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          {/* Action buttons */}
+          <div className="flex items-center gap-2 mt-3 pt-3 border-t border-green-200">
+            <button
+              onClick={async () => {
+                setIsCreating(true);
+                await onCreateOrder(proposal.id, editableLines, customerName, deliveryDate);
+                setIsCreating(false);
+              }}
+              disabled={isCreating}
+              className="flex items-center gap-1 px-4 py-2 bg-green-600 text-white text-sm font-medium rounded-lg hover:bg-green-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {isCreating ? (
+                <><Loader2 className="w-4 h-4 animate-spin" /> Creating...</>
+              ) : (
+                <><Check className="w-4 h-4" /> Create Order</>
+              )}
+            </button>
+            <button
+              onClick={() => onDismiss(proposal.id)}
+              disabled={isCreating || isDismissing}
+              className="flex items-center gap-1 px-4 py-2 bg-white text-gray-600 text-sm font-medium rounded-lg border border-gray-200 hover:bg-gray-50 transition-colors disabled:opacity-50"
+            >
+              <X className="w-4 h-4" /> Dismiss
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+// Sub-component: one "Assign to Existing Order" section for a single assign-type proposal
+const AssignOrderSection: React.FC<{
+  proposal: Proposal;
+  matchedOrder: Order | null;
+  orders: Order[];
+  customers: Customer[];
+  showMultiLabel: boolean;
+  onApplyChange: (proposalId: string, lines: ProposalLine[]) => void;
+  onDismiss: (proposalId: string) => void;
+  onOpenCreateNewOrderModal: (proposalId: string) => void;
+  onOpenAssignToOrderModal: (proposalId: string, sourceOrderId: string | null) => void;
+  onUpdateOrderFrequency: (proposalId: string, value: 'one-time' | 'recurring') => void;
+  isDismissing?: boolean;
+  isApplying?: boolean;
+}> = ({ proposal, matchedOrder, orders, customers, showMultiLabel, onApplyChange, onDismiss, onOpenCreateNewOrderModal, onOpenAssignToOrderModal, onUpdateOrderFrequency, isDismissing, isApplying }) => {
+  const [editableLines, setEditableLines] = useState<ProposalLine[]>(proposal.lines);
+  const [isCollapsed, setIsCollapsed] = useState(false);
+  const [showOrderItems, setShowOrderItems] = useState(false);
+  const [showCorrection, setShowCorrection] = useState(false);
+  const [orderFrequency, setOrderFrequency] = useState<'one-time' | 'recurring'>(
+    proposal.order_frequency || 'one-time'
+  );
+
+  const formattedDate = proposal.delivery_date
+    ? new Date(proposal.delivery_date + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })
+    : 'No date specified';
+
+  const removeEditableLine = (lineId: string) => {
+    setEditableLines(prev => prev.filter(l => l.id !== lineId));
+  };
+
+  const updateEditableLine = (lineId: string, updates: Partial<ProposalLine>) => {
+    setEditableLines(prev => prev.map(l => l.id === lineId ? { ...l, ...updates } : l));
+  };
+
+  const addNewItemLine = () => {
+    const id = `user-add-${Date.now()}`;
+    setEditableLines(prev => [...prev, { id, change_type: 'add' as const, item_name: '', size: 'Small', quantity: 1 }]);
   };
 
   const addRemovalForItem = (item: OrderItem) => {
     const id = `user-remove-${Date.now()}`;
-    setEditableLines(prev => [...prev, {
-      id,
-      change_type: 'remove' as const,
-      order_line_id: item.order_line_id,
-      item_name: item.name,
-      size: item.size,
-      quantity: item.quantity,
-    }]);
+    setEditableLines(prev => [...prev, { id, change_type: 'remove' as const, order_line_id: item.order_line_id, item_name: item.name, size: item.size, quantity: item.quantity }]);
   };
 
   const addModificationForItem = (item: OrderItem) => {
     const id = `user-modify-${Date.now()}`;
-    setEditableLines(prev => [...prev, {
-      id,
-      change_type: 'modify' as const,
-      order_line_id: item.order_line_id,
-      item_name: item.name,
-      size: item.size,
-      quantity: item.quantity,
-      original_quantity: item.quantity,
-      original_size: item.size,
-    }]);
+    setEditableLines(prev => [...prev, { id, change_type: 'modify' as const, order_line_id: item.order_line_id, item_name: item.name, size: item.size, quantity: item.quantity, original_quantity: item.quantity, original_size: item.size }]);
   };
 
   return (
-    <div className={`rounded-lg border bg-white shadow-sm transition-all duration-300 ${(isDismissing || isApplying) ? 'opacity-50 scale-98 pointer-events-none' : ''} ${isUndetermined ? 'border-l-4 border-l-amber-400 border-t border-r border-b border-gray-200' : isCreateNew ? 'border-l-4 border-l-green-400 border-t border-r border-b border-gray-200' : 'border-l-4 border-l-blue-400 border-t border-r border-b border-gray-200'}`}>
+    <div className={`${proposal.tags?.intent === 'cancel_order' ? 'bg-red-50 border border-red-200' : 'bg-blue-50 border border-blue-200'} rounded-lg overflow-hidden`}>
+      <div
+        className={`flex items-center justify-between px-3 py-2.5 cursor-pointer select-none transition-colors ${proposal.tags?.intent === 'cancel_order' ? 'hover:bg-red-100/50 border-b border-red-200' : 'hover:bg-blue-100/50 border-b border-blue-200'}`}
+        onClick={() => setIsCollapsed(!isCollapsed)}
+      >
+        <p className={`text-xs uppercase tracking-wider font-semibold ${proposal.tags?.intent === 'cancel_order' ? 'text-red-700' : 'text-blue-700'}`}>
+          {proposal.tags?.intent === 'cancel_order'
+            ? (showMultiLabel ? `Cancel Order — ${formattedDate}` : 'Cancel Order')
+            : (showMultiLabel ? `Modify Order — ${formattedDate}` : 'Modify Order')}
+        </p>
+        {isCollapsed ? <ChevronDown className={`w-3.5 h-3.5 ${proposal.tags?.intent === 'cancel_order' ? 'text-red-500' : 'text-blue-500'}`} /> : <ChevronUp className={`w-3.5 h-3.5 ${proposal.tags?.intent === 'cancel_order' ? 'text-red-500' : 'text-blue-500'}`} />}
+      </div>
+      {!isCollapsed && (
+        <div className="px-3 pb-3">
+          {/* Matched order card */}
+          <div
+            className="flex items-center gap-3 px-3 py-2 bg-white border border-blue-200 rounded-lg cursor-pointer hover:bg-blue-50 transition-colors mt-2"
+            onClick={() => setShowOrderItems(!showOrderItems)}
+          >
+            <div className="w-8 h-8 rounded-full bg-gradient-to-br from-blue-400 to-blue-600 flex items-center justify-center text-white text-sm font-medium">
+              {proposal.customer_name.charAt(0).toUpperCase()}
+            </div>
+            <div className="flex-1">
+              <p className="text-sm font-medium text-gray-900">{proposal.customer_name}</p>
+              <p className="text-xs text-gray-500">{formattedDate}</p>
+            </div>
+            {matchedOrder && matchedOrder.items.length > 0 && proposal.tags?.intent !== 'cancel_order' && (
+              showOrderItems ? <ChevronUp className="w-4 h-4 text-blue-400" /> : <ChevronDown className="w-4 h-4 text-blue-400" />
+            )}
+          </div>
+          {/* Order frequency toggle */}
+          <div className="mt-2 relative group/tag">
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                const newVal = orderFrequency === 'one-time' ? 'recurring' : 'one-time';
+                setOrderFrequency(newVal);
+                onUpdateOrderFrequency(proposal.id, newVal);
+              }}
+              className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium transition-all duration-200 active:scale-95 ${
+                orderFrequency === 'one-time'
+                  ? 'bg-orange-100 text-orange-700 hover:bg-orange-200'
+                  : 'bg-blue-100 text-blue-700 hover:bg-blue-200'
+              }`}
+            >
+              {orderFrequency === 'one-time' ? 'One-time' : 'Recurring'}
+              <ArrowUpDown className="w-3 h-3 opacity-40" />
+            </button>
+            <div className="absolute left-0 bottom-full mb-1 w-56 px-3 py-2 bg-gray-900 text-white text-xs rounded-lg shadow-lg opacity-0 invisible group-hover/tag:opacity-100 group-hover/tag:visible transition-all duration-200 z-50 pointer-events-none">
+              {orderFrequency === 'one-time'
+                ? 'This is a one-time order update for this order only and will not affect future orders.'
+                : 'This will update the customer\u2019s standing order for this day of the week.'}
+            </div>
+          </div>
+          {/* Expandable current order items */}
+          {showOrderItems && matchedOrder && matchedOrder.items.length > 0 && proposal.tags?.intent !== 'cancel_order' && (
+            <div className="mt-2 px-3 py-2 bg-white border border-blue-200 rounded-lg">
+              <p className="text-xs text-gray-400 uppercase tracking-wider mb-1">Current order items</p>
+              <div className="text-sm text-gray-600 space-y-0.5">
+                {matchedOrder.items.map((item, idx) => (
+                  <div key={idx} className="flex items-center gap-2">
+                    <span>{item.name}</span>
+                    <span className="text-gray-400">{item.size}</span>
+                    <span className="font-medium">&times;{item.quantity}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+          {/* Changes table */}
+          <div className={`border-t mt-3 pt-2 ${proposal.tags?.intent === 'cancel_order' ? 'border-red-200' : 'border-blue-200'}`}>
+            {proposal.tags?.intent !== 'cancel_order' && (
+              <p className="text-[11px] text-blue-500 uppercase tracking-widest font-semibold mb-2">Changes</p>
+            )}
+            {/* Cancel Order proposal */}
+            {proposal.tags?.intent === 'cancel_order' && (
+              <div className="mb-2 px-3 py-2 bg-red-100 border border-red-300 rounded-lg">
+                <p className="text-sm font-semibold text-red-700">Cancel Order</p>
+                <p className="text-xs text-red-600">Customer requested to cancel this entire order.</p>
+              </div>
+            )}
+            {/* Delete Order label - all lines are removals */}
+            {matchedOrder && !proposal.tags?.intent && editableLines.length > 0 && editableLines.every(l => l.change_type === 'remove') && (
+              <div className="mb-2 px-3 py-2 bg-red-100 border border-red-300 rounded-lg">
+                <p className="text-sm font-semibold text-red-700">Cancel Order</p>
+                <p className="text-xs text-red-600">This order will be cancelled.</p>
+              </div>
+            )}
+            {/* Changes table */}
+            {proposal.tags?.intent !== 'cancel_order' && (
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-[10px] text-blue-400/70 uppercase tracking-wider">
+                  <th className="py-1 text-left font-medium">Item</th>
+                  <th className="py-1 text-center font-medium">Size</th>
+                  <th className="py-1 text-center font-medium">Qty</th>
+                  <th className="py-1 w-6"></th>
+                </tr>
+              </thead>
+              <tbody>
+                {/* Existing order items with diff annotations */}
+                {matchedOrder && matchedOrder.items.map((item, idx) => {
+                  const modification = editableLines.find(l => l.change_type === 'modify' && (l.order_line_id ? l.order_line_id === item.order_line_id : l.item_name === item.name && l.original_size === item.size));
+                  const removal = editableLines.find(l => l.change_type === 'remove' && (l.order_line_id ? l.order_line_id === item.order_line_id : l.item_name === item.name && l.size === item.size));
+                  return (
+                    <React.Fragment key={idx}>
+                      <tr
+                        className={`${removal || modification ? 'opacity-50' : 'group hover:bg-gray-50 cursor-pointer'}`}
+                        onDoubleClick={() => { if (!removal && !modification) addModificationForItem(item); }}
+                        title={!removal && !modification ? 'Double-click to modify' : undefined}
+                      >
+                        <td className={`py-1.5 text-gray-700 ${removal || modification ? 'line-through' : ''}`}>{item.name}</td>
+                        <td className={`py-1.5 text-center text-gray-500 ${removal || modification ? 'line-through' : ''}`}>{item.size}</td>
+                        <td className={`py-1.5 text-center text-gray-700 font-medium ${removal || modification ? 'line-through' : ''}`}>{item.quantity}</td>
+                        <td className="py-1.5">
+                          {!removal && !modification && (
+                            <button onClick={() => addRemovalForItem(item)} className="text-gray-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity" title="Remove item">
+                              <X className="w-3.5 h-3.5" />
+                            </button>
+                          )}
+                        </td>
+                      </tr>
+                      {modification && (
+                        <tr className="bg-blue-50">
+                          <td className="py-1.5 pl-5 text-blue-700 text-sm">
+                            <span className="text-blue-400 mr-1">&#8627;</span>{modification.item_name}
+                          </td>
+                          <td className="py-1.5 text-center">
+                            <select value={modification.size} onChange={(e) => updateEditableLine(modification.id, { size: e.target.value })} className="px-1 py-0.5 text-xs border border-blue-300 rounded bg-white focus:outline-none focus:ring-1 focus:ring-blue-500">
+                              {getVariantsForLine(modification).map(v => (<option key={v.code} value={v.code}>{v.code}</option>))}
+                            </select>
+                          </td>
+                          <td className="py-1.5 text-center">
+                            <input type="number" min="1" value={modification.quantity} onChange={(e) => updateEditableLine(modification.id, { quantity: parseInt(e.target.value) || 1 })} className="w-12 px-1 py-0.5 text-sm text-center border border-blue-300 rounded bg-white focus:outline-none focus:ring-1 focus:ring-blue-500 font-semibold" />
+                          </td>
+                          <td className="py-1.5">
+                            <button onClick={() => removeEditableLine(modification.id)} className="text-gray-400 hover:text-red-500"><X className="w-3.5 h-3.5" /></button>
+                          </td>
+                        </tr>
+                      )}
+                      {removal && (
+                        <tr>
+                          <td colSpan={3} className="pb-1.5">
+                            <div className="ml-4 px-2 py-1 bg-red-50 border border-red-200 rounded text-xs text-red-600 inline-flex items-center gap-2">
+                              <span>&#8627; remove</span>
+                            </div>
+                          </td>
+                          <td className="pb-1.5">
+                            <button onClick={() => removeEditableLine(removal.id)} className="text-gray-400 hover:text-red-500"><X className="w-3.5 h-3.5" /></button>
+                          </td>
+                        </tr>
+                      )}
+                    </React.Fragment>
+                  );
+                })}
+                {/* Separator before add rows */}
+                {editableLines.filter(l => l.change_type === 'add').length > 0 && (
+                  <tr><td colSpan={4} className="py-1"><div className="border-t border-dashed border-blue-200"></div></td></tr>
+                )}
+                {/* Add/new item rows */}
+                {editableLines.filter(l => l.change_type === 'add').map(line => (
+                  <tr key={line.id} className="bg-green-50">
+                    <td className="py-1.5 pl-1">
+                      <div className="flex items-center gap-1">
+                        <span className="text-green-600 text-xs font-bold">+</span>
+                        <ItemSearchDropdown value={line.item_name} onChange={(val) => updateEditableLine(line.id, { item_name: val })} />
+                      </div>
+                    </td>
+                    <td className="py-1.5 text-center">
+                      <select value={line.size} onChange={(e) => updateEditableLine(line.id, { size: e.target.value })} className="px-1 py-0.5 text-xs border border-green-300 rounded bg-white focus:outline-none focus:ring-1 focus:ring-green-500">
+                        {getVariantsForLine(line).map(v => (<option key={v.code} value={v.code}>{v.code}</option>))}
+                      </select>
+                    </td>
+                    <td className="py-1.5 text-center">
+                      <input type="number" min="1" value={line.quantity} onChange={(e) => updateEditableLine(line.id, { quantity: parseInt(e.target.value) || 1 })} className="w-12 px-1 py-0.5 text-sm text-center border border-green-300 rounded bg-white focus:outline-none focus:ring-1 focus:ring-green-500" />
+                    </td>
+                    <td className="py-1.5">
+                      <button onClick={() => removeEditableLine(line.id)} className="text-gray-400 hover:text-red-500"><X className="w-3.5 h-3.5" /></button>
+                    </td>
+                  </tr>
+                ))}
+                {/* Add new item button */}
+                <tr>
+                  <td colSpan={4} className="pt-1">
+                    <button onClick={addNewItemLine} className="flex items-center gap-1 text-xs text-green-600 hover:text-green-700 hover:bg-green-100/50 px-2 py-1 rounded transition-colors">
+                      <span className="text-sm font-bold">+</span> Add item
+                    </button>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+            )}
+          </div>
+          {/* Action buttons */}
+          <div className={`flex items-center gap-2 mt-3 pt-3 border-t ${proposal.tags?.intent === 'cancel_order' ? 'border-red-200' : 'border-blue-200'}`}>
+            <button
+              onClick={() => onApplyChange(proposal.id, editableLines)}
+              disabled={isApplying || isDismissing}
+              className={`flex items-center gap-1 px-4 py-2 text-white text-sm font-medium rounded-lg transition-colors disabled:opacity-50 ${
+                proposal.tags?.intent === 'cancel_order' ? 'bg-red-600 hover:bg-red-700' : 'bg-green-600 hover:bg-green-700'
+              }`}
+            >
+              {isApplying ? (
+                <><Loader2 className="w-4 h-4 animate-spin" /> {proposal.tags?.intent === 'cancel_order' ? 'Cancelling...' : 'Applying...'}</>
+              ) : proposal.tags?.intent === 'cancel_order' ? (
+                <><X className="w-4 h-4" /> Cancel Order</>
+              ) : (
+                <><Check className="w-4 h-4" /> Apply Changes</>
+              )}
+            </button>
+            <button
+              onClick={() => onDismiss(proposal.id)}
+              disabled={isDismissing || isApplying}
+              className="flex items-center gap-1 px-4 py-2 bg-white text-gray-600 text-sm font-medium rounded-lg border border-gray-200 hover:bg-gray-50 transition-colors disabled:opacity-50"
+            >
+              {isDismissing ? (
+                <><Loader2 className="w-4 h-4 animate-spin" /> Dismissing...</>
+              ) : (
+                <><X className="w-4 h-4" /> Dismiss</>
+              )}
+            </button>
+            <button
+              onClick={(e) => { e.stopPropagation(); setShowCorrection(!showCorrection); }}
+              className="ml-auto text-xs text-gray-400 hover:text-gray-600 transition-colors"
+            >
+              Something wrong?
+            </button>
+          </div>
+          {showCorrection && (
+            <div className="flex items-center gap-2 mt-2">
+              <button
+                onClick={() => onOpenCreateNewOrderModal(proposal.id)}
+                className="flex-1 px-3 py-2 text-sm font-medium text-blue-700 bg-white border border-blue-200 rounded-lg hover:bg-blue-100 transition-colors text-center"
+              >
+                Create new order instead
+              </button>
+              <button
+                onClick={() => onOpenAssignToOrderModal(proposal.id, matchedOrder?.id || null)}
+                className="flex-1 px-3 py-2 text-sm font-medium text-blue-700 bg-white border border-blue-200 rounded-lg hover:bg-blue-100 transition-colors text-center"
+              >
+                Assign to different order
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+};
+
+// Sub-component: one "Undetermined" section for a single undetermined proposal
+const UndeterminedSection: React.FC<{
+  proposal: Proposal;
+  showMultiLabel: boolean;
+  onOpenCreateNewOrderModal: (proposalId: string) => void;
+  onOpenAssignToOrderModal: (proposalId: string, sourceOrderId: string | null) => void;
+  onDismiss: (proposalId: string) => void;
+  isDismissing?: boolean;
+}> = ({ proposal, showMultiLabel, onOpenCreateNewOrderModal, onOpenAssignToOrderModal, onDismiss, isDismissing }) => {
+  const [isCollapsed, setIsCollapsed] = useState(false);
+
+  const formattedDate = proposal.delivery_date
+    ? new Date(proposal.delivery_date + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })
+    : 'No date specified';
+
+  return (
+    <div className="bg-amber-50 border border-amber-200 rounded-lg overflow-hidden">
+      <div
+        className="flex items-center justify-between px-3 py-2.5 cursor-pointer select-none hover:bg-amber-100/50 transition-colors border-b border-amber-200"
+        onClick={() => setIsCollapsed(!isCollapsed)}
+      >
+        <p className="text-xs text-amber-700 uppercase tracking-wider font-semibold">
+          {showMultiLabel ? `Needs Input — ${formattedDate}` : 'Needs Input'}
+        </p>
+        {isCollapsed ? <ChevronDown className="w-3.5 h-3.5 text-amber-500" /> : <ChevronUp className="w-3.5 h-3.5 text-amber-500" />}
+      </div>
+      {!isCollapsed && (
+        <div className="px-3 py-3">
+          <p className="text-sm text-amber-800 mb-3">Could not determine correct action. Please select:</p>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => onOpenCreateNewOrderModal(proposal.id)}
+              className="flex-1 px-3 py-2 text-sm font-medium text-amber-800 bg-white border border-amber-300 rounded-lg hover:bg-amber-100 transition-colors text-center"
+            >
+              Create New Order
+            </button>
+            <button
+              onClick={() => onOpenAssignToOrderModal(proposal.id, null)}
+              className="flex-1 px-3 py-2 text-sm font-medium text-amber-800 bg-white border border-amber-300 rounded-lg hover:bg-amber-100 transition-colors text-center"
+            >
+              Assign to Existing Order
+            </button>
+          </div>
+          <div className="mt-2">
+            <button
+              onClick={() => onDismiss(proposal.id)}
+              disabled={isDismissing}
+              className="flex items-center gap-1 px-3 py-1.5 text-xs text-gray-500 hover:text-gray-700 transition-colors disabled:opacity-50"
+            >
+              {isDismissing ? (
+                <><Loader2 className="w-3 h-3 animate-spin" /> Dismissing...</>
+              ) : (
+                <><X className="w-3 h-3" /> Dismiss</>
+              )}
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+interface InboxCardProps {
+  proposal: Proposal;
+  siblingProposals: Proposal[]; // All proposals from the same intake event (including this one)
+  matchedOrder: Order | null;
+  orders: Order[];
+  customers: Customer[];
+  onApplyChange: (proposalId: string, lines: ProposalLine[]) => void;
+  onCreateOrder: (proposalId: string, lines: ProposalLine[], customerName?: string, deliveryDate?: string) => Promise<void>;
+  onDismiss: (proposalId: string) => void;
+  onOpenCreateNewOrderModal: (proposalId: string) => void;
+  onOpenAssignToOrderModal: (proposalId: string, sourceOrderId: string | null) => void;
+  onUpdateOrderFrequency: (proposalId: string, value: 'one-time' | 'recurring') => void;
+  dismissingProposalId?: string | null;
+  applyingProposalId?: string | null;
+}
+
+const InboxCard: React.FC<InboxCardProps> = ({
+  proposal, siblingProposals, matchedOrder, orders, customers, onApplyChange, onCreateOrder, onDismiss,
+  onOpenCreateNewOrderModal, onOpenAssignToOrderModal, onUpdateOrderFrequency, dismissingProposalId, applyingProposalId
+}) => {
+  // Use first proposal for card-level display (header, message, channel, etc.)
+  // All siblingProposals share the same intake event / message
+  const hasMultipleProposals = siblingProposals.length > 1;
+
+  // Card-level state (shared across all proposals in the group)
+  const [showAllMessages, setShowAllMessages] = useState(false);
+  const [collapsed, setCollapsed] = useState(false);
+  const [messageExpanded, setMessageExpanded] = useState(false);
+  const [contentNeedsExpand, setContentNeedsExpand] = useState(false);
+
+  const allMessages = useMemo(() => {
+    return proposal.timeline
+      .filter(t => t.type === 'communication')
+      .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+  }, [proposal.timeline]);
+
+  // Determine card border color based on the primary proposal's action (or mixed)
+  const primaryAction = proposal.action;
+  const borderColorClass = primaryAction === 'undetermined' || (!primaryAction && proposal.order_id === null)
+    ? 'border-l-amber-400'
+    : primaryAction === 'create'
+    ? 'border-l-green-400'
+    : 'border-l-blue-400';
+
+  return (
+    <div className={`rounded-lg border bg-white shadow-sm transition-all duration-300 ${siblingProposals.some(p => dismissingProposalId === p.id || applyingProposalId === p.id) ? 'opacity-50 scale-98 pointer-events-none' : ''} border-l-4 ${borderColorClass} border-t border-r border-b border-gray-200`}>
       {/* Collapsible header */}
       <div
         className="flex items-center justify-between px-5 py-3 cursor-pointer select-none hover:bg-gray-50 transition-colors"
@@ -3249,7 +3962,7 @@ const InboxCard: React.FC<InboxCardProps> = ({
               {proposal.message_count}
             </span>
           )}
-          {isUndetermined && (
+          {siblingProposals.some(p => p.action === 'undetermined' || (!p.action && p.order_id === null)) && (
             <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-amber-100 text-amber-800 flex-shrink-0">
               Needs input
             </span>
@@ -3295,10 +4008,7 @@ const InboxCard: React.FC<InboxCardProps> = ({
             </div>
           ) : (
             <div className="px-3 py-2 bg-gray-50 border-b border-gray-200 flex items-center gap-2 text-xs text-gray-500">
-              <MessageSquare className="w-3 h-3" />
-              <span>SMS</span>
-              <span className="text-gray-300">&middot;</span>
-              <span>{formatTime(proposal.created_at)}</span>
+              <span>Message</span>
             </div>
           )}
 
@@ -3414,483 +4124,63 @@ const InboxCard: React.FC<InboxCardProps> = ({
         )}
       </div>
 
-      {/* RIGHT SIDE: AI Recommendation */}
+      {/* RIGHT SIDE: Recommendations — renders per-proposal sections based on action type */}
       <div className="lg:w-1/2 lg:flex-shrink-0">
-      {/* 2. System suggestion banner */}
-      {isUndetermined ? (
-        /* Undetermined — could not determine action */
-        <div className="mb-3 px-3 py-3 bg-amber-50 border border-amber-200 rounded-lg">
-          <p className="text-sm text-amber-800 mb-3">Could not determine correct action. Please select:</p>
-          <div className="flex items-center gap-2">
-            <button
-              onClick={() => onOpenCreateNewOrderModal(proposal.id)}
-              className="flex-1 px-3 py-2 text-sm font-medium text-amber-800 bg-white border border-amber-300 rounded-lg hover:bg-amber-100 transition-colors text-center"
-            >
-              Create New Order
-            </button>
-            <button
-              onClick={() => onOpenAssignToOrderModal(proposal.id, null)}
-              className="flex-1 px-3 py-2 text-sm font-medium text-amber-800 bg-white border border-amber-300 rounded-lg hover:bg-amber-100 transition-colors text-center"
-            >
-              Assign to Existing Order
-            </button>
-          </div>
-        </div>
-      ) : isCreateNew ? (
-        /* AI determined: create new order */
-        <div className="mb-3">
-          <div className="px-3 py-3 bg-green-50 border border-green-200 rounded-lg">
-            <p className="text-xs text-green-600 uppercase tracking-wider font-medium mb-2">AI Recommended: Create New Order</p>
-            <div className="flex items-center gap-3 px-3 py-2 bg-white border border-green-200 rounded-lg">
-              <div className="flex items-center gap-2 flex-1" onClick={(e) => e.stopPropagation()}>
-                <User className="w-4 h-4 text-green-500 flex-shrink-0" />
-                <CustomerSearchDropdown
-                  value={customerName}
-                  onChange={setCustomerName}
-                  customers={customers}
-                  className="text-sm font-medium text-gray-900 bg-transparent border-b border-transparent hover:border-gray-300 focus:border-green-500 focus:outline-none px-0 py-0.5 w-full"
-                />
-              </div>
-              <div className="flex items-center gap-2 flex-shrink-0">
-                <CalendarIcon className="w-4 h-4 text-green-500" />
-                <input
-                  type="date"
-                  value={deliveryDate}
-                  onChange={(e) => setDeliveryDate(e.target.value)}
-                  onClick={(e) => e.stopPropagation()}
-                  className="text-xs text-gray-600 bg-transparent border-b border-transparent hover:border-gray-300 focus:border-green-500 focus:outline-none px-0 py-0.5"
-                />
-              </div>
-            </div>
-            <div className="mt-2 relative group/tag">
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  const newVal = orderFrequency === 'one-time' ? 'recurring' : 'one-time';
-                  setOrderFrequency(newVal);
-                  onUpdateOrderFrequency(proposal.id, newVal);
-                }}
-                className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium transition-all duration-200 active:scale-95 ${
-                  orderFrequency === 'one-time'
-                    ? 'bg-orange-100 text-orange-700 hover:bg-orange-200'
-                    : 'bg-blue-100 text-blue-700 hover:bg-blue-200'
-                }`}
-              >
-                {orderFrequency === 'one-time' ? 'One-time' : 'Recurring'}
-                <ArrowUpDown className="w-3 h-3 opacity-40" />
-              </button>
-              <div className="absolute left-0 bottom-full mb-1 w-56 px-3 py-2 bg-gray-900 text-white text-xs rounded-lg shadow-lg opacity-0 invisible group-hover/tag:opacity-100 group-hover/tag:visible transition-all duration-200 z-50 pointer-events-none">
-                {orderFrequency === 'one-time'
-                  ? 'This is a one-time order update and will not affect recurring standing orders.'
-                  : 'This will update the customer\u2019s standing order for this day of the week.'}
-              </div>
-            </div>
-            {/* Items table inside recommendation box */}
-            <div className="border-t border-green-200 mt-3 pt-2">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="text-xs text-green-600/60 uppercase tracking-wider">
-                    <th className="py-1 text-left font-medium">Item</th>
-                    <th className="py-1 text-center font-medium">Size</th>
-                    <th className="py-1 text-center font-medium">Qty</th>
-                    <th className="py-1 w-6"></th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {editableLines
-                    .filter(l => l.change_type === 'add')
-                    .map(line => (
-                      <tr key={line.id} className="bg-green-50/50">
-                        <td className="py-1.5 pl-1">
-                          <div className="flex items-center gap-1">
-                            <span className="text-green-600 text-xs font-bold">+</span>
-                            <ItemSearchDropdown
-                              value={line.item_name}
-                              onChange={(val) => updateEditableLine(line.id, { item_name: val })}
-                            />
-                          </div>
-                        </td>
-                        <td className="py-1.5 text-center">
-                          <select
-                            value={line.size}
-                            onChange={(e) => updateEditableLine(line.id, { size: e.target.value })}
-                            className="px-1 py-0.5 text-xs border border-green-300 rounded bg-white focus:outline-none focus:ring-1 focus:ring-green-500"
-                          >
-                            {getVariantsForLine(line).map(v => (
-                              <option key={v.code} value={v.code}>{v.code}</option>
-                            ))}
-                          </select>
-                        </td>
-                        <td className="py-1.5 text-center">
-                          <input
-                            type="number"
-                            min="1"
-                            value={line.quantity}
-                            onChange={(e) => updateEditableLine(line.id, { quantity: parseInt(e.target.value) || 1 })}
-                            className="w-12 px-1 py-0.5 text-sm text-center border border-green-300 rounded bg-white focus:outline-none focus:ring-1 focus:ring-green-500"
-                          />
-                        </td>
-                        <td className="py-1.5">
-                          <button onClick={() => removeEditableLine(line.id)} className="text-gray-400 hover:text-red-500">
-                            <X className="w-3.5 h-3.5" />
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
-                  <tr>
-                    <td colSpan={4} className="pt-1">
-                      <button
-                        onClick={addNewItemLine}
-                        className="flex items-center gap-1 text-xs text-green-600 hover:text-green-700 hover:bg-green-100/50 px-2 py-1 rounded transition-colors"
-                      >
-                        <span className="text-sm font-bold">+</span> Add item
-                      </button>
-                    </td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-            {/* Action buttons inside recommendation box */}
-            <div className="flex items-center gap-2 mt-3 pt-3 border-t border-green-200">
-              <button
-                onClick={async () => {
-                  setIsCreating(true);
-                  await onCreateOrder(proposal.id, editableLines, customerName, deliveryDate);
-                  setIsCreating(false);
-                }}
-                disabled={isCreating}
-                className="flex items-center gap-1 px-4 py-2 bg-green-600 text-white text-sm font-medium rounded-lg hover:bg-green-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {isCreating ? (
-                  <><Loader2 className="w-4 h-4 animate-spin" /> Creating...</>
-                ) : (
-                  <><Check className="w-4 h-4" /> Create Order</>
-                )}
-              </button>
-              <button
-                onClick={() => onDismiss(proposal.id)}
-                disabled={isCreating || isDismissing}
-                className="flex items-center gap-1 px-4 py-2 bg-white text-gray-600 text-sm font-medium rounded-lg border border-gray-200 hover:bg-gray-50 transition-colors disabled:opacity-50"
-              >
-                {isDismissing ? (
-                  <><Loader2 className="w-4 h-4 animate-spin" /> Dismissing...</>
-                ) : (
-                  <><X className="w-4 h-4" /> Dismiss</>
-                )}
-              </button>
-              <button
-                onClick={(e) => { e.stopPropagation(); setShowCorrection(!showCorrection); }}
-                className="ml-auto text-xs text-gray-400 hover:text-gray-600 transition-colors"
-              >
-                Something wrong?
-              </button>
-            </div>
-            {showCorrection && (
-              <div className="flex items-center gap-2 mt-2">
-                <button
-                  onClick={() => onOpenAssignToOrderModal(proposal.id, null)}
-                  className="flex-1 px-3 py-2 text-sm font-medium text-green-700 bg-white border border-green-200 rounded-lg hover:bg-green-100 transition-colors text-center"
-                >
-                  Assign to existing order instead
-                </button>
-              </div>
-            )}
-          </div>
-        </div>
-      ) : (
-        /* AI matched to existing order */
-        <div className="mb-3">
-          <div className="px-3 py-3 bg-blue-50 border border-blue-200 rounded-lg">
-            <p className="text-xs text-blue-600 uppercase tracking-wider font-medium mb-2">AI Matched Order To</p>
-            <div
-              className="flex items-center gap-3 px-3 py-2 bg-white border border-blue-200 rounded-lg cursor-pointer hover:bg-blue-50 transition-colors"
-              onClick={() => setShowOrderItems(!showOrderItems)}
-            >
-              <div className="w-8 h-8 rounded-full bg-gradient-to-br from-blue-400 to-blue-600 flex items-center justify-center text-white text-sm font-medium">
-                {proposal.customer_name.charAt(0).toUpperCase()}
-              </div>
-              <div className="flex-1">
-                <p className="text-sm font-medium text-gray-900">{proposal.customer_name}</p>
-                <p className="text-xs text-gray-500">
-                  {new Date(proposal.delivery_date + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
-                </p>
-              </div>
-              {matchedOrder && matchedOrder.items.length > 0 && proposal.tags?.intent !== 'cancel_order' && (
-                showOrderItems ? <ChevronUp className="w-4 h-4 text-blue-400" /> : <ChevronDown className="w-4 h-4 text-blue-400" />
-              )}
-            </div>
-            <div className="mt-2 relative group/tag">
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  const newVal = orderFrequency === 'one-time' ? 'recurring' : 'one-time';
-                  setOrderFrequency(newVal);
-                  onUpdateOrderFrequency(proposal.id, newVal);
-                }}
-                className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium transition-all duration-200 active:scale-95 ${
-                  orderFrequency === 'one-time'
-                    ? 'bg-orange-100 text-orange-700 hover:bg-orange-200'
-                    : 'bg-blue-100 text-blue-700 hover:bg-blue-200'
-                }`}
-              >
-                {orderFrequency === 'one-time' ? 'One-time' : 'Recurring'}
-                <ArrowUpDown className="w-3 h-3 opacity-40" />
-              </button>
-              <div className="absolute left-0 bottom-full mb-1 w-56 px-3 py-2 bg-gray-900 text-white text-xs rounded-lg shadow-lg opacity-0 invisible group-hover/tag:opacity-100 group-hover/tag:visible transition-all duration-200 z-50 pointer-events-none">
-                {orderFrequency === 'one-time'
-                  ? 'This is a one-time order update for this order only and will not affect future orders.'
-                  : 'This will update the customer\u2019s standing order for this day of the week.'}
-              </div>
-            </div>
-            {/* Expandable current order items - hidden for cancel proposals */}
-            {showOrderItems && matchedOrder && matchedOrder.items.length > 0 && proposal.tags?.intent !== 'cancel_order' && (
-              <div className="mt-2 px-3 py-2 bg-white border border-blue-200 rounded-lg">
-                <p className="text-xs text-gray-400 uppercase tracking-wider mb-1">Current order items</p>
-                <div className="text-sm text-gray-600 space-y-0.5">
-                  {matchedOrder.items.map((item, idx) => (
-                    <div key={idx} className="flex items-center gap-2">
-                      <span>{item.name}</span>
-                      <span className="text-gray-400">{item.size}</span>
-                      <span className="font-medium">&times;{item.quantity}</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-            {/* Changes table inside recommendation box */}
-            <div className="border-t border-blue-200 mt-3 pt-2">
-              <p className="text-xs text-blue-600/70 uppercase tracking-wider font-medium mb-1.5">Changes</p>
-              {/* Cancel Order proposal - shown when intent is cancel_order */}
-              {matchedOrder && proposal.tags?.intent === 'cancel_order' && (
-                <div className="mb-2 px-3 py-2 bg-red-100 border border-red-300 rounded-lg">
-                  <p className="text-sm font-semibold text-red-700">Cancel Order</p>
-                  <p className="text-xs text-red-600">Customer requested to cancel this entire order.</p>
-                </div>
-              )}
-              {/* Delete Order label - shown when all lines are removals with no adds */}
-              {matchedOrder &&
-               !proposal.tags?.intent &&
-               editableLines.length > 0 &&
-               editableLines.every(l => l.change_type === 'remove') && (
-                <div className="mb-2 px-3 py-2 bg-red-100 border border-red-300 rounded-lg">
-                  <p className="text-sm font-semibold text-red-700">Cancel Order</p>
-                  <p className="text-xs text-red-600">This order will be cancelled.</p>
-                </div>
-              )}
-              {/* Hide changes table for cancel_order intent - no line-level changes */}
-              {proposal.tags?.intent !== 'cancel_order' && (
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="text-xs text-blue-600/60 uppercase tracking-wider">
-                    <th className="py-1 text-left font-medium">Item</th>
-                    <th className="py-1 text-center font-medium">Size</th>
-                    <th className="py-1 text-center font-medium">Qty</th>
-                    <th className="py-1 w-6"></th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {/* Existing order items with diff annotations */}
-                  {matchedOrder && matchedOrder.items.map((item, idx) => {
-                    const modification = editableLines.find(l => l.change_type === 'modify' && (l.order_line_id ? l.order_line_id === item.order_line_id : l.item_name === item.name && l.original_size === item.size));
-                    const removal = editableLines.find(l => l.change_type === 'remove' && (l.order_line_id ? l.order_line_id === item.order_line_id : l.item_name === item.name && l.size === item.size));
+      {/* Render each sibling proposal with the appropriate section */}
+      <div className="space-y-3">
+        {siblingProposals.map(p => {
+          const action = p.action;
+          const isUndet = action === 'undetermined' || (!action && p.order_id === null);
+          const isCreate = action === 'create';
 
-                    return (
-                      <React.Fragment key={idx}>
-                        <tr
-                          className={`${removal || modification ? 'opacity-50' : 'group hover:bg-gray-50 cursor-pointer'}`}
-                          onDoubleClick={() => {
-                            if (!removal && !modification) addModificationForItem(item);
-                          }}
-                          title={!removal && !modification ? 'Double-click to modify' : undefined}
-                        >
-                          <td className={`py-1.5 text-gray-700 ${removal || modification ? 'line-through' : ''}`}>{item.name}</td>
-                          <td className={`py-1.5 text-center text-gray-500 ${removal || modification ? 'line-through' : ''}`}>{item.size}</td>
-                          <td className={`py-1.5 text-center text-gray-700 font-medium ${removal || modification ? 'line-through' : ''}`}>{item.quantity}</td>
-                          <td className="py-1.5">
-                            {!removal && !modification && (
-                              <button
-                                onClick={() => addRemovalForItem(item)}
-                                className="text-gray-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity"
-                                title="Remove item"
-                              >
-                                <X className="w-3.5 h-3.5" />
-                              </button>
-                            )}
-                          </td>
-                        </tr>
-                        {modification && (
-                          <tr className="bg-blue-50">
-                            <td className="py-1.5 pl-5 text-blue-700 text-sm">
-                              <span className="text-blue-400 mr-1">&#8627;</span>
-                              {modification.item_name}
-                            </td>
-                            <td className="py-1.5 text-center">
-                              <select
-                                value={modification.size}
-                                onChange={(e) => updateEditableLine(modification.id, { size: e.target.value })}
-                                className="px-1 py-0.5 text-xs border border-blue-300 rounded bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
-                              >
-                                {getVariantsForLine(modification).map(v => (
-                                  <option key={v.code} value={v.code}>{v.code}</option>
-                                ))}
-                              </select>
-                            </td>
-                            <td className="py-1.5 text-center">
-                              <input
-                                type="number"
-                                min="1"
-                                value={modification.quantity}
-                                onChange={(e) => updateEditableLine(modification.id, { quantity: parseInt(e.target.value) || 1 })}
-                                className="w-12 px-1 py-0.5 text-sm text-center border border-blue-300 rounded bg-white focus:outline-none focus:ring-1 focus:ring-blue-500 font-semibold"
-                              />
-                            </td>
-                            <td className="py-1.5">
-                              <button onClick={() => removeEditableLine(modification.id)} className="text-gray-400 hover:text-red-500">
-                                <X className="w-3.5 h-3.5" />
-                              </button>
-                            </td>
-                          </tr>
-                        )}
-                        {removal && (
-                          <tr>
-                            <td colSpan={3} className="pb-1.5">
-                              <div className="ml-4 px-2 py-1 bg-red-50 border border-red-200 rounded text-xs text-red-600 inline-flex items-center gap-2">
-                                <span>&#8627; remove</span>
-                              </div>
-                            </td>
-                            <td className="pb-1.5">
-                              <button onClick={() => removeEditableLine(removal.id)} className="text-gray-400 hover:text-red-500">
-                                <X className="w-3.5 h-3.5" />
-                              </button>
-                            </td>
-                          </tr>
-                        )}
-                      </React.Fragment>
-                    );
-                  })}
-
-                  {/* Separator before add rows */}
-                  {editableLines.filter(l => l.change_type === 'add').length > 0 && (
-                    <tr>
-                      <td colSpan={4} className="py-1">
-                        <div className="border-t border-dashed border-blue-200"></div>
-                      </td>
-                    </tr>
-                  )}
-
-                  {/* Add/new item rows */}
-                  {editableLines
-                    .filter(l => l.change_type === 'add')
-                    .map(line => (
-                      <tr key={line.id} className="bg-green-50">
-                        <td className="py-1.5 pl-1">
-                          <div className="flex items-center gap-1">
-                            <span className="text-green-600 text-xs font-bold">+</span>
-                            <ItemSearchDropdown
-                              value={line.item_name}
-                              onChange={(val) => updateEditableLine(line.id, { item_name: val })}
-                            />
-                          </div>
-                        </td>
-                        <td className="py-1.5 text-center">
-                          <select
-                            value={line.size}
-                            onChange={(e) => updateEditableLine(line.id, { size: e.target.value })}
-                            className="px-1 py-0.5 text-xs border border-green-300 rounded bg-white focus:outline-none focus:ring-1 focus:ring-green-500"
-                          >
-                            {getVariantsForLine(line).map(v => (
-                              <option key={v.code} value={v.code}>{v.code}</option>
-                            ))}
-                          </select>
-                        </td>
-                        <td className="py-1.5 text-center">
-                          <input
-                            type="number"
-                            min="1"
-                            value={line.quantity}
-                            onChange={(e) => updateEditableLine(line.id, { quantity: parseInt(e.target.value) || 1 })}
-                            className="w-12 px-1 py-0.5 text-sm text-center border border-green-300 rounded bg-white focus:outline-none focus:ring-1 focus:ring-green-500"
-                          />
-                        </td>
-                        <td className="py-1.5">
-                          <button onClick={() => removeEditableLine(line.id)} className="text-gray-400 hover:text-red-500">
-                            <X className="w-3.5 h-3.5" />
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
-
-                  {/* Add new item button row */}
-                  <tr>
-                    <td colSpan={4} className="pt-1">
-                      <button
-                        onClick={addNewItemLine}
-                        className="flex items-center gap-1 text-xs text-green-600 hover:text-green-700 hover:bg-green-100/50 px-2 py-1 rounded transition-colors"
-                      >
-                        <span className="text-sm font-bold">+</span> Add item
-                      </button>
-                    </td>
-                  </tr>
-                </tbody>
-              </table>
-              )}
-            </div>
-            {/* Action buttons inside recommendation box */}
-            <div className="flex items-center gap-2 mt-3 pt-3 border-t border-blue-200">
-              <button
-                onClick={() => onApplyChange(proposal.id, editableLines)}
-                disabled={isApplying || isDismissing}
-                className={`flex items-center gap-1 px-4 py-2 text-white text-sm font-medium rounded-lg transition-colors disabled:opacity-50 ${
-                  proposal.tags?.intent === 'cancel_order'
-                    ? 'bg-red-600 hover:bg-red-700'
-                    : 'bg-green-600 hover:bg-green-700'
-                }`}
-              >
-                {isApplying ? (
-                  <><Loader2 className="w-4 h-4 animate-spin" /> {proposal.tags?.intent === 'cancel_order' ? 'Cancelling...' : 'Applying...'}</>
-                ) : proposal.tags?.intent === 'cancel_order' ? (
-                  <><X className="w-4 h-4" /> Cancel Order</>
-                ) : (
-                  <><Check className="w-4 h-4" /> Apply Changes</>
-                )}
-              </button>
-              <button
-                onClick={() => onDismiss(proposal.id)}
-                disabled={isDismissing || isApplying}
-                className="flex items-center gap-1 px-4 py-2 bg-white text-gray-600 text-sm font-medium rounded-lg border border-gray-200 hover:bg-gray-50 transition-colors disabled:opacity-50"
-              >
-                {isDismissing ? (
-                  <><Loader2 className="w-4 h-4 animate-spin" /> Dismissing...</>
-                ) : (
-                  <><X className="w-4 h-4" /> Dismiss</>
-                )}
-              </button>
-              <button
-                onClick={(e) => { e.stopPropagation(); setShowCorrection(!showCorrection); }}
-                className="ml-auto text-xs text-gray-400 hover:text-gray-600 transition-colors"
-              >
-                Something wrong?
-              </button>
-            </div>
-            {showCorrection && (
-              <div className="flex items-center gap-2 mt-2">
-                <button
-                  onClick={() => onOpenCreateNewOrderModal(proposal.id)}
-                  className="flex-1 px-3 py-2 text-sm font-medium text-blue-700 bg-white border border-blue-200 rounded-lg hover:bg-blue-100 transition-colors text-center"
-                >
-                  Create new order instead
-                </button>
-                <button
-                  onClick={() => onOpenAssignToOrderModal(proposal.id, matchedOrder?.id || null)}
-                  className="flex-1 px-3 py-2 text-sm font-medium text-blue-700 bg-white border border-blue-200 rounded-lg hover:bg-blue-100 transition-colors text-center"
-                >
-                  Assign to different order
-                </button>
-              </div>
-            )}
-          </div>
-        </div>
-      )}
+          if (isUndet) {
+            return (
+              <UndeterminedSection
+                key={p.id}
+                proposal={p}
+                showMultiLabel={hasMultipleProposals}
+                onOpenCreateNewOrderModal={onOpenCreateNewOrderModal}
+                onOpenAssignToOrderModal={onOpenAssignToOrderModal}
+                onDismiss={onDismiss}
+                isDismissing={dismissingProposalId === p.id}
+              />
+            );
+          } else if (isCreate) {
+            return (
+              <CreateOrderSection
+                key={p.id}
+                proposal={p}
+                customers={customers}
+                showMultiLabel={hasMultipleProposals}
+                onCreateOrder={onCreateOrder}
+                onDismiss={onDismiss}
+                onUpdateOrderFrequency={onUpdateOrderFrequency}
+                isDismissing={dismissingProposalId === p.id}
+              />
+            );
+          } else {
+            // assign action
+            const pMatchedOrder = orders.find(o => o.id === p.order_id) || null;
+            return (
+              <AssignOrderSection
+                key={p.id}
+                proposal={p}
+                matchedOrder={pMatchedOrder}
+                orders={orders}
+                customers={customers}
+                showMultiLabel={hasMultipleProposals}
+                onApplyChange={onApplyChange}
+                onDismiss={onDismiss}
+                onOpenCreateNewOrderModal={onOpenCreateNewOrderModal}
+                onOpenAssignToOrderModal={onOpenAssignToOrderModal}
+                onUpdateOrderFrequency={onUpdateOrderFrequency}
+                isDismissing={dismissingProposalId === p.id}
+                isApplying={applyingProposalId === p.id}
+              />
+            );
+          }
+        })}
+      </div>
       </div>
       {/* End RIGHT SIDE */}
           </div>
@@ -3925,35 +4215,49 @@ const InboxFeed: React.FC<InboxFeedProps> = ({
 }) => {
   const [sortMode, setSortMode] = useState<InboxSortMode>('recent');
 
-  const sortedProposals = useMemo(() => {
-    const sorted = [...proposals];
-    switch (sortMode) {
-      case 'urgent':
-        return sorted.sort((a, b) => {
-          const dateA = new Date(a.delivery_date + 'T00:00:00').getTime();
-          const dateB = new Date(b.delivery_date + 'T00:00:00').getTime();
-          if (dateA !== dateB) return dateA - dateB;
-          return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
-        });
-      case 'channel':
-        return sorted.sort((a, b) => {
-          if (a.channel !== b.channel) return a.channel === 'sms' ? -1 : 1;
-          return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
-        });
-      case 'needs-input':
-        return sorted.sort((a, b) => {
-          const aUndetermined = a.action === 'undetermined' ? 0 : 1;
-          const bUndetermined = b.action === 'undetermined' ? 0 : 1;
-          if (aUndetermined !== bUndetermined) return aUndetermined - bUndetermined;
-          return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
-        });
-      case 'recent':
-      default:
-        return sorted.sort((a, b) =>
-          new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
-        );
+  // Group proposals by intake_event_id so one card = one message
+  const groupedProposals = useMemo(() => {
+    const groups: Record<string, Proposal[]> = {};
+    for (const p of proposals) {
+      const key = p.intake_event_id;
+      if (!groups[key]) groups[key] = [];
+      groups[key].push(p);
     }
-  }, [proposals, sortMode]);
+    // Sort each group's proposals by delivery_date
+    for (const key of Object.keys(groups)) {
+      groups[key].sort((a, b) => a.delivery_date.localeCompare(b.delivery_date));
+    }
+    return groups;
+  }, [proposals]);
+
+  // Sort groups (by the primary/first proposal in each group)
+  const sortedGroups = useMemo(() => {
+    const entries = Object.entries(groupedProposals);
+    const sortByPrimary = (a: [string, Proposal[]], b: [string, Proposal[]]) => {
+      const pa = a[1][0], pb = b[1][0];
+      switch (sortMode) {
+        case 'urgent': {
+          const dateA = new Date(pa.delivery_date + 'T00:00:00').getTime();
+          const dateB = new Date(pb.delivery_date + 'T00:00:00').getTime();
+          if (dateA !== dateB) return dateA - dateB;
+          return new Date(pb.created_at).getTime() - new Date(pa.created_at).getTime();
+        }
+        case 'channel':
+          if (pa.channel !== pb.channel) return pa.channel === 'sms' ? -1 : 1;
+          return new Date(pb.created_at).getTime() - new Date(pa.created_at).getTime();
+        case 'needs-input': {
+          const aU = pa.action === 'undetermined' ? 0 : 1;
+          const bU = pb.action === 'undetermined' ? 0 : 1;
+          if (aU !== bU) return aU - bU;
+          return new Date(pb.created_at).getTime() - new Date(pa.created_at).getTime();
+        }
+        case 'recent':
+        default:
+          return new Date(pb.created_at).getTime() - new Date(pa.created_at).getTime();
+      }
+    };
+    return entries.sort(sortByPrimary);
+  }, [groupedProposals, sortMode]);
 
   const sortButtons: { mode: InboxSortMode; label: string }[] = [
     { mode: 'urgent', label: 'Most Urgent' },
@@ -3971,7 +4275,7 @@ const InboxFeed: React.FC<InboxFeedProps> = ({
             <h3 className="text-lg font-semibold text-gray-900">Inbox</h3>
           </div>
           <span className="text-sm text-gray-500">
-            {proposals.length} message{proposals.length !== 1 ? 's' : ''} to review
+            {sortedGroups.length} message{sortedGroups.length !== 1 ? 's' : ''} to review
           </span>
         </div>
         <div className="flex items-center gap-1">
@@ -4003,23 +4307,27 @@ const InboxFeed: React.FC<InboxFeedProps> = ({
         </div>
       </div>
       <div className="space-y-4">
-        {sortedProposals.map(proposal => (
-          <InboxCard
-            key={proposal.id}
-            proposal={proposal}
-            matchedOrder={orders.find(o => o.id === proposal.order_id) || null}
-            orders={orders}
-            customers={customers}
-            onApplyChange={onApplyChange}
-            onCreateOrder={onCreateOrder}
-            onDismiss={onDismiss}
-            onOpenCreateNewOrderModal={onOpenCreateNewOrderModal}
-            onOpenAssignToOrderModal={onOpenAssignToOrderModal}
-            onUpdateOrderFrequency={onUpdateOrderFrequency}
-            isDismissing={dismissingProposalId === proposal.id}
-            isApplying={applyingProposalId === proposal.id}
-          />
-        ))}
+        {sortedGroups.map(([intakeEventId, groupProposals]) => {
+          const primary = groupProposals[0];
+          return (
+            <InboxCard
+              key={intakeEventId}
+              proposal={primary}
+              siblingProposals={groupProposals}
+              matchedOrder={orders.find(o => o.id === primary.order_id) || null}
+              orders={orders}
+              customers={customers}
+              onApplyChange={onApplyChange}
+              onCreateOrder={onCreateOrder}
+              onDismiss={onDismiss}
+              onOpenCreateNewOrderModal={onOpenCreateNewOrderModal}
+              onOpenAssignToOrderModal={onOpenAssignToOrderModal}
+              onUpdateOrderFrequency={onUpdateOrderFrequency}
+              dismissingProposalId={dismissingProposalId}
+              applyingProposalId={applyingProposalId}
+            />
+          );
+        })}
       </div>
     </div>
   );
@@ -4041,6 +4349,11 @@ const Dashboard: React.FC<DashboardProps> = ({ organizationId, layout = 'default
   const [sidebarTab, setSidebarTab] = useState<'inbox' | 'orders' | 'upload' | 'analytics' | 'catalog' | 'history'>('inbox');
   const [orders, setOrders] = useState<Order[]>([]);
   const [proposals, setProposals] = useState<Proposal[]>(MOCK_PROPOSALS);
+  const inboxMessageCount = useMemo(() => {
+    const seen = new Set<string>();
+    for (const p of proposals) seen.add(p.intake_event_id);
+    return seen.size;
+  }, [proposals]);
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshingInbox, setIsRefreshingInbox] = useState(false);
   const [expandedDates, setExpandedDates] = useState<Set<string>>(new Set());
@@ -4200,7 +4513,9 @@ const Dashboard: React.FC<DashboardProps> = ({ organizationId, layout = 'default
   };
 
   // Internal function that loads proposals without managing loading state
+  const USE_MOCK_INBOX = false; // Toggle to false to load real proposals from Supabase
   const loadProposalsInternal = async () => {
+    if (USE_MOCK_INBOX) return; // Keep MOCK_PROPOSALS for testing
     if (!organizationId) return;
 
     const { data, error } = await supabaseClient
@@ -4284,6 +4599,7 @@ const Dashboard: React.FC<DashboardProps> = ({ organizationId, layout = 'default
           code: v.variant_code,
           name: v.variant_name
         })) || [],
+        delivery_date: pl.proposed_values?.delivery_date,
       }));
 
       // Derive order_frequency from tags if present
@@ -4402,10 +4718,20 @@ const Dashboard: React.FC<DashboardProps> = ({ organizationId, layout = 'default
       console.error('Error loading history:', error);
     } else {
       const transformed: IntakeHistoryItem[] = (data || []).map((item: any) => {
-        // Check for change proposal assignment
-        const proposal = item.order_change_proposals?.[0];
-        const order = proposal?.orders;
-        const lines = proposal?.order_change_proposal_lines || [];
+        const proposals: IntakeHistoryProposal[] = (item.order_change_proposals || []).map((p: any) => ({
+          id: p.id,
+          status: p.status || null,
+          customer_name: p.orders?.customer_name || null,
+          delivery_date: p.orders?.delivery_date || null,
+          order_id: p.orders?.id || null,
+          lines: (p.order_change_proposal_lines || []).map((l: any) => ({
+            id: l.id,
+            change_type: l.change_type,
+            item_name: l.item_name,
+            proposed_values: l.proposed_values,
+          })),
+          tags: p.tags || null,
+        }));
 
         return {
           id: item.id,
@@ -4413,18 +4739,7 @@ const Dashboard: React.FC<DashboardProps> = ({ organizationId, layout = 'default
           provider: item.provider,
           created_at: item.created_at,
           raw_content: item.raw_content,
-          assigned_order_id: order?.id || null,
-          assigned_order_number: order?.delivery_date || null,
-          assigned_customer_name: order?.customer_name || null,
-          proposal_status: proposal?.status || null,
-          proposal_lines: lines.map((l: any) => ({
-            id: l.id,
-            change_type: l.change_type,
-            item_name: l.item_name,
-            proposed_values: l.proposed_values,
-          })),
-          proposal_id: proposal?.id || null,
-          proposal_tags: proposal?.tags || null,
+          proposals,
         };
       });
       setIntakeHistory(transformed);
@@ -4445,144 +4760,58 @@ const Dashboard: React.FC<DashboardProps> = ({ organizationId, layout = 'default
     return proposals.filter(p => p.order_id === null && p.delivery_date === dateKey);
   };
 
-  // Handlers — apply changes to order, update DB, then remove from local state
+  // Handlers — apply changes to order via resolve-proposal API, then remove from local state
   const handleApplyChange = async (proposalId: string, lines: ProposalLine[]) => {
-    // Find the proposal to get the order_id
     const proposal = proposals.find(p => p.id === proposalId);
     if (!proposal) return;
 
     setApplyingProposalId(proposalId);
-    let orderId = proposal.order_id;
 
     try {
-      // Check if this is a cancel order proposal (intent: cancel_order)
-      // ONLY cancel when intent is explicitly cancel_order - removing specific items should NOT cancel the order
-      const isCancelOrder = proposal.tags?.intent === 'cancel_order' && orderId;
+      const session = await supabaseClient.auth.getSession();
 
-      if (isCancelOrder) {
-        // Cancel the existing order
-        const { error: cancelError } = await supabaseClient
-          .from('orders')
-          .update({ status: 'cancelled' })
-          .eq('id', orderId);
+      // Build submitted lines for the API
+      const submittedLines = lines
+        .filter(line => !(line.change_type === 'add' && (!line.item_name || !line.item_name.trim())))
+        .map(l => ({
+          change_type: l.change_type,
+          item_name: l.item_name,
+          item_id: l.item_id || null,
+          item_variant_id: l.item_variant_id || null,
+          quantity: l.quantity,
+          variant_code: l.size || null,
+          order_line_id: l.order_line_id || null,
+        }));
 
-        if (cancelError) {
-          console.error('Error cancelling order:', cancelError);
-          showToast('Failed to cancel order', 'error');
-          return;
-        }
+      // Look up customer_id for new orders
+      const matchedCustomer = !proposal.order_id
+        ? customers.find(c => c.name.toLowerCase() === proposal.customer_name.toLowerCase())
+        : null;
 
-        // Set ERP sync status to pending for recurring cancel orders
-        const isCancelRecurring = proposal.tags?.order_frequency === 'recurring' || proposal.order_frequency === 'recurring';
-        const cancelTags = isCancelRecurring ? {
-          ...proposal.tags,
-          erp_sync_status: 'pending' as const
-        } : proposal.tags;
-
-        await supabaseClient
-          .from('order_change_proposals')
-          .update({ status: 'accepted', order_id: orderId, tags: cancelTags })
-          .eq('id', proposalId);
-
-        setProposals(prev => prev.filter(p => p.id !== proposalId));
-        loadOrders(false);
-        showToast('Order cancelled');
-        return;
-      }
-
-      // If no order_id, this is a new order - create it first
-      if (!orderId) {
-        // Look up customer_id from customer name
-        const matchedCustomer = customers.find(c => c.name.toLowerCase() === proposal.customer_name.toLowerCase());
-
-        const { data: newOrder, error: createError } = await supabaseClient
-          .from('orders')
-          .insert({
-            organization_id: organizationId,
-            customer_id: matchedCustomer?.id || null,
-            customer_name: proposal.customer_name,
-            status: 'pending_review',
-            source_channel: proposal.channel,
-            delivery_date: proposal.delivery_date,
+      const response = await fetch(
+        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/resolve-proposal`,
+        {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${session.data.session?.access_token}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            proposalId,
+            action: 'accept',
+            submittedLines,
+            customerName: proposal.customer_name,
+            customerId: matchedCustomer?.id || null,
+            deliveryDate: proposal.delivery_date,
           })
-          .select()
-          .single();
-
-        if (createError || !newOrder) {
-          console.error('Error creating order:', createError);
-          showToast('Failed to create order', 'error');
-          return;
         }
+      );
 
-        orderId = newOrder.id;
+      const result = await response.json();
+      if (!response.ok || !result.success) {
+        throw new Error(result.error || 'Failed to apply changes');
       }
 
-      // Get max line_number for new lines
-      const { data: existingLines } = await supabaseClient
-        .from('order_lines')
-        .select('line_number')
-        .eq('order_id', orderId)
-        .order('line_number', { ascending: false })
-        .limit(1);
-      let nextLineNumber = (existingLines?.[0]?.line_number || 0) + 1;
-
-      for (const line of lines) {
-        if (line.change_type === 'add') {
-          // Look up item_variant_id from available_variants on the line (loaded with proposal)
-          let variantId = line.item_variant_id || null;
-          if (line.size && line.available_variants?.length && !variantId) {
-            const variant = line.available_variants.find(v => v.code === line.size);
-            if (variant) {
-              variantId = variant.id;
-            }
-          }
-
-          await supabaseClient.from('order_lines').insert({
-            order_id: orderId,
-            line_number: nextLineNumber++,
-            product_name: line.item_name,
-            quantity: line.quantity,
-            item_id: line.item_id || null,
-            item_variant_id: variantId,
-            status: 'active',
-          });
-        } else if (line.change_type === 'remove' && line.order_line_id) {
-          await supabaseClient
-            .from('order_lines')
-            .update({ status: 'deleted' })
-            .eq('id', line.order_line_id);
-        } else if (line.change_type === 'modify' && line.order_line_id) {
-          const updates: Record<string, unknown> = { quantity: line.quantity };
-
-          // Look up item_variant_id from available_variants on the line (loaded with proposal)
-          if (line.size && line.available_variants?.length) {
-            const variant = line.available_variants.find(v => v.code === line.size);
-            if (variant) {
-              updates.item_variant_id = variant.id;
-            }
-          } else if (line.item_variant_id) {
-            // Fallback to existing item_variant_id if no lookup possible
-            updates.item_variant_id = line.item_variant_id;
-          }
-
-          await supabaseClient
-            .from('order_lines')
-            .update(updates)
-            .eq('id', line.order_line_id);
-        }
-      }
-
-      // Set ERP sync status to pending for recurring orders
-      const isRecurring = proposal.tags?.order_frequency === 'recurring' || proposal.order_frequency === 'recurring';
-      const updatedTags = isRecurring ? {
-        ...proposal.tags,
-        erp_sync_status: 'pending' as const
-      } : proposal.tags;
-
-      await supabaseClient
-        .from('order_change_proposals')
-        .update({ status: 'accepted', order_id: orderId, tags: updatedTags })
-        .eq('id', proposalId);
       setProposals(prev => prev.filter(p => p.id !== proposalId));
       loadOrders(false);
       showToast('Changes applied');
@@ -4597,29 +4826,26 @@ const Dashboard: React.FC<DashboardProps> = ({ organizationId, layout = 'default
   const handleDismiss = async (proposalId: string) => {
     setDismissingProposalId(proposalId);
     try {
-      const proposal = proposals.find(p => p.id === proposalId);
+      const session = await supabaseClient.auth.getSession();
 
-      // Update proposal status
-      await supabaseClient
-        .from('order_change_proposals')
-        .update({
-          status: 'rejected',
-          reviewed_at: new Date().toISOString()
-        })
-        .eq('id', proposalId);
+      const response = await fetch(
+        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/resolve-proposal`,
+        {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${session.data.session?.access_token}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            proposalId,
+            action: 'reject',
+          })
+        }
+      );
 
-      // Create order event for rejected change (only for change proposals to existing orders)
-      if (proposal && proposal.order_id) {
-        await supabaseClient
-          .from('order_events')
-          .insert({
-            order_id: proposal.order_id,
-            type: 'change_rejected',
-            metadata: {
-              proposal_id: proposalId,
-              changes_rejected: proposal.lines.length
-            }
-          });
+      const result = await response.json();
+      if (!response.ok || !result.success) {
+        throw new Error(result.error || 'Failed to dismiss proposal');
       }
 
       setProposals(prev => prev.filter(p => p.id !== proposalId));
@@ -4633,7 +4859,7 @@ const Dashboard: React.FC<DashboardProps> = ({ organizationId, layout = 'default
   };
 
   // Toggle ERP sync status for a proposal in History tab (admin only)
-  const handleToggleErpSync = async (proposalId: string, currentTags: IntakeHistoryItem['proposal_tags']) => {
+  const handleToggleErpSync = async (proposalId: string, currentTags: IntakeHistoryProposal['tags']) => {
     const currentStatus = currentTags?.erp_sync_status || 'pending';
     const newStatus = currentStatus === 'synced' ? 'pending' : 'synced';
 
@@ -4661,82 +4887,47 @@ const Dashboard: React.FC<DashboardProps> = ({ organizationId, layout = 'default
     if (!proposal || !organizationId) return;
 
     try {
-      // Look up customer_id from customer name
+      const session = await supabaseClient.auth.getSession();
       const customerName = overrideCustomerName || proposal.customer_name;
       const matchedCustomer = customers.find(c => c.name.toLowerCase() === customerName.toLowerCase());
 
-      // 1. Create the order in the database
-      const { data: newOrderData, error: orderError } = await supabaseClient
-        .from('orders')
-        .insert({
-          organization_id: organizationId,
-          customer_id: matchedCustomer?.id || null,
-          customer_name: customerName,
-          status: 'ready',
-          source_channel: proposal.channel,
-          delivery_date: overrideDeliveryDate || proposal.delivery_date,
-        })
-        .select()
-        .single();
-
-      if (orderError) {
-        console.error('Error creating order:', orderError);
-        return;
-      }
-
-      // 2. Create order lines
-      const orderLines = lines.map((line, index) => ({
-        order_id: newOrderData.id,
-        line_number: index + 1,
-        item_id: line.item_id || null,
-        item_variant_id: line.item_variant_id || null,
-        product_name: line.item_name,
-        quantity: line.quantity,
-        status: 'active',
+      const submittedLines = lines.map(l => ({
+        change_type: l.change_type as 'add' | 'remove' | 'modify',
+        item_name: l.item_name,
+        item_id: l.item_id || null,
+        item_variant_id: l.item_variant_id || null,
+        quantity: l.quantity,
+        variant_code: l.size || null,
+        order_line_id: l.order_line_id || null,
       }));
 
-      const { error: linesError } = await supabaseClient
-        .from('order_lines')
-        .insert(orderLines);
+      const response = await fetch(
+        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/resolve-proposal`,
+        {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${session.data.session?.access_token}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            proposalId,
+            action: 'accept',
+            submittedLines,
+            customerName,
+            customerId: matchedCustomer?.id || null,
+            deliveryDate: overrideDeliveryDate || proposal.delivery_date,
+          })
+        }
+      );
 
-      if (linesError) {
-        console.error('Error creating order lines:', linesError);
-        // Optionally rollback order creation here
-        return;
+      const result = await response.json();
+      if (!response.ok || !result.success) {
+        throw new Error(result.error || 'Failed to create order');
       }
 
-      // 3. Update proposal status to accepted
-      // Set ERP sync status to pending for recurring orders
-      const isRecurringOrder = proposal.tags?.order_frequency === 'recurring' || proposal.order_frequency === 'recurring';
-      const createOrderTags = isRecurringOrder ? {
-        ...proposal.tags,
-        erp_sync_status: 'pending' as const
-      } : proposal.tags;
-
-      await supabaseClient
-        .from('order_change_proposals')
-        .update({ status: 'accepted', order_id: newOrderData.id, tags: createOrderTags })
-        .eq('id', proposalId);
-
-      // 4. Update local state
-      const newOrder: Order = {
-        id: newOrderData.id,
-        customer_name: overrideCustomerName || proposal.customer_name,
-        status: 'ready',
-        source: proposal.channel,
-        delivery_date: overrideDeliveryDate || proposal.delivery_date,
-        created_at: newOrderData.created_at,
-        items: lines.map(line => ({
-          order_line_id: line.id,
-          name: line.item_name,
-          size: line.size || '',
-          quantity: line.quantity,
-        })),
-        line_count: lines.length,
-      };
-      setOrders(prev => [...prev, newOrder]);
       setProposals(prev => prev.filter(p => p.id !== proposalId));
       setCreateNewOrderModal(null);
+      loadOrders(false);
       showToast('Order created');
     } catch (error) {
       console.error('Error creating order:', error);
@@ -5068,9 +5259,9 @@ const Dashboard: React.FC<DashboardProps> = ({ organizationId, layout = 'default
               >
                 <Inbox className="w-5 h-5 flex-shrink-0" />
                 {!sidebarCollapsed && <span className="font-medium">Inbox</span>}
-                {proposals.length > 0 && (
+                {inboxMessageCount > 0 && (
                   <span className={`${sidebarCollapsed ? 'absolute -top-1 -right-1' : 'ml-auto'} min-w-[20px] h-5 flex items-center justify-center bg-red-500 text-white text-xs font-bold rounded-full px-1`}>
-                    {proposals.length > 99 ? '99+' : proposals.length}
+                    {inboxMessageCount > 99 ? '99+' : inboxMessageCount}
                   </span>
                 )}
               </button>
@@ -5153,22 +5344,10 @@ const Dashboard: React.FC<DashboardProps> = ({ organizationId, layout = 'default
               </div>
 
               <div className="flex items-center space-x-4">
-                {/* PWA Install Button */}
-                {headerContent.isInstallable && (
-                  <button
-                    onClick={headerContent.onInstallPWA}
-                    className="flex items-center space-x-2 px-3 py-1.5 text-sm bg-green-100 text-green-700 rounded-lg hover:bg-green-200 transition-colors"
-                  >
-                    <Smartphone className="w-4 h-4" />
-                    <span>Install App</span>
-                  </button>
-                )}
-
                 {headerContent.user && (
                   <div className="flex items-center space-x-3">
                     <div className="text-right">
                       <p className="text-sm font-medium text-gray-900">{headerContent.user.user_metadata?.full_name || headerContent.user.email}</p>
-                      <p className="text-xs text-gray-500">Connected to Gmail</p>
                     </div>
                     {headerContent.user.user_metadata?.avatar_url && (
                       <img
@@ -5179,19 +5358,11 @@ const Dashboard: React.FC<DashboardProps> = ({ organizationId, layout = 'default
                     )}
                   </div>
                 )}
-{/* Settings icon hidden for now
                 <div className="relative group">
                   <button className="p-2 text-gray-400 hover:text-gray-600 transition-colors rounded-lg hover:bg-gray-100">
                     <Settings className="w-5 h-5" />
                   </button>
                   <div className="absolute right-0 mt-2 w-48 bg-white rounded-lg shadow-lg py-1 z-10 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 border border-gray-200">
-                    <button
-                      onClick={headerContent.onNavigateSettings}
-                      className="flex items-center gap-2 w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
-                    >
-                      <Settings className="w-4 h-4" />
-                      Settings
-                    </button>
                     <button
                       onClick={headerContent.onSignOut}
                       disabled={headerContent.isSigningOut}
@@ -5211,7 +5382,6 @@ const Dashboard: React.FC<DashboardProps> = ({ organizationId, layout = 'default
                     </button>
                   </div>
                 </div>
-*/}
               </div>
             </header>
           )}
@@ -5489,7 +5659,11 @@ const Dashboard: React.FC<DashboardProps> = ({ organizationId, layout = 'default
                               {/* Content */}
                               <div className="min-w-0 flex-1">
                                 <div className="flex items-center gap-2 mb-1">
-                                  <span className="text-sm font-medium text-gray-900 truncate">{from}</span>
+                                  {isEmail ? (
+                                    <span className="text-sm font-medium text-gray-900 truncate">{from}</span>
+                                  ) : (
+                                    <span className="text-xs text-gray-400">SMS</span>
+                                  )}
                                   <span className="text-xs text-gray-400">{formattedDate} at {formattedTime}</span>
                                 </div>
                                 {subject && (
@@ -5500,82 +5674,42 @@ const Dashboard: React.FC<DashboardProps> = ({ organizationId, layout = 'default
                                 )}
 
                                 {/* Assignment status with tooltips */}
-                                <div className="mt-2 flex items-center gap-2">
-                                  {item.assigned_customer_name ? (
+                                <div className="mt-2 flex flex-wrap items-center gap-2">
+                                  {item.proposals.length > 0 ? item.proposals.map((proposal) => (
                                     <Tooltip
+                                      key={proposal.id}
                                       text={
-                                        item.proposal_status === 'accepted'
-                                          ? 'Proposal was accepted and applied to order'
-                                          : item.proposal_status === 'rejected'
-                                          ? 'Proposal was rejected/dismissed'
-                                          : 'Proposal is pending review'
+                                        proposal.status === 'accepted'
+                                          ? 'Changes applied to order'
+                                          : proposal.status === 'rejected'
+                                          ? 'Proposal was rejected'
+                                          : 'Pending review'
                                       }
                                       position="bottom"
                                     >
                                       <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${
-                                        item.proposal_status === 'accepted'
+                                        proposal.status === 'accepted'
                                           ? 'bg-green-100 text-green-700'
-                                          : item.proposal_status === 'rejected'
+                                          : proposal.status === 'rejected'
                                           ? 'bg-red-100 text-red-700'
                                           : 'bg-amber-100 text-amber-700'
                                       }`}>
-                                        {item.proposal_status === 'accepted' ? (
+                                        {proposal.status === 'accepted' ? (
                                           <Check className="w-3 h-3" />
-                                        ) : item.proposal_status === 'rejected' ? (
+                                        ) : proposal.status === 'rejected' ? (
                                           <X className="w-3 h-3" />
                                         ) : (
                                           <Clock className="w-3 h-3" />
                                         )}
-                                        {item.assigned_customer_name}
-                                        {item.assigned_order_number && ` (${item.assigned_order_number})`}
+                                        {proposal.customer_name}
+                                        {proposal.delivery_date && ` (${proposal.delivery_date})`}
                                       </span>
                                     </Tooltip>
-                                  ) : (
+                                  )) : (
                                     <Tooltip text="No order proposal was created for this message" position="bottom">
                                       <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-500">
                                         <AlertCircle className="w-3 h-3" />
                                         Not assigned
-                                      </span>
-                                    </Tooltip>
-                                  )}
-
-                                  {/* Order Type badge - only for accepted proposals */}
-                                  {item.proposal_status === 'accepted' && item.proposal_tags?.order_frequency && (
-                                    <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${
-                                      item.proposal_tags.order_frequency === 'recurring'
-                                        ? 'bg-purple-100 text-purple-700'
-                                        : 'bg-gray-100 text-gray-600'
-                                    }`}>
-                                      {item.proposal_tags.order_frequency === 'recurring' ? (
-                                        <><Repeat className="w-3 h-3" /> Recurring</>
-                                      ) : (
-                                        'One-time'
-                                      )}
-                                    </span>
-                                  )}
-
-                                  {/* ERP Sync badge - only for accepted recurring proposals (display only) */}
-                                  {item.proposal_status === 'accepted' && item.proposal_tags?.order_frequency === 'recurring' && (
-                                    <Tooltip
-                                      text={
-                                        item.proposal_tags.erp_sync_status === 'synced'
-                                          ? 'Synced to ERP'
-                                          : 'Pending ERP sync'
-                                      }
-                                      position="bottom"
-                                    >
-                                      <span
-                                        className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${
-                                          item.proposal_tags.erp_sync_status === 'synced'
-                                            ? 'bg-green-100 text-green-700'
-                                            : 'bg-amber-100 text-amber-700'
-                                        }`}
-                                      >
-                                        {item.proposal_tags.erp_sync_status === 'synced' ? (
-                                          <><Check className="w-3 h-3" /> ERP</>
-                                        ) : (
-                                          <><RefreshCw className="w-3 h-3" /> Syncing with ERP</>
-                                        )}
                                       </span>
                                     </Tooltip>
                                   )}
@@ -5588,54 +5722,119 @@ const Dashboard: React.FC<DashboardProps> = ({ organizationId, layout = 'default
                         {/* Expanded content */}
                         {isExpanded && (
                           <div className="px-6 pb-4 pl-20 space-y-3">
+                            {/* Sender details */}
+                            {!isEmail && from && (
+                              <div className="text-xs text-gray-500">
+                                From: <span className="font-medium text-gray-700">{from}</span>
+                              </div>
+                            )}
+
                             {/* Original message */}
                             <div className="bg-gray-50 rounded-lg p-4 border border-gray-200">
                               <h4 className="text-xs font-semibold text-gray-500 uppercase mb-2">Original Message</h4>
                               <p className="text-sm text-gray-700 whitespace-pre-wrap">{body}</p>
                             </div>
 
-                            {/* AI Proposal (if exists) */}
-                            {(item.proposal_lines && item.proposal_lines.length > 0) || item.proposal_tags?.intent === 'cancel_order' ? (
-                              <div className="bg-blue-50 rounded-lg p-4 border border-blue-200">
-                                <h4 className="text-xs font-semibold text-blue-600 uppercase mb-2">
-                                  {item.proposal_tags?.intent === 'cancel_order' ? 'Cancel Order Proposal' : 'AI Proposed Changes'}
-                                </h4>
-                                {item.proposal_tags?.intent === 'cancel_order' ? (
-                                  <p className="text-sm text-blue-700">
-                                    Cancel entire order for {item.assigned_customer_name}
-                                  </p>
-                                ) : (
-                                  <div className="space-y-1">
-                                    {item.proposal_lines?.map((line) => (
-                                      <div key={line.id} className="flex items-center gap-2 text-sm">
-                                        <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium ${
-                                          line.change_type === 'add'
-                                            ? 'bg-green-100 text-green-700'
-                                            : line.change_type === 'remove'
-                                            ? 'bg-red-100 text-red-700'
-                                            : 'bg-amber-100 text-amber-700'
-                                        }`}>
-                                          {line.change_type === 'add' ? '+' : line.change_type === 'remove' ? '-' : '~'}
-                                        </span>
-                                        <span className="text-gray-700">{line.item_name}</span>
-                                        {line.proposed_values?.quantity && (
-                                          <span className="text-gray-500">× {line.proposed_values.quantity}</span>
-                                        )}
-                                        {line.proposed_values?.variant_code && (
-                                          <span className="text-xs bg-gray-200 text-gray-600 px-1 rounded">
-                                            {line.proposed_values.variant_code}
-                                          </span>
-                                        )}
+                            {/* Proposals */}
+                            {item.proposals.length > 0 ? (
+                              <div className="space-y-3">
+                                {item.proposals.map((proposal) => {
+                                  const statusColor = proposal.status === 'accepted'
+                                    ? { bg: 'bg-green-50', border: 'border-green-200', label: 'text-green-600' }
+                                    : proposal.status === 'rejected'
+                                    ? { bg: 'bg-red-50', border: 'border-red-200', label: 'text-red-600' }
+                                    : { bg: 'bg-blue-50', border: 'border-blue-200', label: 'text-blue-600' };
+                                  const statusLabel = proposal.status === 'accepted'
+                                    ? 'Changes Applied'
+                                    : proposal.status === 'rejected'
+                                    ? 'Rejected'
+                                    : 'Pending Review';
+                                  const dateLabel = proposal.delivery_date
+                                    ? new Date(proposal.delivery_date + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })
+                                    : '';
+                                  return (
+                                    <div key={proposal.id} className={`${statusColor.bg} rounded-lg p-4 border ${statusColor.border}`}>
+                                      <div className="flex items-center justify-between mb-2">
+                                        <h4 className={`text-xs font-semibold ${statusColor.label} uppercase`}>
+                                          {proposal.tags?.intent === 'cancel_order'
+                                            ? 'Order Cancelled'
+                                            : statusLabel}
+                                          {proposal.customer_name && ` — ${proposal.customer_name}`}
+                                          {dateLabel && ` · ${dateLabel}`}
+                                        </h4>
+                                        <div className="flex items-center gap-1.5">
+                                          {proposal.status === 'accepted' && proposal.tags?.order_frequency && (
+                                            <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${
+                                              proposal.tags.order_frequency === 'recurring'
+                                                ? 'bg-purple-100 text-purple-700'
+                                                : 'bg-gray-100 text-gray-600'
+                                            }`}>
+                                              {proposal.tags.order_frequency === 'recurring' ? (
+                                                <><Repeat className="w-3 h-3" /> Recurring</>
+                                              ) : (
+                                                'One-time'
+                                              )}
+                                            </span>
+                                          )}
+                                          {proposal.status === 'accepted' && proposal.tags?.order_frequency === 'recurring' && (
+                                            <Tooltip
+                                              text={proposal.tags.erp_sync_status === 'synced' ? 'Synced to ERP' : 'Pending ERP sync'}
+                                              position="bottom"
+                                            >
+                                              <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${
+                                                proposal.tags.erp_sync_status === 'synced'
+                                                  ? 'bg-green-100 text-green-700'
+                                                  : 'bg-amber-100 text-amber-700'
+                                              }`}>
+                                                {proposal.tags.erp_sync_status === 'synced' ? (
+                                                  <><Check className="w-3 h-3" /> ERP</>
+                                                ) : (
+                                                  <><RefreshCw className="w-3 h-3" /> Syncing</>
+                                                )}
+                                              </span>
+                                            </Tooltip>
+                                          )}
+                                        </div>
                                       </div>
-                                    ))}
-                                  </div>
-                                )}
+                                      {proposal.tags?.intent === 'cancel_order' ? (
+                                        <p className="text-sm text-gray-700">
+                                          Cancel entire order for {proposal.customer_name}
+                                        </p>
+                                      ) : (
+                                        <div className="space-y-1">
+                                          {proposal.lines.map((line) => (
+                                            <div key={line.id} className="flex items-center gap-2 text-sm">
+                                              <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium ${
+                                                line.change_type === 'add'
+                                                  ? 'bg-green-100 text-green-700'
+                                                  : line.change_type === 'remove'
+                                                  ? 'bg-red-100 text-red-700'
+                                                  : 'bg-amber-100 text-amber-700'
+                                              }`}>
+                                                {line.change_type === 'add' ? '+' : line.change_type === 'remove' ? '-' : '~'}
+                                              </span>
+                                              <span className="text-gray-700">{line.item_name}</span>
+                                              {line.proposed_values?.quantity && (
+                                                <span className="text-gray-500">× {line.proposed_values.quantity}</span>
+                                              )}
+                                              {line.proposed_values?.variant_code && (
+                                                <span className="text-xs bg-gray-200 text-gray-600 px-1 rounded">
+                                                  {line.proposed_values.variant_code}
+                                                </span>
+                                              )}
+                                            </div>
+                                          ))}
+                                        </div>
+                                      )}
+                                    </div>
+                                  );
+                                })}
                               </div>
-                            ) : item.assigned_customer_name === null ? (
+                            ) : (
                               <div className="bg-gray-100 rounded-lg p-4 border border-gray-200">
                                 <p className="text-sm text-gray-500 italic">No proposal was created for this message</p>
                               </div>
-                            ) : null}
+                            )}
                           </div>
                         )}
                       </div>
