@@ -29,7 +29,7 @@ const AdminLogin: React.FC = () => {
       setIsLoading(true);
       setError(null);
 
-      const SUPA_URL = 'https://zkglvdfppodwlgzhfgqs.supabase.co';
+      const SUPA_URL = import.meta.env.VITE_SUPABASE_URL;
       const callback = `${window.location.origin}/auth/callback`;
       const encoded = encodeURIComponent(callback);
 

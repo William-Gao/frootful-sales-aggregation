@@ -1,7 +1,7 @@
 import { createClient } from 'npm:@supabase/supabase-js@2.39.7';
 import OpenAI from 'npm:openai@4.28.0';
 import { createLogger } from '../_shared/logger.ts';
-import { getAnalysisPrompt } from '../_shared/prompts.ts';
+import { getAnalysisPrompt, ExistingOrderContext } from '../_shared/prompts.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -64,6 +64,42 @@ interface Order {
   status: string;
   created_at: string;
   order_lines: OrderLine[];
+}
+
+interface DeliveryDateGroup {
+  requestedDeliveryDate: string | null;
+  orderLines: any[];
+}
+
+/**
+ * Groups order lines by delivery date.
+ * Lines with a per-line requestedDeliveryDate use that date.
+ * Lines without one inherit the defaultDate (top-level requestedDeliveryDate).
+ * Returns one group per unique delivery date.
+ */
+function groupOrderLinesByDeliveryDate(
+  orderLines: any[],
+  defaultDate: string | null
+): DeliveryDateGroup[] {
+  if (!orderLines || orderLines.length === 0) {
+    return [{ requestedDeliveryDate: defaultDate, orderLines: [] }];
+  }
+
+  const groups = new Map<string | null, any[]>();
+
+  for (const line of orderLines) {
+    const date = line.requestedDeliveryDate || defaultDate || null;
+
+    if (!groups.has(date)) {
+      groups.set(date, []);
+    }
+    groups.get(date)!.push(line);
+  }
+
+  return Array.from(groups.entries()).map(([date, lines]) => ({
+    requestedDeliveryDate: date,
+    orderLines: lines,
+  }));
 }
 
 /**
@@ -207,6 +243,25 @@ Deno.serve(async (req) => {
       provider: intakeEvent.provider,
       organizationId: intakeEvent.organization_id
     });
+
+    // Idempotency check: skip if proposals already exist for this intake event
+    const { count: existingProposalCount } = await supabase
+      .from('order_change_proposals')
+      .select('id', { count: 'exact', head: true })
+      .eq('intake_event_id', intakeEventId);
+
+    if (existingProposalCount && existingProposalCount > 0) {
+      eventLogger.info('Skipping - proposals already exist for this intake event', {
+        existingProposalCount
+      });
+      return new Response(
+        JSON.stringify({
+          success: true,
+          data: { intake_event_id: intakeEventId, skipped: true, reason: 'already_processed' }
+        }),
+        { headers: { 'Content-Type': 'application/json', ...corsHeaders } }
+      );
+    }
 
     // Determine organization_id if not set, and always resolve user_id for AI logging
     let organizationId = intakeEvent.organization_id;
@@ -378,6 +433,76 @@ Deno.serve(async (req) => {
 
     orgLogger.info('Loaded catalogs', { customerCount: customers?.length || 0, itemCount: items?.length || 0 });
 
+    // Pre-fetch existing orders for the customer (before AI analysis)
+    // This gives the AI context to resolve vague references like "each", "these items", "same as usual"
+    let preMatchedCustomerId: string | null = null;
+    let existingOrders: ExistingOrderContext[] = [];
+
+    if (intakeEvent.channel === 'sms') {
+      // For SMS, the "from" phone is the forwarder, NOT the customer.
+      // Instead, try to match a customer name from the message body text.
+      const smsBody = (intakeEvent.raw_content?.body || '').toLowerCase();
+      if (smsBody && customers) {
+        const matchedCustomer = customers.find((c: Customer) => {
+          if (!c.name) return false;
+          return smsBody.includes(c.name.toLowerCase());
+        });
+
+        if (matchedCustomer) {
+          preMatchedCustomerId = matchedCustomer.id;
+          orgLogger.info('Pre-matched customer from SMS body text', { customerId: matchedCustomer.id, customerName: matchedCustomer.name });
+        } else {
+          orgLogger.info('No customer name match found in SMS body');
+        }
+      }
+    } else if (intakeEvent.channel === 'email') {
+      // For email, try to match sender email to a customer
+      const fromEmail = intakeEvent.raw_content?.from;
+      if (fromEmail && customers) {
+        const emailMatch = fromEmail.match(/<([^>]+)>/) || [null, fromEmail];
+        const email = (emailMatch[1] || '').toLowerCase();
+        const matchedCustomer = customers.find((c: Customer) => {
+          if (!c.email) return false;
+          return c.email.toLowerCase() === email;
+        });
+
+        if (matchedCustomer) {
+          preMatchedCustomerId = matchedCustomer.id;
+          orgLogger.info('Pre-matched customer from email', { customerId: matchedCustomer.id, customerName: matchedCustomer.name });
+        }
+      }
+    }
+
+    // If we identified a customer, fetch their upcoming orders for AI context
+    if (preMatchedCustomerId) {
+      const today = new Date().toISOString().split('T')[0];
+      const { data: preOrders } = await supabase
+        .from('orders')
+        .select('id, customer_name, delivery_date, order_lines(product_name, quantity)')
+        .eq('organization_id', organizationId)
+        .eq('customer_id', preMatchedCustomerId)
+        .neq('status', 'cancelled')
+        .gte('delivery_date', today)
+        .order('delivery_date', { ascending: true })
+        .limit(5);
+
+      if (preOrders && preOrders.length > 0) {
+        existingOrders = preOrders.map((o: any) => ({
+          customerName: o.customer_name,
+          deliveryDate: o.delivery_date,
+          lines: (o.order_lines || []).map((l: any) => ({
+            productName: l.product_name,
+            quantity: Number(l.quantity)
+          }))
+        }));
+        orgLogger.info('Pre-fetched existing orders for AI context', {
+          customerName: preOrders[0].customer_name,
+          orderCount: existingOrders.length,
+          totalLines: existingOrders.reduce((sum, o) => sum + o.lines.length, 0)
+        });
+      }
+    }
+
     // Step 1: Process attachments from intake_files table
     let attachmentText = '';
 
@@ -503,7 +628,8 @@ Deno.serve(async (req) => {
       customers || [],
       attachmentText,
       organizationId,
-      createdByUserId
+      createdByUserId,
+      existingOrders
     );
 
     // Build maps for looking up customer/item by ID
@@ -544,6 +670,7 @@ Deno.serve(async (req) => {
         .eq('organization_id', organizationId)
         .eq('customer_id', analysisResult.customerId)
         .neq('status', 'cancelled')
+        .eq('order_lines.status', 'active')
         .gte('delivery_date', today)
         .order('delivery_date', { ascending: true })  // Nearest delivery first
         .limit(5);
@@ -572,6 +699,7 @@ Deno.serve(async (req) => {
         .eq('organization_id', organizationId)
         .eq('customer_id', analysisResult.customerId)
         .neq('status', 'cancelled')
+        .eq('order_lines.status', 'active')
         .lt('delivery_date', today)
         .order('delivery_date', { ascending: false })  // Most recent past first
         .limit(3);
@@ -611,6 +739,7 @@ Deno.serve(async (req) => {
         `)
         .eq('organization_id', organizationId)
         .neq('status', 'cancelled')
+        .eq('order_lines.status', 'active')
         .gte('delivery_date', today)
         .order('delivery_date', { ascending: true })
         .limit(20);  // Get more orders since we're doing name matching
@@ -626,427 +755,478 @@ Deno.serve(async (req) => {
       });
     }
 
-    // Step 3: Check for exact date match before AI intent determination
-    // If requestedDeliveryDate exists and matches an order exactly, pass this info to AI
-    let exactDateMatchOrder: Order | null = null;
-    if (analysisResult.requestedDeliveryDate && upcomingOrders.length > 0) {
-      exactDateMatchOrder = upcomingOrders.find(
-        o => o.delivery_date === analysisResult.requestedDeliveryDate
-      ) || null;
-
-      if (exactDateMatchOrder) {
-        orgLogger.info('========== EXACT DATE MATCH FOUND ==========');
-        orgLogger.info('Existing order found for requested delivery date - will be treated as CHANGE_ORDER', {
-          requestedDeliveryDate: analysisResult.requestedDeliveryDate,
-          matchedOrderId: exactDateMatchOrder.id,
-          matchedOrderCustomer: exactDateMatchOrder.customer_name,
-          existingOrderItems: exactDateMatchOrder.order_lines.map(l => `${l.product_name} x${l.quantity}`).join(', ')
-        });
-        orgLogger.info('============================================');
-      } else {
-        orgLogger.info('No exact date match - requested date has no existing order', {
-          requestedDeliveryDate: analysisResult.requestedDeliveryDate,
-          upcomingOrderDates: upcomingOrders.map(o => o.delivery_date)
-        });
-      }
-    } else if (!analysisResult.requestedDeliveryDate) {
-      orgLogger.info('No requested delivery date extracted from message');
-    }
-
-    // Determine if this is a NEW order or a CHANGE to existing order
-    const intentResult = await determineOrderIntent(
-      intakeEvent,
-      analysisResult,
-      upcomingOrders,
-      pastOrders,
-      exactDateMatchOrder
+    // Step 3: Group order lines by delivery date for multi-order support
+    const dateGroups = groupOrderLinesByDeliveryDate(
+      analysisResult.orderLines || [],
+      analysisResult.requestedDeliveryDate || null
     );
 
-    orgLogger.info('Order intent determined', {
-      intent: intentResult.intent,
-      matchedOrderId: intentResult.matchedOrderId,
-      confidence: intentResult.confidence
+    // Add cancel-only groups from cancelDates (dates with no order lines)
+    const cancelDates: string[] = analysisResult.cancelDates || [];
+    for (const cancelDate of cancelDates) {
+      const alreadyHasGroup = dateGroups.some(g => g.requestedDeliveryDate === cancelDate);
+      if (!alreadyHasGroup) {
+        dateGroups.push({ requestedDeliveryDate: cancelDate, orderLines: [] });
+      }
+    }
+
+    orgLogger.info('Order lines grouped by delivery date', {
+      groupCount: dateGroups.length,
+      cancelDates,
+      groups: dateGroups.map(g => ({
+        date: g.requestedDeliveryDate,
+        lineCount: g.orderLines.length,
+        isCancelOnly: cancelDates.includes(g.requestedDeliveryDate || '')
+      }))
     });
 
-    // Step 4: Handle based on intent
-    if (intentResult.intent === 'NEW_ORDER') {
-      // Create NEW ORDER PROPOSAL (not an actual order yet - requires user approval)
-      orgLogger.info('Creating new order proposal', { customerName: matchedCustomer?.name || 'Unknown' });
+    // Build item lookup map once (shared across all groups)
+    const itemsById = new Map<string, Item>(items.map((item: Item) => [item.id, item]));
 
-      // Create proposal with order_id = NULL (indicates this is a new order proposal)
-      const { data: proposal, error: proposalError } = await supabase
-        .from('order_change_proposals')
-        .insert({
-          organization_id: organizationId,
-          order_id: null, // NULL indicates this is a new order proposal
-          intake_event_id: intakeEvent.id,
-          status: 'pending',
-          tags: { intent: 'new_order', order_frequency: analysisResult.orderFrequency || 'one-time' }
-        })
-        .select()
-        .single();
+    // Process each delivery date group independently
+    const createdProposals: any[] = [];
 
-      if (proposalError) throw proposalError;
-
-      const proposalLogger = orgLogger.child({ proposalId: proposal.id });
-      proposalLogger.info('Created new order proposal');
-
-      // Create proposal lines for the proposed order
-      // Build a map of valid item IDs to their official data
-      const itemsById = new Map<string, Item>(items.map((item: Item) => [item.id, item]));
-
-      const proposalLines = analysisResult.orderLines.map((line: any, index: number) => {
-        // New simplified format: line.itemId instead of line.matchedItem?.id
-        const itemId = line.itemId;
-        const matchedItemData = itemId ? itemsById.get(itemId) : null;
-
-        if (itemId && !matchedItemData) {
-          proposalLogger.warn('AI matched to non-existent item ID, setting to null', {
-            itemId,
-            quantity: line.quantity
-          });
-        }
-
-        if (!itemId) {
-          proposalLogger.warn('AI did not return item ID', {
-            quantity: line.quantity
-          });
-        }
-
-        // Use official item name from our database (source of truth)
-        const officialItemName = matchedItemData?.name || 'Unknown Item';
-        const officialSku = matchedItemData?.sku || null;
-
-        // Resolve variant from AI response
-        const variantCode = line.variantCode || null;
-        let itemVariantId: string | null = null;
-        if (matchedItemData && variantCode) {
-          const variant = matchedItemData.item_variants?.find(
-            (v: ItemVariant) => v.variant_code === variantCode
-          );
-          itemVariantId = variant?.id || null;
-        }
-
-        if (matchedItemData) {
-          proposalLogger.info('Matched item from database', {
-            itemId,
-            officialName: officialItemName,
-            sku: officialSku,
-            variantCode,
-            itemVariantId
-          });
-        }
-
-        return {
-          proposal_id: proposal.id,
-          order_line_id: null, // NULL for new order proposals (no existing order line)
-          line_number: index + 1,
-          change_type: 'add', // All lines are 'add' for new orders
-          item_id: matchedItemData ? itemId : null,
-          item_variant_id: itemVariantId,
-          item_name: officialItemName,
-          proposed_values: {
-            quantity: line.quantity,
-            variant_code: variantCode,
-            ai_matched: !!matchedItemData,
-            sku: officialSku,
-            confidence: matchedItemData ? 0.9 : 0.5,
-            organization_id: organizationId,
-            customer_id: analysisResult.customerId || null,
-            customer_name: matchedCustomer?.name || 'Unknown Customer',
-            delivery_date: analysisResult.requestedDeliveryDate || null,
-            source_channel: intakeEvent.channel,
-            created_by_user_id: createdByUserId
-          }
-        };
-      });
-
-      if (proposalLines.length > 0) {
-        const { error: linesError } = await supabase
-          .from('order_change_proposal_lines')
-          .insert(proposalLines);
-
-        if (linesError) throw linesError;
-        proposalLogger.info('Created proposal lines', { lineCount: proposalLines.length });
+    for (const group of dateGroups) {
+      // Skip empty groups (unless they're cancel-only groups from cancelDates)
+      const isCancelGroup = cancelDates.includes(group.requestedDeliveryDate || '');
+      if (group.orderLines.length === 0 && !isCancelGroup) {
+        orgLogger.info('Skipping empty delivery date group', { date: group.requestedDeliveryDate });
+        continue;
       }
 
-      return new Response(
-        JSON.stringify({
-          success: true,
-          data: {
+      const groupLogger = orgLogger.child({
+        groupDate: group.requestedDeliveryDate || undefined,
+      });
+
+      // Build per-group analysis result
+      const groupAnalysis = {
+        ...analysisResult,
+        orderLines: group.orderLines,
+        requestedDeliveryDate: group.requestedDeliveryDate,
+      };
+
+      try {
+        // Check for exact date match for THIS group's delivery date
+        let exactDateMatchOrder: Order | null = null;
+        if (group.requestedDeliveryDate && upcomingOrders.length > 0) {
+          exactDateMatchOrder = upcomingOrders.find(
+            o => o.delivery_date === group.requestedDeliveryDate
+          ) || null;
+
+          if (exactDateMatchOrder) {
+            groupLogger.info('========== EXACT DATE MATCH FOUND ==========');
+            groupLogger.info('Existing order found for requested delivery date - will be treated as CHANGE_ORDER', {
+              requestedDeliveryDate: group.requestedDeliveryDate,
+              matchedOrderId: exactDateMatchOrder.id,
+              matchedOrderCustomer: exactDateMatchOrder.customer_name,
+              existingOrderItems: exactDateMatchOrder.order_lines.map(l => `${l.product_name} x${l.quantity}`).join(', ')
+            });
+            groupLogger.info('============================================');
+          } else {
+            groupLogger.info('No exact date match - requested date has no existing order', {
+              requestedDeliveryDate: group.requestedDeliveryDate,
+              upcomingOrderDates: upcomingOrders.map(o => o.delivery_date)
+            });
+          }
+        } else if (!group.requestedDeliveryDate) {
+          groupLogger.info('No requested delivery date for this group');
+        }
+
+        // Determine intent: skip AI for cancel-only groups from cancelDates
+        let intentResult;
+        if (isCancelGroup && group.orderLines.length === 0) {
+          // This group came from cancelDates — force CANCEL_ORDER intent
+          intentResult = {
+            intent: exactDateMatchOrder ? 'CANCEL_ORDER' : 'CANCEL_ORDER',
+            matchedOrderId: exactDateMatchOrder?.id || null,
+            confidence: 1.0,
+            reasoning: 'Cancel date specified by customer (from cancelDates)'
+          };
+          groupLogger.info('Cancel group — skipping AI intent detection', {
+            intent: intentResult.intent,
+            matchedOrderId: intentResult.matchedOrderId,
+          });
+        } else {
+          intentResult = await determineOrderIntent(
+            intakeEvent,
+            groupAnalysis,
+            upcomingOrders,
+            pastOrders,
+            exactDateMatchOrder
+          );
+          groupLogger.info('Order intent determined', {
+            intent: intentResult.intent,
+            matchedOrderId: intentResult.matchedOrderId,
+            confidence: intentResult.confidence
+          });
+        }
+
+        // Step 4: Handle based on intent
+        if (intentResult.intent === 'NEW_ORDER') {
+          // Create NEW ORDER PROPOSAL (not an actual order yet - requires user approval)
+          groupLogger.info('Creating new order proposal', { customerName: matchedCustomer?.name || 'Unknown' });
+
+          // Create proposal with order_id = NULL (indicates this is a new order proposal)
+          const { data: proposal, error: proposalError } = await supabase
+            .from('order_change_proposals')
+            .insert({
+              organization_id: organizationId,
+              order_id: null, // NULL indicates this is a new order proposal
+              intake_event_id: intakeEvent.id,
+              status: 'pending',
+              type: 'new_order',
+              tags: { intent: 'new_order', order_frequency: groupAnalysis.orderFrequency || 'one-time' }
+            })
+            .select()
+            .single();
+
+          if (proposalError) throw proposalError;
+
+          const proposalLogger = groupLogger.child({ proposalId: proposal.id });
+          proposalLogger.info('Created new order proposal');
+
+          // Create proposal lines for the proposed order
+          const proposalLines = groupAnalysis.orderLines.map((line: any, index: number) => {
+            const itemId = line.itemId;
+            const matchedItemData = itemId ? itemsById.get(itemId) : null;
+
+            if (itemId && !matchedItemData) {
+              proposalLogger.warn('AI matched to non-existent item ID, setting to null', {
+                itemId,
+                quantity: line.quantity
+              });
+            }
+
+            if (!itemId) {
+              proposalLogger.warn('AI did not return item ID', {
+                quantity: line.quantity
+              });
+            }
+
+            // Use official item name from our database (source of truth)
+            const officialItemName = matchedItemData?.name || 'Unknown Item';
+            const officialSku = matchedItemData?.sku || null;
+
+            // Resolve variant from AI response
+            const variantCode = line.variantCode || null;
+            let itemVariantId: string | null = null;
+            if (matchedItemData && variantCode) {
+              const variant = matchedItemData.item_variants?.find(
+                (v: ItemVariant) => v.variant_code === variantCode
+              );
+              itemVariantId = variant?.id || null;
+            }
+
+            if (matchedItemData) {
+              proposalLogger.info('Matched item from database', {
+                itemId,
+                officialName: officialItemName,
+                sku: officialSku,
+                variantCode,
+                itemVariantId
+              });
+            }
+
+            return {
+              proposal_id: proposal.id,
+              order_line_id: null, // NULL for new order proposals (no existing order line)
+              line_number: index + 1,
+              change_type: 'add', // All lines are 'add' for new orders
+              item_id: matchedItemData ? itemId : null,
+              item_variant_id: itemVariantId,
+              item_name: officialItemName,
+              proposed_values: {
+                quantity: line.quantity,
+                variant_code: variantCode,
+                ai_matched: !!matchedItemData,
+                sku: officialSku,
+                confidence: matchedItemData ? 0.9 : 0.5,
+                organization_id: organizationId,
+                customer_id: groupAnalysis.customerId || null,
+                customer_name: matchedCustomer?.name || 'Unknown Customer',
+                delivery_date: group.requestedDeliveryDate || null,
+                source_channel: intakeEvent.channel,
+                created_by_user_id: createdByUserId
+              }
+            };
+          });
+
+          if (proposalLines.length > 0) {
+            const { error: linesError } = await supabase
+              .from('order_change_proposal_lines')
+              .insert(proposalLines);
+
+            if (linesError) throw linesError;
+            proposalLogger.info('Created proposal lines', { lineCount: proposalLines.length });
+          }
+
+          createdProposals.push({
             proposal_id: proposal.id,
-            order_id: null, // No order created yet
+            order_id: null,
             intake_event_id: intakeEventId,
-            is_new_order_proposal: true
-          }
-        }),
-        {
-          headers: {
-            'Content-Type': 'application/json',
-            ...corsHeaders
-          }
-        }
-      );
-    } else if (intentResult.intent === 'CHANGE_ORDER') {
-      // Create change proposal
-      const matchedOrderId = intentResult.matchedOrderId;
-      orgLogger.info('Creating change proposal', { matchedOrderId });
-
-      // Search both upcoming and past orders for the matched order
-      const allOrders = [...upcomingOrders, ...pastOrders];
-      const matchedOrder = allOrders.find(o => o.id === matchedOrderId);
-      if (!matchedOrder) {
-        orgLogger.error('Matched order not found', undefined, { matchedOrderId });
-        throw new Error(`Matched order ${matchedOrderId} not found`);
-      }
-
-      orgLogger.info('Matched order found', {
-        orderId: matchedOrder.id,
-        customer: matchedOrder.customer_name,
-        lineCount: matchedOrder.order_lines?.length
-      });
-
-      // Step 4: Determine specific changes by comparing matched order with change request
-      const changesResult = await determineOrderChanges(
-        intakeEvent,
-        analysisResult,
-        matchedOrder,
-        items
-      );
-
-      // Ensure proposedChanges is always an array (AI may return undefined/null for large emails)
-      const proposedChanges = changesResult.proposedChanges || [];
-
-      orgLogger.info('Changes determined', { changeCount: proposedChanges.length });
-
-      // Create proposal
-      const { data: proposal, error: proposalError } = await supabase
-        .from('order_change_proposals')
-        .insert({
-          organization_id: organizationId,
-          order_id: matchedOrder.id,
-          intake_event_id: intakeEvent.id,
-          status: 'pending',
-          tags: { intent: 'change_order', order_frequency: analysisResult.orderFrequency || 'one-time' }
-        })
-        .select()
-        .single();
-
-      if (proposalError) throw proposalError;
-
-      const proposalLogger = orgLogger.child({ proposalId: proposal.id, orderId: matchedOrder.id });
-      proposalLogger.info('Created change proposal');
-
-      // Create order event for change proposal
-      await supabase.from('order_events').insert({
-        order_id: matchedOrder.id,
-        intake_event_id: intakeEvent.id,
-        type: 'change_proposed',
-        metadata: {
-          proposal_id: proposal.id,
-          channel: intakeEvent.channel,
-          change_count: proposedChanges.length,
-          changes_summary: proposedChanges.map((c: any) => ({
-            type: c.change_type,
-            item: c.item_name
-          }))
-        }
-      });
-
-      // Create proposal lines based on detected changes
-      // Build a map of valid item IDs to their official data
-      const itemsById = new Map<string, Item>(items.map((item: Item) => [item.id, item]));
-
-      const proposalLines = proposedChanges.map((change: any, _index: number) => {
-        // Validate item_id exists in current items list
-        const itemId = change.item_id;
-        const matchedItem = itemId ? itemsById.get(itemId) : null;
-
-        if (itemId && !matchedItem) {
-          proposalLogger.warn('Change references non-existent item ID, setting to null', {
-            itemId,
-            itemName: change.item_name
+            is_new_order_proposal: true,
+            delivery_date: group.requestedDeliveryDate
           });
-        }
 
-        // Use official item name from our database if available
-        const officialItemName = matchedItem?.name || change.item_name;
+        } else if (intentResult.intent === 'CHANGE_ORDER') {
+          // Create change proposal
+          const matchedOrderId = intentResult.matchedOrderId;
+          groupLogger.info('Creating change proposal', { matchedOrderId });
 
-        // Resolve variant from proposed_values if present
-        const variantCode = change.proposed_values?.variant_code || null;
-        let itemVariantId: string | null = null;
-        if (matchedItem && variantCode) {
-          const variant = matchedItem.item_variants?.find(
-            (v: ItemVariant) => v.variant_code === variantCode
-          );
-          itemVariantId = variant?.id || null;
-        }
-
-        return {
-          proposal_id: proposal.id,
-          order_line_id: change.order_line_id || null,
-          line_number: change.line_number,
-          change_type: change.change_type,
-          item_id: matchedItem ? itemId : null,
-          item_variant_id: itemVariantId,
-          item_name: officialItemName,
-          proposed_values: {
-            ...(change.proposed_values || {}),
-            variant_code: variantCode,
+          // Search both upcoming and past orders for the matched order
+          const allOrders = [...upcomingOrders, ...pastOrders];
+          const matchedOrder = allOrders.find(o => o.id === matchedOrderId);
+          if (!matchedOrder) {
+            groupLogger.error('Matched order not found', undefined, { matchedOrderId });
+            throw new Error(`Matched order ${matchedOrderId} not found`);
           }
-        };
-      });
 
-      if (proposalLines.length > 0) {
-        const { error: linesError } = await supabase
-          .from('order_change_proposal_lines')
-          .insert(proposalLines);
+          groupLogger.info('Matched order found', {
+            orderId: matchedOrder.id,
+            customer: matchedOrder.customer_name,
+            lineCount: matchedOrder.order_lines?.length
+          });
 
-        if (linesError) {
-          proposalLogger.error('Error inserting proposal lines', linesError);
-          throw linesError;
-        }
-        proposalLogger.info('Created proposal lines', { lineCount: proposalLines.length });
-      } else {
-        proposalLogger.warn('No proposal lines to create - proposedChanges was empty');
-      }
+          // Determine specific changes by comparing matched order with change request
+          const changesResult = await determineOrderChanges(
+            intakeEvent,
+            groupAnalysis,
+            matchedOrder,
+            items
+          );
 
-      // Update order status to needs_review
-      await supabase
-        .from('orders')
-        .update({ status: 'pending_review' })
-        .eq('id', matchedOrder.id);
+          // Ensure proposedChanges is always an array (AI may return undefined/null for large emails)
+          const proposedChanges = changesResult.proposedChanges || [];
 
-      return new Response(
-        JSON.stringify({
-          success: true,
-          data: {
+          groupLogger.info('Changes determined', { changeCount: proposedChanges.length });
+
+          // Create proposal
+          const { data: proposal, error: proposalError } = await supabase
+            .from('order_change_proposals')
+            .insert({
+              organization_id: organizationId,
+              order_id: matchedOrder.id,
+              intake_event_id: intakeEvent.id,
+              status: 'pending',
+              type: 'change_order',
+              tags: { intent: 'change_order', order_frequency: groupAnalysis.orderFrequency || 'one-time' }
+            })
+            .select()
+            .single();
+
+          if (proposalError) throw proposalError;
+
+          const proposalLogger = groupLogger.child({ proposalId: proposal.id, orderId: matchedOrder.id });
+          proposalLogger.info('Created change proposal');
+
+          // Create order event for change proposal
+          await supabase.from('order_events').insert({
+            order_id: matchedOrder.id,
+            intake_event_id: intakeEvent.id,
+            type: 'change_proposed',
+            metadata: {
+              proposal_id: proposal.id,
+              channel: intakeEvent.channel,
+              change_count: proposedChanges.length,
+              changes_summary: proposedChanges.map((c: any) => ({
+                type: c.change_type,
+                item: c.item_name
+              }))
+            }
+          });
+
+          // Create proposal lines based on detected changes
+          const proposalLines = proposedChanges.map((change: any, _index: number) => {
+            const itemId = change.item_id;
+            const matchedItem = itemId ? itemsById.get(itemId) : null;
+
+            if (itemId && !matchedItem) {
+              proposalLogger.warn('Change references non-existent item ID, setting to null', {
+                itemId,
+                itemName: change.item_name
+              });
+            }
+
+            const officialItemName = matchedItem?.name || change.item_name;
+
+            const variantCode = change.proposed_values?.variant_code || null;
+            let itemVariantId: string | null = null;
+            if (matchedItem && variantCode) {
+              const variant = matchedItem.item_variants?.find(
+                (v: ItemVariant) => v.variant_code === variantCode
+              );
+              itemVariantId = variant?.id || null;
+            }
+
+            return {
+              proposal_id: proposal.id,
+              order_line_id: change.order_line_id || null,
+              line_number: change.line_number,
+              change_type: change.change_type,
+              item_id: matchedItem ? itemId : null,
+              item_variant_id: itemVariantId,
+              item_name: officialItemName,
+              proposed_values: {
+                ...(change.proposed_values || {}),
+                variant_code: variantCode,
+              }
+            };
+          });
+
+          if (proposalLines.length > 0) {
+            const { error: linesError } = await supabase
+              .from('order_change_proposal_lines')
+              .insert(proposalLines);
+
+            if (linesError) {
+              proposalLogger.error('Error inserting proposal lines', linesError);
+              throw linesError;
+            }
+            proposalLogger.info('Created proposal lines', { lineCount: proposalLines.length });
+          } else {
+            proposalLogger.warn('No proposal lines to create - proposedChanges was empty');
+          }
+
+          // Update order status to needs_review
+          await supabase
+            .from('orders')
+            .update({ status: 'pending_review' })
+            .eq('id', matchedOrder.id);
+
+          createdProposals.push({
             proposal_id: proposal.id,
             order_id: matchedOrder.id,
-            intake_event_id: intakeEventId
-          }
-        }),
-        {
-          headers: {
-            'Content-Type': 'application/json',
-            ...corsHeaders
-          }
-        }
-      );
-    } else if (intentResult.intent === 'CANCEL_ORDER') {
-      // Handle order cancellation - no need to analyze individual line changes
-      const matchedOrderId = intentResult.matchedOrderId;
-      orgLogger.info('Processing order cancellation', { matchedOrderId });
+            intake_event_id: intakeEventId,
+            delivery_date: group.requestedDeliveryDate
+          });
 
-      if (!matchedOrderId) {
-        orgLogger.warn('CANCEL_ORDER intent but no matchedOrderId');
-        return new Response(
-          JSON.stringify({
-            success: true,
-            data: {
+        } else if (intentResult.intent === 'CANCEL_ORDER') {
+          // Handle order cancellation
+          const matchedOrderId = intentResult.matchedOrderId;
+          groupLogger.info('Processing order cancellation', { matchedOrderId });
+
+          if (!matchedOrderId) {
+            groupLogger.warn('CANCEL_ORDER intent but no matchedOrderId');
+            createdProposals.push({
               intake_event_id: intakeEventId,
               intent: intentResult.intent,
-              message: 'Cancel intent detected but no order matched'
-            }
-          }),
-          {
-            headers: {
-              'Content-Type': 'application/json',
-              ...corsHeaders
-            }
+              message: 'Cancel intent detected but no order matched',
+              delivery_date: group.requestedDeliveryDate
+            });
+            continue;
           }
-        );
-      }
 
-      // Search both upcoming and past orders for the matched order
-      const allOrders = [...upcomingOrders, ...pastOrders];
-      const matchedOrder = allOrders.find(o => o.id === matchedOrderId);
-      if (!matchedOrder) {
-        orgLogger.error('Matched order not found for cancellation', undefined, { matchedOrderId });
-        throw new Error(`Matched order ${matchedOrderId} not found`);
-      }
+          const allOrders = [...upcomingOrders, ...pastOrders];
+          const matchedOrder = allOrders.find(o => o.id === matchedOrderId);
+          if (!matchedOrder) {
+            groupLogger.error('Matched order not found for cancellation', undefined, { matchedOrderId });
+            throw new Error(`Matched order ${matchedOrderId} not found`);
+          }
 
-      orgLogger.info('Order found for cancellation', {
-        orderId: matchedOrder.id,
-        customer: matchedOrder.customer_name,
-        deliveryDate: matchedOrder.delivery_date
-      });
+          groupLogger.info('Order found for cancellation', {
+            orderId: matchedOrder.id,
+            customer: matchedOrder.customer_name,
+            deliveryDate: matchedOrder.delivery_date
+          });
 
-      // Create a cancel proposal (simpler than change proposal - no line analysis needed)
-      // Cancel orders are typically one-time actions (cancelling a specific order)
-      const { data: proposal, error: proposalError } = await supabase
-        .from('order_change_proposals')
-        .insert({
-          organization_id: organizationId,
-          order_id: matchedOrder.id,
-          intake_event_id: intakeEvent.id,
-          status: 'pending',
-          tags: { intent: 'cancel_order', order_frequency: 'one-time' }
-        })
-        .select()
-        .single();
+          const { data: proposal, error: proposalError } = await supabase
+            .from('order_change_proposals')
+            .insert({
+              organization_id: organizationId,
+              order_id: matchedOrder.id,
+              intake_event_id: intakeEvent.id,
+              status: 'pending',
+              type: 'cancel_order',
+              tags: { intent: 'cancel_order', order_frequency: 'one-time' }
+            })
+            .select()
+            .single();
 
-      if (proposalError) throw proposalError;
+          if (proposalError) throw proposalError;
 
-      const proposalLogger = orgLogger.child({ proposalId: proposal.id, orderId: matchedOrder.id });
-      proposalLogger.info('Created cancel proposal');
+          const proposalLogger = groupLogger.child({ proposalId: proposal.id, orderId: matchedOrder.id });
+          proposalLogger.info('Created cancel proposal');
 
-      // Create order event for cancellation proposal
-      await supabase.from('order_events').insert({
-        order_id: matchedOrder.id,
-        intake_event_id: intakeEvent.id,
-        type: 'cancel_proposed',
-        metadata: {
-          proposal_id: proposal.id,
-          channel: intakeEvent.channel,
-          reasoning: intentResult.reasoning
-        }
-      });
+          await supabase.from('order_events').insert({
+            order_id: matchedOrder.id,
+            intake_event_id: intakeEvent.id,
+            type: 'cancel_proposed',
+            metadata: {
+              proposal_id: proposal.id,
+              channel: intakeEvent.channel,
+              reasoning: intentResult.reasoning
+            }
+          });
 
-      // Update order status to needs_review
-      await supabase
-        .from('orders')
-        .update({ status: 'pending_review' })
-        .eq('id', matchedOrder.id);
+          await supabase
+            .from('orders')
+            .update({ status: 'pending_review' })
+            .eq('id', matchedOrder.id);
 
-      return new Response(
-        JSON.stringify({
-          success: true,
-          data: {
+          createdProposals.push({
             proposal_id: proposal.id,
             order_id: matchedOrder.id,
             intake_event_id: intakeEventId,
-            intent: 'CANCEL_ORDER'
-          }
-        }),
-        {
-          headers: {
-            'Content-Type': 'application/json',
-            ...corsHeaders
-          }
-        }
-      );
-    } else {
-      // Unknown intent or not relevant (CONFIRMATION, IRRELEVANT)
-      orgLogger.info('No action taken for intent', { intent: intentResult.intent });
+            intent: 'CANCEL_ORDER',
+            delivery_date: group.requestedDeliveryDate
+          });
 
-      return new Response(
-        JSON.stringify({
-          success: true,
-          data: {
+        } else {
+          // Unknown intent or not relevant
+          groupLogger.info('No action taken for intent', { intent: intentResult.intent });
+          createdProposals.push({
             intake_event_id: intakeEventId,
             intent: intentResult.intent,
-            message: 'Intake event processed but no action taken'
-          }
-        }),
-        {
-          headers: {
-            'Content-Type': 'application/json',
-            ...corsHeaders
-          }
+            message: 'Intake event processed but no action taken',
+            delivery_date: group.requestedDeliveryDate
+          });
         }
-      );
+
+      } catch (groupError) {
+        // Log error for this group but continue processing remaining groups
+        groupLogger.error('Error processing delivery date group', groupError);
+        createdProposals.push({
+          intake_event_id: intakeEventId,
+          delivery_date: group.requestedDeliveryDate,
+          error: groupError instanceof Error ? groupError.message : 'Unknown error'
+        });
+      }
     }
+
+    // Summary log
+    orgLogger.info('═══ INTAKE PROCESSING COMPLETE ═══', {
+      intakeEventId,
+      totalGroups: dateGroups.length,
+      proposalsCreated: createdProposals.filter(p => p.proposal_id).length,
+      errors: createdProposals.filter(p => p.error).length,
+      results: createdProposals.map(p => ({
+        date: p.delivery_date,
+        intent: p.intent || (p.is_new_order_proposal ? 'NEW_ORDER' : p.order_id ? 'CHANGE_ORDER' : 'UNKNOWN'),
+        proposalId: p.proposal_id || null,
+        error: p.error || null,
+      }))
+    });
+
+    // Return all created proposals
+    return new Response(
+      JSON.stringify({
+        success: true,
+        data: {
+          intake_event_id: intakeEventId,
+          proposals: createdProposals,
+          // Backwards-compatible: include first proposal's data at top level
+          proposal_id: createdProposals[0]?.proposal_id || null,
+          order_id: createdProposals[0]?.order_id || null,
+          is_new_order_proposal: createdProposals[0]?.is_new_order_proposal || false,
+        }
+      }),
+      {
+        headers: {
+          'Content-Type': 'application/json',
+          ...corsHeaders
+        }
+      }
+    );
 
   } catch (error) {
     logger.error('Error processing intake event', error);
@@ -1093,8 +1273,7 @@ async function determineOrderIntent(
 1. A NEW order (customer placing a fresh order with multiple items)
 2. A CHANGE to an existing order (modifying quantities, adding/removing items, changing delivery date)
 3. A CANCEL order (customer wants to cancel their entire order - NOT individual item removals)
-4. A CONFIRMATION or acknowledgment (no action needed)
-5. IRRELEVANT (not order-related)
+4. UNKNOWN (not clearly order-related or unclear intent)
 
 CRITICAL RULE: If there is ALREADY an order for this customer on the requested delivery date (in UPCOMING orders), the intent is ALWAYS CHANGE_ORDER, not NEW_ORDER. The customer is modifying their existing order for that day.
 
@@ -1184,7 +1363,7 @@ ${JSON.stringify(pastOrders.map(o => ({
 
 Return JSON with this structure:
 {
-  "intent": "NEW_ORDER" | "CHANGE_ORDER" | "CANCEL_ORDER" | "CONFIRMATION" | "IRRELEVANT",
+  "intent": "NEW_ORDER" | "CHANGE_ORDER" | "CANCEL_ORDER" | "UNKNOWN",
   "matchedOrderId": "uuid-if-change-or-cancel-order" | null,
   "confidence": 0.0 to 1.0,
   "reasoning": "brief explanation"
@@ -1403,7 +1582,8 @@ async function analyzeIntakeEvent(
   customers: Customer[],
   attachmentText: string = '',
   organizationId: string | null = null,
-  userId: string | null = null
+  userId: string | null = null,
+  existingOrders: ExistingOrderContext[] = []
 ): Promise<any> {
   if (items.length === 0) {
     return { orderLines: [] };
@@ -1465,7 +1645,8 @@ async function analyzeIntakeEvent(
       itemsList,
       customersList,
       currentDate,
-      content
+      content,
+      existingOrders
     });
 
     console.info(`[process-intake-event] Prompt retrieved: isCustomPrompt=${isCustomPrompt}, organizationId=${organizationId}`);

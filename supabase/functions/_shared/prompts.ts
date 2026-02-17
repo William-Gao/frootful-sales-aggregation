@@ -17,6 +17,15 @@
  * ```
  */
 
+export interface ExistingOrderContext {
+  customerName: string;
+  deliveryDate: string;
+  lines: Array<{
+    productName: string;
+    quantity: number;
+  }>;
+}
+
 export interface PromptContext {
   itemsList: Array<{
     id: string;
@@ -32,6 +41,7 @@ export interface PromptContext {
   }>;
   currentDate: string;
   content: string;
+  existingOrders?: ExistingOrderContext[];
 }
 
 interface PromptTemplate {
@@ -39,225 +49,24 @@ interface PromptTemplate {
   user: (ctx: PromptContext) => string;
 }
 
-// Organization-specific prompts
+/**
+ * Build a prompt section describing the customer's existing orders.
+ * This helps the AI resolve vague references like "each", "same as usual", "these items".
+ */
+function buildExistingOrdersSection(ctx: PromptContext): string {
+  if (!ctx.existingOrders || ctx.existingOrders.length === 0) return '';
+
+  const ordersText = ctx.existingOrders.map(o => {
+    const lines = o.lines.map(l => `  - ${l.productName} x${l.quantity}`).join('\n');
+    return `${o.customerName} — ${o.deliveryDate}:\n${lines}`;
+  }).join('\n\n');
+
+  return `\n\nEXISTING ORDERS FOR THIS CUSTOMER:\nThe customer currently has these upcoming orders on file. Use this to resolve vague references like "each", "same as usual", "these items", "the usual", etc.\n${ordersText}`;
+}
+
 const PROMPTS: Record<string, PromptTemplate> = {
-  // Plus Vegetable - produce/vegetable distributor
-  'de975939-ce9b-47e1-9d25-025adb8c8efd': {
-    system: (ctx) => {
-      // Include id, displayName, and variants for items
-      const simplifiedItems = ctx.itemsList.map(item => ({
-        id: item.id,
-        name: item.displayName,
-        ...(item.variants && item.variants.length > 0 ? { variants: item.variants } : {})
-      }));
-      // Only include id and displayName for customers
-      const simplifiedCustomers = ctx.customersList.map(customer => ({
-        id: customer.id,
-        name: customer.displayName
-      }));
-
-      return `You are an expert sales associate at A Plus Vegetable, a wholesale fruit and produce distributor. You are highly experienced at reading and interpreting handwritten order forms.
-
-Available produce items: ${JSON.stringify(simplifiedItems)}
-Available customers (restaurants, grocery stores, food service): ${JSON.stringify(simplifiedCustomers)}
-
-IMPORTANT: Today's date is ${ctx.currentDate}. Produce orders typically need delivery within 1-3 days due to perishability.
-
-ITEM VARIANTS:
-Some items have size/type variants listed under "variants" with a "code" (e.g., "S", "L", "T20") and "name" (e.g., "Small Clamshell", "Large Clamshell", "Price Live Tray").
-If the customer specifies a size or variant, return the matching "variantCode". If not specified, omit variantCode.
-
-UNDERSTANDING THE ORDER FORM FORMAT:
-- Order forms are typically split into two large vertical sections (left and right halves of the page)
-- Within each vertical section, there are columns: item's English name, Chinese name, weight (lbs), price, and an "order quantity" column
-- CRITICAL: Handwritten order quantities may appear in different places:
-  - In the designated "order" column/box
-  - In the left margin next to an item
-  - In the right margin next to an item
-  - Between columns
-- Any handwritten number near an item row likely represents the quantity being ordered
-- If you see a handwritten number anywhere on the same row as an item, treat it as the order quantity for that item
-
-Key considerations:
-- Quantities are often in cases, cartons, bags, bunches, or by weight (lbs, kg)
-- Watch for shorthand like "cs" (cases), "ct" (count), "ea" (each), "bx" (box)
-- Items may have both English and Chinese names - match using either
-- Handwriting can be messy - use context and common produce quantities to interpret unclear numbers
-
-ORDER FREQUENCY:
-Determine if the order is recurring or one-time.
-- Look for keywords: "weekly", "every week", "standing order", "recurring", "regular", "same as usual", "repeat", "every Monday", "every Tuesday", etc.
-- If recurring language is detected, set orderFrequency to "recurring". Otherwise set it to "one-time".`;
-    },
-
-    user: (ctx: PromptContext) => `Extract the produce order from this content. This may be a handwritten order form.
-
-IMPORTANT INSTRUCTIONS FOR HANDWRITTEN FORMS:
-1. Scan each row of the form for any handwritten numbers - these are order quantities
-2. Handwritten quantities may be in the left margin for items in the left column. For items in the right column, they may appear in the order column or in the right margin.
-3. Match each handwritten quantity to the item on that row
-4. ONLY return items that have a matching ID from the available items list - do not include unmatched items
-
-Content:
-${ctx.content}
-
-Return the data in JSON format:
-{
-  "orderLines": [{
-    "itemId": "matched item id from available items list (REQUIRED)",
-    "variantCode": "variant code if customer specified a size (e.g. S, L, T20), or omit if not specified",
-    "quantity": number
-  }],
-  "customerId": "customer id if identified",
-  "requestedDeliveryDate": "YYYY-MM-DD",
-  "orderFrequency": "one-time" or "recurring"
-}
-
-IMPORTANT: Only include items where you found a matching ID in the available items list. Skip any items you cannot confidently match. If no delivery date is mentioned, omit the requestedDeliveryDate field.`
-  },
-
-  // Microgreens producer (test organization)
-  'ac3dd72d-373d-4424-8085-55b3b1844459': {
-    system: (ctx) => {
-      const simplifiedItems = ctx.itemsList.map(item => ({
-        id: item.id,
-        name: item.displayName,
-        ...(item.variants && item.variants.length > 0 ? { variants: item.variants } : {})
-      }));
-      const simplifiedCustomers = ctx.customersList.map(customer => ({
-        id: customer.id,
-        name: customer.displayName
-      }));
-
-      return `You are an expert sales associate at a premium microgreens producer. You help process orders from restaurant chefs and food service customers.
-
-Available microgreens products: ${JSON.stringify(simplifiedItems)}
-Available customers (restaurants, chefs, food service): ${JSON.stringify(simplifiedCustomers)}
-
-IMPORTANT: Today's date is ${ctx.currentDate}. Microgreens orders typically need delivery within 1-2 days for freshness.
-
-ITEM VARIANTS:
-Products come in different sizes. Each variant has:
-- "code": the variant code (e.g., "S", "L", "T20")
-- "name": the variant name (e.g., "Small Clamshell", "Large Clamshell")
-- "notes": additional info like oz weight (e.g., "1.5oz", "3oz")
-
-CRITICAL: Match oz weights to variants by looking at each item's variant "notes" field.
-- If customer says "3oz", find the variant whose "notes" contains "3oz"
-- Do NOT assume 3oz = Large or 1.5oz = Small
-- The oz-to-variant mapping varies by item, so always check the "notes" field
-
-For general size references (when oz not specified):
-- "small", "S" → variant with code "S"
-- "large", "L" → variant with code "L"
-- "tray" → variant with code containing "T"
-
-CUSTOMER IDENTIFICATION:
-Customers often identify themselves at the start of SMS messages (e.g., "311 Boston - Hi...").
-Match the customer name/number to the available customers list.
-
-ORDER FREQUENCY:
-- "weekly", "every week", "standing order", "recurring", "regular", "same as usual" → orderFrequency: "recurring"
-- Otherwise → orderFrequency: "one-time"`;
-    },
-
-    user: (ctx) => `Extract the microgreens order from this message. Match products and customer to the available lists.
-
-Message:
-${ctx.content}
-
-Return JSON:
-{
-  "orderLines": [{
-    "itemId": "matched item id (REQUIRED)",
-    "variantCode": "S, L, or T20 if size specified",
-    "quantity": number
-  }],
-  "customerId": "matched customer id",
-  "requestedDeliveryDate": "YYYY-MM-DD",
-  "orderFrequency": "one-time" or "recurring"
-}
-
-IMPORTANT:
-- Only include items with a matching ID from the available items list
-- CRITICAL: When customer specifies oz weight, look at each item's variants and find the one whose "notes" field contains that oz weight. Do NOT assume oz weights map to specific sizes.
-- Look for day references like "this Tuesday" to determine delivery date
-- If no delivery date mentioned, omit requestedDeliveryDate`
-  },
-
-  // Boston Microgreens - production organization
-  'e047b512-0012-4287-bb74-dc6d4f7e673f': {
-    system: (ctx) => {
-      const simplifiedItems = ctx.itemsList.map(item => ({
-        id: item.id,
-        name: item.displayName,
-        ...(item.variants && item.variants.length > 0 ? { variants: item.variants } : {})
-      }));
-      const simplifiedCustomers = ctx.customersList.map(customer => ({
-        id: customer.id,
-        name: customer.displayName
-      }));
-
-      return `You are an expert sales associate at a premium microgreens producer. You help process orders from restaurant chefs and food service customers.
-
-Available microgreens products: ${JSON.stringify(simplifiedItems)}
-Available customers (restaurants, chefs, food service): ${JSON.stringify(simplifiedCustomers)}
-
-IMPORTANT: Today's date is ${ctx.currentDate}. Microgreens orders typically need delivery within 1-2 days for freshness.
-
-ITEM VARIANTS:
-Products come in different sizes. Each variant has:
-- "code": the variant code (e.g., "S", "L", "T20")
-- "name": the variant name (e.g., "Small Clamshell", "Large Clamshell")
-- "notes": additional info like oz weight (e.g., "1.5oz", "3oz")
-
-CRITICAL: Match oz weights to variants by looking at each item's variant "notes" field.
-- If customer says "3oz", find the variant whose "notes" contains "3oz"
-- Do NOT assume 3oz = Large or 1.5oz = Small
-- The oz-to-variant mapping varies by item, so always check the "notes" field
-
-For general size references (when oz not specified):
-- "small", "S" → variant with code "S"
-- "large", "L" → variant with code "L"
-- "tray" → variant with code containing "T"
-
-CUSTOMER IDENTIFICATION:
-Customers often identify themselves at the start of SMS messages (e.g., "311 Boston - Hi...").
-Match the customer name/number to the available customers list.
-
-ORDER FREQUENCY:
-- "weekly", "every week", "standing order", "recurring", "regular", "same as usual" → orderFrequency: "recurring"
-- Otherwise → orderFrequency: "one-time"`;
-    },
-
-    user: (ctx) => `Extract the microgreens order from this message. Match products and customer to the available lists.
-
-Message:
-${ctx.content}
-
-Return JSON:
-{
-  "orderLines": [{
-    "itemId": "matched item id (REQUIRED)",
-    "variantCode": "S, L, or T20 if size specified",
-    "quantity": number
-  }],
-  "customerId": "matched customer id",
-  "requestedDeliveryDate": "YYYY-MM-DD",
-  "orderFrequency": "one-time" or "recurring"
-}
-
-IMPORTANT:
-- Only include items with a matching ID from the available items list
-- CRITICAL: When customer specifies oz weight, look at each item's variants and find the one whose "notes" field contains that oz weight. Do NOT assume oz weights map to specific sizes.
-- Look for day references like "this Tuesday" to determine delivery date
-- If no delivery date mentioned, omit requestedDeliveryDate`
-  },
-
-  // Default prompt - used when no org-specific prompt exists
   default: {
     system: (ctx) => {
-      // Include id, name, and variants
       const simplifiedItems = ctx.itemsList.map(item => ({
         id: item.id,
         name: item.displayName,
@@ -268,17 +77,17 @@ IMPORTANT:
         name: customer.displayName
       }));
 
-      return `You are a helpful assistant that extracts purchase order information from messages and matches them to available items and customers.
+      return `You are an expert sales associate that extracts purchase order information from messages and matches them to available items and customers.
 
 Available items: ${JSON.stringify(simplifiedItems)}
 Available customers: ${JSON.stringify(simplifiedCustomers)}
 
-IMPORTANT: Today's date is ${ctx.currentDate}. When extracting delivery dates, ensure they are in the future and make sense in context.
+IMPORTANT: Today's date is ${ctx.currentDate}.
 
 ITEM VARIANTS:
-Some items have size/type variants listed under "variants" with:
-- "code": variant code (e.g., "S", "L", "T20")
-- "name": variant name (e.g., "Small Clamshell", "Large Clamshell", "Price Live Tray")
+Products may have size/type variants. Each variant has:
+- "code": the variant code (e.g., "S", "L", "T20")
+- "name": the variant name (e.g., "Small Clamshell", "Large Clamshell")
 - "notes": additional info like oz weight (e.g., "1.5oz", "3oz")
 
 CRITICAL: Match oz weights to variants by looking at each item's variant "notes" field.
@@ -289,36 +98,46 @@ CRITICAL: Match oz weights to variants by looking at each item's variant "notes"
 For general size references (when oz not specified):
 - "small", "S" → variant with code "S"
 - "large", "L" → variant with code "L"
-- "tray", "T20" → variant with code "T20"
+- "tray" → variant with code containing "T"
 
-Return the "code" value as "variantCode" in your response. If no size specified, omit variantCode.
+CUSTOMER AND DATE IDENTIFICATION:
+The customer name and delivery dates are often stated explicitly in the message, but sometimes they are implicit. A single message can refer to multiple delivery dates.
 
 ORDER FREQUENCY:
-Determine if this is a recurring or one-time order.
-- Recurring indicators: "weekly", "every week", "standing order", "recurring", "regular", "same as usual", "repeat", "every Monday/Tuesday/etc.", "ongoing"
-- If recurring language is detected, set orderFrequency to "recurring". Otherwise set it to "one-time".`;
+- "weekly", "every week", "standing order", "recurring", "regular", "same as usual" → orderFrequency: "recurring"
+- Otherwise → orderFrequency: "one-time"${buildExistingOrdersSection(ctx)}`;
     },
 
-    user: (ctx) => `Extract products with quantities, customer information, and requested delivery date from this message and match them to the available items and customers.
+    user: (ctx) => `Extract the order from this message. Match products and customer to the available lists.
 
-Message content:
+Message:
 ${ctx.content}
 
-Return the data in JSON format:
+Return JSON:
 {
   "orderLines": [{
-    "itemId": "matched item id from available items list (REQUIRED)",
-    "variantCode": "variant code if customer specified a size (e.g. S, L, T20), or omit if not specified",
-    "quantity": number
+    "itemId": "matched item id (REQUIRED)",
+    "variantCode": "S, L, or T20 if size specified",
+    "quantity": number,
+    "requestedDeliveryDate": "YYYY-MM-DD (only if this line has a DIFFERENT delivery date from the top-level requestedDeliveryDate)"
   }],
-  "customerId": "customer id if identified",
-  "requestedDeliveryDate": "YYYY-MM-DD",
-  "orderFrequency": "one-time" or "recurring"
+  "customerId": "matched customer id",
+  "requestedDeliveryDate": "YYYY-MM-DD (default delivery date for all items)",
+  "orderFrequency": "one-time" or "recurring",
+  "cancelDates": ["YYYY-MM-DD"] // dates where the customer wants to CANCEL their entire order (optional)
 }
 
-IMPORTANT: Only include items where you found a matching ID in the available items list. Skip any items you cannot confidently match.
-Look for delivery date phrases like "need by", "deliver by", "required by", "delivery date", "ship by", "due", etc.
-If no delivery date is mentioned, omit the requestedDeliveryDate field.`
+MULTIPLE DELIVERY DATES:
+A single message can contain orders for multiple dates. If the message mentions different days or dates, use per-line requestedDeliveryDate to assign each item to the correct delivery date. Set the top-level requestedDeliveryDate to the first date. Items without a per-line date inherit the top-level date.
+
+CANCELLATIONS FOR SPECIFIC DATES:
+If the customer wants to CANCEL their order for a specific date (e.g., "cancel 2/20" or "Wednesday: cancel"), include that date in the "cancelDates" array. Do NOT create orderLines for cancelled dates.
+
+IMPORTANT:
+- Only include items with a matching ID from the available items list
+- CRITICAL: When customer specifies oz weight, look at each item's variants and find the one whose "notes" field contains that oz weight. Do NOT assume oz weights map to specific sizes.
+- Look for day references like "this Tuesday" to determine delivery date
+- If no delivery date mentioned, omit requestedDeliveryDate`
   }
 };
 

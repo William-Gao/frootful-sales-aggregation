@@ -1,10 +1,13 @@
 import React, { useEffect, useState } from 'react';
-import { LogIn, Shield } from 'lucide-react';
+import { LogIn, Shield, Mail } from 'lucide-react';
 import { supabaseClient } from '../supabaseClient';
 
 const Login: React.FC = () => {
   const [isLoading, setIsLoading] = useState(false);
+  const [isEmailLoading, setIsEmailLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
 
   useEffect(() => {
     // Check if user is already authenticated
@@ -34,7 +37,7 @@ const Login: React.FC = () => {
       const urlParams = new URLSearchParams(window.location.search);
 
       // Redirect to Supabase OAuth with proper callback
-      const SUPA_URL = 'https://zkglvdfppodwlgzhfgqs.supabase.co';
+      const SUPA_URL = import.meta.env.VITE_SUPABASE_URL;
       const callback = `${window.location.origin}/auth/callback`;
       const encoded = encodeURIComponent(callback);
       console.log('This is the callback url: ', callback);
@@ -56,6 +59,30 @@ const Login: React.FC = () => {
       console.error('Sign in error:', error);
       setError('Failed to initiate sign in. Please try again.');
       setIsLoading(false);
+    }
+  };
+
+  const handleEmailSignIn = async (e: React.FormEvent) => {
+    e.preventDefault();
+    try {
+      setIsEmailLoading(true);
+      setError(null);
+
+      const { error } = await supabaseClient.auth.signInWithPassword({
+        email,
+        password,
+      });
+
+      if (error) {
+        setError(error.message);
+        return;
+      }
+
+      window.location.href = '/dashboard';
+    } catch (err) {
+      setError('Failed to sign in. Please try again.');
+    } finally {
+      setIsEmailLoading(false);
     }
   };
 
@@ -208,6 +235,65 @@ const Login: React.FC = () => {
                 )}
               </button>
             </div>
+
+            {/* Divider */}
+            <div className="mt-6 mb-6 relative">
+              <div className="absolute inset-0 flex items-center">
+                <div className="w-full border-t border-gray-200" />
+              </div>
+              <div className="relative flex justify-center text-sm">
+                <span className="px-2 bg-white text-gray-500">or sign in with email</span>
+              </div>
+            </div>
+
+            {/* Email/Password Login */}
+            <form onSubmit={handleEmailSignIn} className="space-y-4">
+              <div>
+                <label htmlFor="email" className="block text-sm font-medium text-gray-700">
+                  Email
+                </label>
+                <input
+                  id="email"
+                  type="email"
+                  required
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-green-500 focus:border-green-500 text-sm"
+                  placeholder="you@example.com"
+                />
+              </div>
+              <div>
+                <label htmlFor="password" className="block text-sm font-medium text-gray-700">
+                  Password
+                </label>
+                <input
+                  id="password"
+                  type="password"
+                  required
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-green-500 focus:border-green-500 text-sm"
+                  placeholder="Enter your password"
+                />
+              </div>
+              <button
+                type="submit"
+                disabled={isEmailLoading}
+                className="w-full flex justify-center py-3 px-4 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200"
+              >
+                {isEmailLoading ? (
+                  <div className="flex items-center space-x-2">
+                    <div className="w-4 h-4 border-2 border-gray-400 border-t-transparent rounded-full animate-spin"></div>
+                    <span>Signing in...</span>
+                  </div>
+                ) : (
+                  <div className="flex items-center space-x-2">
+                    <Mail className="w-4 h-4" />
+                    <span>Sign in</span>
+                  </div>
+                )}
+              </button>
+            </form>
 
           </div>
         </div>
