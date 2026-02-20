@@ -276,12 +276,13 @@ async function handleAccept(
     // Change order flow
     if (!orderId) throw new Error('Change proposal has no order_id');
     const submittedLines = payload.submittedLines || [];
-    if (submittedLines.length === 0) throw new Error('No submitted lines for change order');
 
-    logger.info('Applying changes to order', { orderId, lineCount: submittedLines.length });
-
-    // Apply line changes
-    await applyOrderLineChanges(orderId, submittedLines, logger);
+    if (submittedLines.length > 0) {
+      logger.info('Applying changes to order', { orderId, lineCount: submittedLines.length });
+      await applyOrderLineChanges(orderId, submittedLines, logger);
+    } else {
+      logger.info('Accepting change order with no lines (no changes to apply)', { orderId });
+    }
 
     // Audit
     const auditData = buildAuditData(submittedLines, originalLines, user);

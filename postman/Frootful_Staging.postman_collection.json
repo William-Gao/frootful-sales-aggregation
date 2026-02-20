@@ -1,0 +1,567 @@
+{
+  "info": {
+    "name": "Frootful Staging",
+    "description": "Frootful Sales Aggregation — Staging API\n\n## Quick Start\n1. Import the **Frootful Staging** environment\n2. Run **Auth → Login** to get a JWT (auto-saved to `auth_token`)\n3. Send a text order via **Orders → SMS → Send SMS Order**\n4. Process it via **Processing → Process Intake Event** (auto-uses `last_intake_event_id`)\n5. Accept the proposal via **Proposals → Accept Proposal** (auto-uses `last_proposal_id`)",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [],
+  "item": [
+    {
+      "name": "Auth",
+      "description": "Authentication endpoints. Run **Login** first to populate `auth_token` for authenticated requests.",
+      "item": [
+        {
+          "name": "Login",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "    const json = pm.response.json();",
+                  "    if (json.access_token) {",
+                  "        pm.environment.set('auth_token', json.access_token);",
+                  "        console.log('✅ auth_token saved to environment');",
+                  "    }",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "apikey", "value": "{{anon_key}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"demo@frootful.ai\",\n  \"password\": \"demo-password-123\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/auth/v1/token?grant_type=password",
+              "host": ["{{base_url}}"],
+              "path": ["auth", "v1", "token"],
+              "query": [{ "key": "grant_type", "value": "password" }]
+            },
+            "description": "Sign in with email/password. The JWT is auto-saved to `auth_token` for use in authenticated requests."
+          }
+        },
+        {
+          "name": "Get Current User",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "apikey", "value": "{{anon_key}}" },
+              { "key": "Authorization", "value": "Bearer {{auth_token}}" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/auth/v1/user",
+              "host": ["{{base_url}}"],
+              "path": ["auth", "v1", "user"]
+            },
+            "description": "Get the currently authenticated user's profile. Useful for verifying `auth_token` is valid."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Orders",
+      "description": "Simulate incoming orders via SMS or email.",
+      "item": [
+        {
+          "name": "SMS",
+          "description": "Simulate Twilio SMS webhook. No auth required — this is a public webhook.",
+          "item": [
+            {
+              "name": "Send SMS Order (Simple)",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "exec": [
+                      "// The Twilio webhook returns XML, but creates an intake_event.",
+                      "// We need to query for it to get the ID.",
+                      "console.log('SMS sent. Response:', pm.response.text());",
+                      "console.log('💡 Tip: Use \"Lookup Latest Intake Event\" to get the intake_event_id.');"
+                    ],
+                    "type": "text/javascript"
+                  }
+                }
+              ],
+              "request": {
+                "method": "POST",
+                "header": [
+                  { "key": "Content-Type", "value": "application/json" }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"From\": \"+16175551234\",\n  \"To\": \"+16175550000\",\n  \"Body\": \"Hi, I'd like to order 3 Pea Shoots and 2 Sunflower Microgreens for delivery Tuesday please.\",\n  \"MessageSid\": \"SM_test_{{$timestamp}}\",\n  \"AccountSid\": \"AC_test\"\n}"
+                },
+                "url": {
+                  "raw": "{{functions_url}}/process-twilio-webhook",
+                  "host": ["{{functions_url}}"],
+                  "path": ["process-twilio-webhook"]
+                },
+                "description": "Simple single-date order. Simulates a Twilio webhook with JSON body.\n\nThe response is TwiML XML. An `intake_event` is created in the DB — use **Lookup Latest Intake Event** to grab its ID."
+              }
+            },
+            {
+              "name": "Send SMS Order (Multi-Date)",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "exec": [
+                      "console.log('Multi-date SMS sent. Response:', pm.response.text());",
+                      "console.log('💡 Tip: Use \"Lookup Latest Intake Event\" to get the intake_event_id.');"
+                    ],
+                    "type": "text/javascript"
+                  }
+                }
+              ],
+              "request": {
+                "method": "POST",
+                "header": [
+                  { "key": "Content-Type", "value": "application/json" }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"From\": \"+16175551234\",\n  \"To\": \"+16175550000\",\n  \"Body\": \"Hi, I'd like to place an order:\\n\\nFor delivery on Tuesday:\\n- 3 Pea Shoots Microgreens\\n- 2 Sunflower Microgreens\\n\\nFor delivery on Thursday:\\n- 5 Radish Microgreens\\n- 4 Basil Microgreens\\n- 1 Wheatgrass\",\n  \"MessageSid\": \"SM_test_multi_{{$timestamp}}\",\n  \"AccountSid\": \"AC_test\"\n}"
+                },
+                "url": {
+                  "raw": "{{functions_url}}/process-twilio-webhook",
+                  "host": ["{{functions_url}}"],
+                  "path": ["process-twilio-webhook"]
+                },
+                "description": "Multi-delivery-date order. Items are split across Tuesday and Thursday deliveries.\n\nTests the multi-date splitting flow."
+              }
+            },
+            {
+              "name": "Send SMS Order (Cancel)",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "exec": [
+                      "console.log('Cancel SMS sent. Response:', pm.response.text());"
+                    ],
+                    "type": "text/javascript"
+                  }
+                }
+              ],
+              "request": {
+                "method": "POST",
+                "header": [
+                  { "key": "Content-Type", "value": "application/json" }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"From\": \"+16175551234\",\n  \"To\": \"+16175550000\",\n  \"Body\": \"Hi, I need to cancel my order for Tuesday. Sorry about that.\",\n  \"MessageSid\": \"SM_test_cancel_{{$timestamp}}\",\n  \"AccountSid\": \"AC_test\"\n}"
+                },
+                "url": {
+                  "raw": "{{functions_url}}/process-twilio-webhook",
+                  "host": ["{{functions_url}}"],
+                  "path": ["process-twilio-webhook"]
+                },
+                "description": "Cancellation request via SMS. Tests the cancel order intent detection."
+              }
+            },
+            {
+              "name": "Send SMS Order (Modify)",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "exec": [
+                      "console.log('Modify SMS sent. Response:', pm.response.text());"
+                    ],
+                    "type": "text/javascript"
+                  }
+                }
+              ],
+              "request": {
+                "method": "POST",
+                "header": [
+                  { "key": "Content-Type", "value": "application/json" }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"From\": \"+16175551234\",\n  \"To\": \"+16175550000\",\n  \"Body\": \"Hey, can I change my Tuesday order? Instead of 3 Pea Shoots, make it 5 Pea Shoots. And add 2 Basil Microgreens. Thanks!\",\n  \"MessageSid\": \"SM_test_modify_{{$timestamp}}\",\n  \"AccountSid\": \"AC_test\"\n}"
+                },
+                "url": {
+                  "raw": "{{functions_url}}/process-twilio-webhook",
+                  "host": ["{{functions_url}}"],
+                  "path": ["process-twilio-webhook"]
+                },
+                "description": "Modification request via SMS. Tests the change/modify order intent detection."
+              }
+            },
+            {
+              "name": "Send SMS Order (Recurring)",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "exec": [
+                      "console.log('Recurring SMS sent. Response:', pm.response.text());"
+                    ],
+                    "type": "text/javascript"
+                  }
+                }
+              ],
+              "request": {
+                "method": "POST",
+                "header": [
+                  { "key": "Content-Type", "value": "application/json" }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"From\": \"+16175551234\",\n  \"To\": \"+16175550000\",\n  \"Body\": \"Hi, I'd like to set up a standing weekly order: 4 Pea Shoots and 3 Sunflower Microgreens, every Tuesday delivery please.\",\n  \"MessageSid\": \"SM_test_recurring_{{$timestamp}}\",\n  \"AccountSid\": \"AC_test\"\n}"
+                },
+                "url": {
+                  "raw": "{{functions_url}}/process-twilio-webhook",
+                  "host": ["{{functions_url}}"],
+                  "path": ["process-twilio-webhook"]
+                },
+                "description": "Recurring/standing order via SMS. Tests the `orderFrequency: recurring` detection."
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Processing",
+      "description": "Process intake events through the AI pipeline.",
+      "item": [
+        {
+          "name": "Lookup Latest Intake Event",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "    const json = pm.response.json();",
+                  "    if (json && json.length > 0) {",
+                  "        const id = json[0].id;",
+                  "        pm.environment.set('last_intake_event_id', id);",
+                  "        console.log('✅ last_intake_event_id set to:', id);",
+                  "        console.log('Channel:', json[0].channel);",
+                  "        console.log('Status:', json[0].status);",
+                  "        console.log('Created:', json[0].created_at);",
+                  "    } else {",
+                  "        console.log('⚠️ No intake events found');",
+                  "    }",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "apikey", "value": "{{service_key}}" },
+              { "key": "Authorization", "value": "Bearer {{service_key}}" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/rest/v1/intake_events?order=created_at.desc&limit=1&select=id,channel,status,raw_content,created_at",
+              "host": ["{{base_url}}"],
+              "path": ["rest", "v1", "intake_events"],
+              "query": [
+                { "key": "order", "value": "created_at.desc" },
+                { "key": "limit", "value": "1" },
+                { "key": "select", "value": "id,channel,status,raw_content,created_at" }
+              ]
+            },
+            "description": "Fetch the most recent intake event. Auto-saves its `id` to `last_intake_event_id` for use in the next step."
+          }
+        },
+        {
+          "name": "Process Intake Event",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "    const json = pm.response.json();",
+                  "    if (json.success && json.data) {",
+                  "        const proposals = json.data.proposals || [];",
+                  "        if (proposals.length > 0) {",
+                  "            pm.environment.set('last_proposal_id', proposals[0].proposal_id);",
+                  "            console.log('✅ last_proposal_id set to:', proposals[0].proposal_id);",
+                  "        }",
+                  "        console.log('Proposals created:', proposals.length);",
+                  "        proposals.forEach((p, i) => {",
+                  "            console.log(`  [${i}] id=${p.proposal_id} date=${p.delivery_date} new=${p.is_new_order_proposal}`);",
+                  "        });",
+                  "    } else {",
+                  "        console.log('❌ Processing failed:', json.error);",
+                  "    }",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"intakeEventId\": \"{{last_intake_event_id}}\"\n}"
+            },
+            "url": {
+              "raw": "{{functions_url}}/process-intake-event",
+              "host": ["{{functions_url}}"],
+              "path": ["process-intake-event"]
+            },
+            "description": "Run AI analysis on an intake event. Uses `last_intake_event_id` from the previous step.\n\nCreates proposal(s) with matched items, customer, and delivery date. Auto-saves `last_proposal_id`."
+          }
+        },
+        {
+          "name": "Process Intake Event (Manual ID)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "    const json = pm.response.json();",
+                  "    if (json.success && json.data) {",
+                  "        const proposals = json.data.proposals || [];",
+                  "        if (proposals.length > 0) {",
+                  "            pm.environment.set('last_proposal_id', proposals[0].proposal_id);",
+                  "            console.log('✅ last_proposal_id set to:', proposals[0].proposal_id);",
+                  "        }",
+                  "    }",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"intakeEventId\": \"PASTE_INTAKE_EVENT_ID_HERE\"\n}"
+            },
+            "url": {
+              "raw": "{{functions_url}}/process-intake-event",
+              "host": ["{{functions_url}}"],
+              "path": ["process-intake-event"]
+            },
+            "description": "Same as above but with a manually-specified intake event ID. Edit the body before sending."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Proposals",
+      "description": "Create and accept proposals. Requires authentication — run **Auth → Login** first.",
+      "item": [
+        {
+          "name": "Create Proposal (from Intake Event)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "    const json = pm.response.json();",
+                  "    if (json.success && json.proposal_id) {",
+                  "        pm.environment.set('last_proposal_id', json.proposal_id);",
+                  "        console.log('✅ last_proposal_id set to:', json.proposal_id);",
+                  "    }",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{auth_token}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"intake_event_id\": \"{{last_intake_event_id}}\"\n}"
+            },
+            "url": {
+              "raw": "{{functions_url}}/create-proposal",
+              "host": ["{{functions_url}}"],
+              "path": ["create-proposal"]
+            },
+            "description": "Create a new proposal from an intake event. Requires auth.\n\nOptionally add `\"target_order_id\"` to assign to an existing order."
+          }
+        },
+        {
+          "name": "Accept Proposal",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{auth_token}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"proposalId\": \"{{last_proposal_id}}\",\n  \"orderId\": null,\n  \"customerName\": \"Test Customer\",\n  \"deliveryDate\": null,\n  \"isNewOrder\": true,\n  \"lines\": [],\n  \"acceptedBy\": \"demo@frootful.ai\",\n  \"organizationName\": \"Boston Microgreens\"\n}"
+            },
+            "url": {
+              "raw": "{{functions_url}}/process-accept-proposal",
+              "host": ["{{functions_url}}"],
+              "path": ["process-accept-proposal"]
+            },
+            "description": "Accept a proposal and send notification. Requires auth.\n\nUses `last_proposal_id`. Populate `lines` with the actual proposal lines for a real test."
+          }
+        },
+        {
+          "name": "List Pending Proposals",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "apikey", "value": "{{service_key}}" },
+              { "key": "Authorization", "value": "Bearer {{service_key}}" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/rest/v1/order_change_proposals?status=eq.pending&order=created_at.desc&limit=20&select=id,order_id,intake_event_id,status,tags,created_at",
+              "host": ["{{base_url}}"],
+              "path": ["rest", "v1", "order_change_proposals"],
+              "query": [
+                { "key": "status", "value": "eq.pending" },
+                { "key": "order", "value": "created_at.desc" },
+                { "key": "limit", "value": "20" },
+                { "key": "select", "value": "id,order_id,intake_event_id,status,tags,created_at" }
+              ]
+            },
+            "description": "List all pending proposals. Useful for finding proposal IDs to accept or inspect."
+          }
+        },
+        {
+          "name": "Get Proposal Lines",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "apikey", "value": "{{service_key}}" },
+              { "key": "Authorization", "value": "Bearer {{service_key}}" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/rest/v1/order_change_proposal_lines?proposal_id=eq.{{last_proposal_id}}&select=id,item_name,change_type,proposed_values",
+              "host": ["{{base_url}}"],
+              "path": ["rest", "v1", "order_change_proposal_lines"],
+              "query": [
+                { "key": "proposal_id", "value": "eq.{{last_proposal_id}}" },
+                { "key": "select", "value": "id,item_name,change_type,proposed_values" }
+              ]
+            },
+            "description": "Fetch the lines for a specific proposal. Uses `last_proposal_id`."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Data",
+      "description": "Query Supabase tables directly for debugging and inspection.",
+      "item": [
+        {
+          "name": "List Items (Active)",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "apikey", "value": "{{service_key}}" },
+              { "key": "Authorization", "value": "Bearer {{service_key}}" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/rest/v1/items?active=eq.true&organization_id=eq.{{org_id_boston_microgreens}}&order=name&select=id,name,sku,active",
+              "host": ["{{base_url}}"],
+              "path": ["rest", "v1", "items"],
+              "query": [
+                { "key": "active", "value": "eq.true" },
+                { "key": "organization_id", "value": "eq.{{org_id_boston_microgreens}}" },
+                { "key": "order", "value": "name" },
+                { "key": "select", "value": "id,name,sku,active" }
+              ]
+            },
+            "description": "List all active items for Boston Microgreens. Change the org_id query param to use a different org."
+          }
+        },
+        {
+          "name": "List Customers",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "apikey", "value": "{{service_key}}" },
+              { "key": "Authorization", "value": "Bearer {{service_key}}" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/rest/v1/customers?organization_id=eq.{{org_id_boston_microgreens}}&order=name&select=id,name,number,email",
+              "host": ["{{base_url}}"],
+              "path": ["rest", "v1", "customers"],
+              "query": [
+                { "key": "organization_id", "value": "eq.{{org_id_boston_microgreens}}" },
+                { "key": "order", "value": "name" },
+                { "key": "select", "value": "id,name,number,email" }
+              ]
+            },
+            "description": "List all customers for Boston Microgreens."
+          }
+        },
+        {
+          "name": "List Recent Orders",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "apikey", "value": "{{service_key}}" },
+              { "key": "Authorization", "value": "Bearer {{service_key}}" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/rest/v1/orders?organization_id=eq.{{org_id_boston_microgreens}}&order=created_at.desc&limit=10&select=id,customer_id,delivery_date,status,created_at",
+              "host": ["{{base_url}}"],
+              "path": ["rest", "v1", "orders"],
+              "query": [
+                { "key": "organization_id", "value": "eq.{{org_id_boston_microgreens}}" },
+                { "key": "order", "value": "created_at.desc" },
+                { "key": "limit", "value": "10" },
+                { "key": "select", "value": "id,customer_id,delivery_date,status,created_at" }
+              ]
+            },
+            "description": "List the 10 most recent orders for Boston Microgreens."
+          }
+        },
+        {
+          "name": "List Recent Intake Events",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "apikey", "value": "{{service_key}}" },
+              { "key": "Authorization", "value": "Bearer {{service_key}}" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/rest/v1/intake_events?order=created_at.desc&limit=10&select=id,channel,status,raw_content,created_at,organization_id",
+              "host": ["{{base_url}}"],
+              "path": ["rest", "v1", "intake_events"],
+              "query": [
+                { "key": "order", "value": "created_at.desc" },
+                { "key": "limit", "value": "10" },
+                { "key": "select", "value": "id,channel,status,raw_content,created_at,organization_id" }
+              ]
+            },
+            "description": "List the 10 most recent intake events across all orgs."
+          }
+        }
+      ]
+    }
+  ]
+}

@@ -38,6 +38,7 @@ interface Customer {
   name: string;
   email: string | null;
   phone: string | null;
+  sort_order: number | null;
 }
 
 interface ItemVariant {
@@ -277,8 +278,10 @@ const AdminDashboard: React.FC = () => {
           order_lines (id, product_name, quantity, status)
         `)
         .eq('organization_id', orgId)
+        .neq('status', 'cancelled')
+        .order('delivery_date', { ascending: false })
         .order('created_at', { ascending: false })
-        .limit(20);
+        .limit(100);
 
       if (ordersError) throw ordersError;
 
@@ -322,7 +325,7 @@ const AdminDashboard: React.FC = () => {
       // Fetch customers for this org
       const { data: customersData, error: customersError } = await supabaseClient
         .from('customers')
-        .select('id, name, email, phone')
+        .select('id, name, email, phone, sort_order')
         .eq('organization_id', org.id)
         .eq('active', true)
         .order('name');
@@ -368,8 +371,9 @@ const AdminDashboard: React.FC = () => {
 
       if (orgIntakeError) throw orgIntakeError;
 
-      // Combine: unassigned events first, then org-specific unlinked events
-      const combinedIntake = [...(unassignedIntake || []), ...(orgIntake || [])];
+      // Combine and sort by most recent first
+      const combinedIntake = [...(unassignedIntake || []), ...(orgIntake || [])]
+        .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
       setIntakeEvents(combinedIntake);
 
       // Also fetch orders and proposals
@@ -442,7 +446,9 @@ const AdminDashboard: React.FC = () => {
 
   const getIntakeEventPreview = (e: IntakeEvent): string => {
     if (!e.raw_content) return 'No content';
-    return JSON.stringify(e.raw_content).substring(0, 100);
+    const raw = typeof e.raw_content === 'string' ? JSON.parse(e.raw_content) : e.raw_content;
+    // SMS: body field; Email: text or subject
+    return raw.body || raw.text || raw.subject || JSON.stringify(raw).substring(0, 150);
   };
 
   const filteredIntakeEvents = intakeEvents.filter(e => {
@@ -828,7 +834,8 @@ const AdminDashboard: React.FC = () => {
           order_id: selectedOrderForChange.id,
           intake_event_id: selectedIntakeEvent?.id || null,
           status: 'pending',
-          tags: formTags
+          type: 'change_order',
+          tags: { ...formTags, intent: 'change_order' }
         })
         .select()
         .single();
@@ -1523,6 +1530,110 @@ const AdminDashboard: React.FC = () => {
                   )}
                 </div>
 
+                {/* Intake Event Selection — always visible */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    <FileText className="w-4 h-4 inline mr-1" />
+                    Intake Event <span className="text-gray-400 text-xs font-normal">(optional)</span>
+                  </label>
+                  {selectedIntakeEvent ? (
+                    <div className="flex items-center justify-between bg-gray-50 border border-gray-200 rounded-lg p-3">
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center space-x-2 flex-wrap">
+                          {!selectedIntakeEvent.organization_id && (
+                            <span className="text-xs px-2 py-0.5 bg-orange-100 text-orange-700 rounded font-medium">UNASSIGNED</span>
+                          )}
+                          <span className="text-xs px-2 py-0.5 bg-purple-100 text-purple-700 rounded capitalize">{selectedIntakeEvent.channel}</span>
+                        </div>
+                        <p className="text-sm text-gray-600 mt-1 truncate">
+                          {getIntakeEventPreview(selectedIntakeEvent)}
+                          {(getIntakeEventPreview(selectedIntakeEvent).length || 0) >= 100 && '...'}
+                        </p>
+                        <p className="text-xs text-gray-400 mt-1">
+                          {new Date(selectedIntakeEvent.created_at).toLocaleString()}
+                        </p>
+                      </div>
+                      <div className="flex items-center ml-2">
+                        <button
+                          onClick={() => setPreviewIntakeEvent(selectedIntakeEvent)}
+                          className="p-1 text-gray-400 hover:text-purple-600"
+                          title="Preview"
+                        >
+                          <Eye className="w-4 h-4" />
+                        </button>
+                        <button
+                          onClick={() => setSelectedIntakeEvent(null)}
+                          className="p-1 text-gray-400 hover:text-gray-600"
+                        >
+                          <X className="w-4 h-4" />
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="relative">
+                      <input
+                        type="text"
+                        value={intakeEventSearch}
+                        onChange={(e) => {
+                          setIntakeEventSearch(e.target.value);
+                          setShowIntakeEventDropdown(true);
+                        }}
+                        onFocus={() => setShowIntakeEventDropdown(true)}
+                        onBlur={() => setTimeout(() => setShowIntakeEventDropdown(false), 150)}
+                        placeholder="Search intake events..."
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
+                      />
+                      {showIntakeEventDropdown && filteredIntakeEvents.length > 0 && (
+                        <div className="absolute z-10 w-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg max-h-64 overflow-y-auto">
+                          {filteredIntakeEvents.slice(0, 15).map((event) => (
+                            <div
+                              key={event.id}
+                              className="flex items-start justify-between px-3 py-2 hover:bg-gray-50 border-b last:border-b-0"
+                            >
+                              <button
+                                onClick={() => {
+                                  setSelectedIntakeEvent(event);
+                                  setIntakeEventSearch('');
+                                  setShowIntakeEventDropdown(false);
+                                }}
+                                className="flex-1 text-left"
+                              >
+                                <div className="flex items-center space-x-2 mb-1 flex-wrap">
+                                  {!event.organization_id && (
+                                    <span className="text-xs px-2 py-0.5 bg-orange-100 text-orange-700 rounded font-medium">UNASSIGNED</span>
+                                  )}
+                                  <span className="text-xs px-2 py-0.5 bg-purple-100 text-purple-700 rounded capitalize">{event.channel}</span>
+                                  <span className="text-xs text-gray-400">
+                                    {new Date(event.created_at).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}
+                                  </span>
+                                </div>
+                                <p className="text-sm text-gray-600 whitespace-pre-line line-clamp-3">
+                                  {getIntakeEventPreview(event)}
+                                </p>
+                              </button>
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setPreviewIntakeEvent(event);
+                                }}
+                                className="ml-2 p-1 text-gray-400 hover:text-purple-600 hover:bg-purple-50 rounded"
+                                title="Preview"
+                              >
+                                <Eye className="w-4 h-4" />
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                      {showIntakeEventDropdown && filteredIntakeEvents.length === 0 && intakeEvents.length === 0 && (
+                        <div className="absolute z-10 w-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg p-3 text-center text-gray-500 text-sm">
+                          No unlinked intake events found
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+
                 {/* NEW ORDER FIELDS — shown when no existing order is selected */}
                 {!selectedOrderForChange && (
                   <>
@@ -1634,111 +1745,6 @@ const AdminDashboard: React.FC = () => {
                               <p className="text-xs text-gray-500 capitalize">{orgUser.role}</p>
                             </button>
                           ))}
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </div>
-
-                {/* Intake Event Selection */}
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    <FileText className="w-4 h-4 inline mr-1" />
-                    Intake Event <span className="text-gray-400 text-xs font-normal">(optional)</span>
-                  </label>
-                  {selectedIntakeEvent ? (
-                    <div className="flex items-center justify-between bg-gray-50 border border-gray-200 rounded-lg p-3">
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center space-x-2 flex-wrap">
-                          {!selectedIntakeEvent.organization_id && (
-                            <span className="text-xs px-2 py-0.5 bg-orange-100 text-orange-700 rounded font-medium">UNASSIGNED</span>
-                          )}
-                          <span className="text-xs px-2 py-0.5 bg-purple-100 text-purple-700 rounded capitalize">{selectedIntakeEvent.channel}</span>
-                        </div>
-                        <p className="text-sm text-gray-600 mt-1 truncate">
-                          {getIntakeEventPreview(selectedIntakeEvent)}
-                          {(getIntakeEventPreview(selectedIntakeEvent).length || 0) >= 100 && '...'}
-                        </p>
-                        <p className="text-xs text-gray-400 mt-1">
-                          {new Date(selectedIntakeEvent.created_at).toLocaleString()}
-                        </p>
-                      </div>
-                      <div className="flex items-center ml-2">
-                        <button
-                          onClick={() => setPreviewIntakeEvent(selectedIntakeEvent)}
-                          className="p-1 text-gray-400 hover:text-purple-600"
-                          title="Preview"
-                        >
-                          <Eye className="w-4 h-4" />
-                        </button>
-                        <button
-                          onClick={() => setSelectedIntakeEvent(null)}
-                          className="p-1 text-gray-400 hover:text-gray-600"
-                        >
-                          <X className="w-4 h-4" />
-                        </button>
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="relative">
-                      <input
-                        type="text"
-                        value={intakeEventSearch}
-                        onChange={(e) => {
-                          setIntakeEventSearch(e.target.value);
-                          setShowIntakeEventDropdown(true);
-                        }}
-                        onFocus={() => setShowIntakeEventDropdown(true)}
-                        onBlur={() => setTimeout(() => setShowIntakeEventDropdown(false), 150)}
-                        placeholder="Search intake events..."
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
-                      />
-                      {showIntakeEventDropdown && filteredIntakeEvents.length > 0 && (
-                        <div className="absolute z-10 w-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg max-h-64 overflow-y-auto">
-                          {filteredIntakeEvents.slice(0, 15).map((event) => (
-                            <div
-                              key={event.id}
-                              className="flex items-start justify-between px-3 py-2 hover:bg-gray-50 border-b last:border-b-0"
-                            >
-                              <button
-                                onClick={() => {
-                                  setSelectedIntakeEvent(event);
-                                  setIntakeEventSearch('');
-                                  setShowIntakeEventDropdown(false);
-                                }}
-                                className="flex-1 text-left"
-                              >
-                                <div className="flex items-center space-x-2 mb-1 flex-wrap">
-                                  {!event.organization_id && (
-                                    <span className="text-xs px-2 py-0.5 bg-orange-100 text-orange-700 rounded font-medium">UNASSIGNED</span>
-                                  )}
-                                  <span className="text-xs px-2 py-0.5 bg-purple-100 text-purple-700 rounded capitalize">{event.channel}</span>
-                                  <span className="text-xs text-gray-400">
-                                    {new Date(event.created_at).toLocaleDateString()}
-                                  </span>
-                                </div>
-                                <p className="text-sm text-gray-600 truncate">
-                                  {getIntakeEventPreview(event).substring(0, 60)}
-                                  {getIntakeEventPreview(event).length > 60 && '...'}
-                                </p>
-                              </button>
-                              <button
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  setPreviewIntakeEvent(event);
-                                }}
-                                className="ml-2 p-1 text-gray-400 hover:text-purple-600 hover:bg-purple-50 rounded"
-                                title="Preview"
-                              >
-                                <Eye className="w-4 h-4" />
-                              </button>
-                            </div>
-                          ))}
-                        </div>
-                      )}
-                      {showIntakeEventDropdown && filteredIntakeEvents.length === 0 && intakeEvents.length === 0 && (
-                        <div className="absolute z-10 w-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg p-3 text-center text-gray-500 text-sm">
-                          No unlinked intake events found
                         </div>
                       )}
                     </div>
@@ -1958,67 +1964,6 @@ const AdminDashboard: React.FC = () => {
                       )}
                     </div>
                   </div>
-                </div>
-
-                {/* Tags */}
-                <div className="pt-4 border-t">
-                  <h3 className="text-sm font-medium text-gray-700 mb-3">Tags</h3>
-                  {TAG_PRESETS.map(preset => (
-                    <div key={preset.key} className="mb-3">
-                      <label className="text-xs text-gray-500 uppercase tracking-wider font-medium mb-1.5 block">{preset.label}</label>
-                      <div className="flex gap-2">
-                        {preset.options.map(opt => {
-                          const isActive = formTags[preset.key] === opt.value;
-                          const colorMap: Record<string, { active: string; inactive: string }> = {
-                            orange: { active: 'bg-orange-100 text-orange-800 border-orange-300', inactive: 'bg-white text-gray-600 border-gray-300 hover:border-orange-300 hover:text-orange-700' },
-                            blue: { active: 'bg-blue-100 text-blue-800 border-blue-300', inactive: 'bg-white text-gray-600 border-gray-300 hover:border-blue-300 hover:text-blue-700' },
-                            purple: { active: 'bg-purple-100 text-purple-800 border-purple-300', inactive: 'bg-white text-gray-600 border-gray-300 hover:border-purple-300 hover:text-purple-700' },
-                          };
-                          const colors = colorMap[opt.color] || colorMap.purple;
-                          return (
-                            <button
-                              key={opt.value}
-                              onClick={() => {
-                                if (isActive) {
-                                  const t = { ...formTags }; delete t[preset.key]; setFormTags(t);
-                                } else {
-                                  setFormTags({ ...formTags, [preset.key]: opt.value });
-                                }
-                              }}
-                              title={opt.tooltip}
-                              className={`px-3 py-1.5 text-sm font-medium rounded-lg border transition-colors ${isActive ? colors.active : colors.inactive}`}
-                            >
-                              {opt.label}
-                            </button>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  ))}
-                  {/* Custom tags display */}
-                  {Object.entries(formTags).filter(([key]) => !TAG_PRESETS.some(p => p.key === key)).length > 0 && (
-                    <div className="flex flex-wrap gap-1.5 mb-2">
-                      {Object.entries(formTags).filter(([key]) => !TAG_PRESETS.some(p => p.key === key)).map(([key, value]) => (
-                        <span key={key} className="inline-flex items-center gap-1 text-xs px-2 py-1 bg-gray-100 text-gray-700 rounded-full border border-gray-200">
-                          <span className="font-medium">{key}:</span> {value}
-                          <button onClick={() => { const t = { ...formTags }; delete t[key]; setFormTags(t); }} className="ml-0.5 text-gray-400 hover:text-red-500">
-                            <X className="w-3 h-3" />
-                          </button>
-                        </span>
-                      ))}
-                    </div>
-                  )}
-                  {/* Custom tag input */}
-                  {showCustomTagInput ? (
-                    <div className="flex items-center gap-2 mt-2">
-                      <input type="text" placeholder="key" value={formTagKey} onChange={(e) => setFormTagKey(e.target.value)} className="w-28 px-2 py-1 text-sm border border-gray-300 rounded" />
-                      <input type="text" placeholder="value" value={formTagValue} onChange={(e) => setFormTagValue(e.target.value)} className="w-36 px-2 py-1 text-sm border border-gray-300 rounded" />
-                      <button onClick={() => { if (formTagKey && formTagValue) { setFormTags({ ...formTags, [formTagKey]: formTagValue }); setFormTagKey(''); setFormTagValue(''); } }} className="px-3 py-1 text-sm bg-purple-600 text-white rounded hover:bg-purple-700">Add</button>
-                      <button onClick={() => { setShowCustomTagInput(false); setFormTagKey(''); setFormTagValue(''); }} className="text-xs text-gray-500 hover:text-gray-700">Cancel</button>
-                    </div>
-                  ) : (
-                    <button onClick={() => setShowCustomTagInput(true)} className="mt-2 text-xs text-purple-500 hover:text-purple-700">+ Custom tag</button>
-                  )}
                 </div>
 
                   </>
@@ -2350,6 +2295,67 @@ const AdminDashboard: React.FC = () => {
                         )}
                       </div>
                     )}
+
+                {/* Tags */}
+                <div className="pt-4 border-t">
+                  <h3 className="text-sm font-medium text-gray-700 mb-3">Tags</h3>
+                  {TAG_PRESETS.map(preset => (
+                    <div key={preset.key} className="mb-3">
+                      <label className="text-xs text-gray-500 uppercase tracking-wider font-medium mb-1.5 block">{preset.label}</label>
+                      <div className="flex gap-2">
+                        {preset.options.map(opt => {
+                          const isActive = formTags[preset.key] === opt.value;
+                          const colorMap: Record<string, { active: string; inactive: string }> = {
+                            orange: { active: 'bg-orange-100 text-orange-800 border-orange-300', inactive: 'bg-white text-gray-600 border-gray-300 hover:border-orange-300 hover:text-orange-700' },
+                            blue: { active: 'bg-blue-100 text-blue-800 border-blue-300', inactive: 'bg-white text-gray-600 border-gray-300 hover:border-blue-300 hover:text-blue-700' },
+                            purple: { active: 'bg-purple-100 text-purple-800 border-purple-300', inactive: 'bg-white text-gray-600 border-gray-300 hover:border-purple-300 hover:text-purple-700' },
+                          };
+                          const colors = colorMap[opt.color] || colorMap.purple;
+                          return (
+                            <button
+                              key={opt.value}
+                              onClick={() => {
+                                if (isActive) {
+                                  const t = { ...formTags }; delete t[preset.key]; setFormTags(t);
+                                } else {
+                                  setFormTags({ ...formTags, [preset.key]: opt.value });
+                                }
+                              }}
+                              title={opt.tooltip}
+                              className={`px-3 py-1.5 text-sm font-medium rounded-lg border transition-colors ${isActive ? colors.active : colors.inactive}`}
+                            >
+                              {opt.label}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ))}
+                  {/* Custom tags display */}
+                  {Object.entries(formTags).filter(([key]) => !TAG_PRESETS.some(p => p.key === key)).length > 0 && (
+                    <div className="flex flex-wrap gap-1.5 mb-2">
+                      {Object.entries(formTags).filter(([key]) => !TAG_PRESETS.some(p => p.key === key)).map(([key, value]) => (
+                        <span key={key} className="inline-flex items-center gap-1 text-xs px-2 py-1 bg-gray-100 text-gray-700 rounded-full border border-gray-200">
+                          <span className="font-medium">{key}:</span> {value}
+                          <button onClick={() => { const t = { ...formTags }; delete t[key]; setFormTags(t); }} className="ml-0.5 text-gray-400 hover:text-red-500">
+                            <X className="w-3 h-3" />
+                          </button>
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                  {/* Custom tag input */}
+                  {showCustomTagInput ? (
+                    <div className="flex items-center gap-2 mt-2">
+                      <input type="text" placeholder="key" value={formTagKey} onChange={(e) => setFormTagKey(e.target.value)} className="w-28 px-2 py-1 text-sm border border-gray-300 rounded" />
+                      <input type="text" placeholder="value" value={formTagValue} onChange={(e) => setFormTagValue(e.target.value)} className="w-36 px-2 py-1 text-sm border border-gray-300 rounded" />
+                      <button onClick={() => { if (formTagKey && formTagValue) { setFormTags({ ...formTags, [formTagKey]: formTagValue }); setFormTagKey(''); setFormTagValue(''); } }} className="px-3 py-1 text-sm bg-purple-600 text-white rounded hover:bg-purple-700">Add</button>
+                      <button onClick={() => { setShowCustomTagInput(false); setFormTagKey(''); setFormTagValue(''); }} className="text-xs text-gray-500 hover:text-gray-700">Cancel</button>
+                    </div>
+                  ) : (
+                    <button onClick={() => setShowCustomTagInput(true)} className="mt-2 text-xs text-purple-500 hover:text-purple-700">+ Custom tag</button>
+                  )}
+                </div>
 
                 {/* Submit Button */}
                 <div className="flex justify-end pt-4 border-t">

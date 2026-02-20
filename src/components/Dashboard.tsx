@@ -13,6 +13,7 @@ import {
   Clock,
   Filter,
   Inbox,
+  LayoutDashboard,
   LayoutGrid,
   List,
   Loader2,
@@ -20,8 +21,13 @@ import {
   Mail,
   MessageSquare,
   Package,
+  Paperclip,
+  Plus,
   Printer,
   Search,
+  FileSpreadsheet,
+  FileText,
+  Image as ImageIcon,
   RefreshCw,
   Repeat,
   Settings,
@@ -29,9 +35,14 @@ import {
   Upload,
   User,
   Sparkles,
-  X
+  X,
+  ZoomIn,
+  ZoomOut,
+  RotateCcw,
+  Maximize2,
 } from 'lucide-react';
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { supabaseClient } from '../supabaseClient';
 import UploadOrdersSection from './UploadOrdersSection';
 import AnalyticsDashboard from './AnalyticsDashboard';
@@ -78,6 +89,8 @@ const Tooltip: React.FC<TooltipProps> = ({ text, children, position = 'top' }) =
 
 interface OrderItem {
   order_line_id?: string;
+  item_id?: string;
+  item_variant_id?: string;
   name: string;
   size: string; // e.g. 'S', 'L', 'T20'
   quantity: number;
@@ -91,7 +104,7 @@ interface Order {
   customer_phone?: string;
   items: OrderItem[];
   status: string;
-  source: 'email' | 'text' | 'manual' | 'edi' | 'sms' | 'erp';
+  source: 'email' | 'text' | 'manual' | 'edi' | 'sms' | 'erp' | 'dashboard';
   delivery_date?: string;
   created_at: string;
   line_count?: number;
@@ -123,6 +136,16 @@ interface TimelineEvent {
   eventType?: string;
 }
 
+interface ProposalAttachment {
+  id: string;
+  filename: string;
+  extension: string | null;
+  mime_type: string | null;
+  size_bytes: number | null;
+  storage_path: string;
+  processing_status: string;
+}
+
 interface Proposal {
   id: string;
   order_id: string | null; // null = new order proposal
@@ -143,6 +166,7 @@ interface Proposal {
   timeline: TimelineEvent[];
   order_frequency?: 'one-time' | 'recurring';
   tags?: { intent?: string; order_frequency?: string };
+  attachments?: ProposalAttachment[];
 }
 
 interface Customer {
@@ -150,6 +174,7 @@ interface Customer {
   name: string;
   email?: string | null;
   phone?: string | null;
+  sort_order?: number | null;
 }
 
 interface IntakeHistoryProposalLine {
@@ -1412,6 +1437,9 @@ const MOCK_PROPOSALS: Proposal[] = [
     sender: 'Marco <chef@mammamia.com>', subject: 'Modification', email_date: 'Thu, Feb 13 at 9:15 AM',
     lines: [{ id: 'l-2a', change_type: 'modify', item_name: 'Sorrel, Red Veined', size: 'Small', quantity: 1, original_quantity: 3 }],
     timeline: mkTl('t2', 15, 'email', 'Hey Bennett, could we modify our order for Sorrel to just 1 instead of 3?', 'Marco <chef@mammamia.com>', 'Modification'),
+    attachments: [
+      { id: 'mock-att-2a', filename: 'intl_purchase_order_61203.png', extension: 'png', mime_type: 'image/png', size_bytes: 48427, storage_path: '/demo/1081.png', processing_status: 'completed' },
+    ],
   },
 
   // 3. Single CREATE — new recurring order
@@ -1441,6 +1469,10 @@ const MOCK_PROPOSALS: Proposal[] = [
       { id: 'l-4b', change_type: 'add', item_name: 'Basil, Thai', size: 'Small', quantity: 2 },
     ],
     timeline: mkTl('t4', 30, 'email', 'Order for Wednesday: 5 cilantro small, 2 thai basil small', 'Ruka <chef@ruka.com>', 'Wednesday order'),
+    attachments: [
+      { id: 'mock-att-4a', filename: 'PO027985_consolidated.png', extension: 'png', mime_type: 'image/png', size_bytes: 70500, storage_path: '/demo/1142.png', processing_status: 'completed' },
+      { id: 'mock-att-4b', filename: 'order_items_breakdown.xlsx', extension: 'xlsx', mime_type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', size_bytes: 13122, storage_path: '/demo/865.xlsx', processing_status: 'completed' },
+    ],
   },
 
   // 5. Single CANCEL
@@ -1505,6 +1537,11 @@ const MOCK_PROPOSALS: Proposal[] = [
       { id: 'l-8a3', change_type: 'add', item_name: 'Borage', size: 'Small', quantity: 1 },
     ],
     timeline: mkTl('t8', 12, 'email', 'Tuesday: new order. Thursday: modify existing.', 'Marco <chef@mammamaria.com>', 'Orders for this week'),
+    attachments: [
+      { id: 'mock-att-8a', filename: 'farm_PO_2006546.png', extension: 'png', mime_type: 'image/png', size_bytes: 46083, storage_path: '/demo/1622.png', processing_status: 'completed' },
+      { id: 'mock-att-8b', filename: 'novelty_mini_carnations_order.png', extension: 'png', mime_type: 'image/png', size_bytes: 30218, storage_path: '/demo/15266.png', processing_status: 'completed' },
+      { id: 'mock-att-8c', filename: 'line_items_detail.xlsx', extension: 'xlsx', mime_type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', size_bytes: 13122, storage_path: '/demo/865.xlsx', processing_status: 'completed' },
+    ],
   },
   {
     id: 'prop-8b', intake_event_id: 'intake-8', order_id: 'fri-oceanaire', action: 'assign',
@@ -1519,6 +1556,11 @@ const MOCK_PROPOSALS: Proposal[] = [
       { id: 'l-8b2', change_type: 'add', item_name: 'Shiso, Green', size: 'Large', quantity: 1 },
     ],
     timeline: mkTl('t8b', 12, 'email', 'Tuesday: new order. Thursday: modify existing.', 'Marco <chef@mammamaria.com>', 'Orders for this week'),
+    attachments: [
+      { id: 'mock-att-8a', filename: 'farm_PO_2006546.png', extension: 'png', mime_type: 'image/png', size_bytes: 46083, storage_path: '/demo/1622.png', processing_status: 'completed' },
+      { id: 'mock-att-8b', filename: 'novelty_mini_carnations_order.png', extension: 'png', mime_type: 'image/png', size_bytes: 30218, storage_path: '/demo/15266.png', processing_status: 'completed' },
+      { id: 'mock-att-8c', filename: 'line_items_detail.xlsx', extension: 'xlsx', mime_type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', size_bytes: 13122, storage_path: '/demo/865.xlsx', processing_status: 'completed' },
+    ],
   },
 
   // 9. CREATE + UNDETERMINED (parsed one date, couldn't parse the other)
@@ -1677,6 +1719,10 @@ const MOCK_PROPOSALS: Proposal[] = [
       { id: 'l-14a3', change_type: 'add', item_name: 'Pea Shoots', size: 'Small', quantity: 2 },
     ],
     timeline: mkTl('t14', 1, 'email', 'Mon: new order. Tue: cancel. Wed: new order. Thu: modify existing.', 'Sarma <chef@sarmarestaurant.com>', 'Full week order changes'),
+    attachments: [
+      { id: 'mock-att-14a', filename: 'farm_PO_2006546.png', extension: 'png', mime_type: 'image/png', size_bytes: 46083, storage_path: '/demo/1622.png', processing_status: 'completed' },
+      { id: 'mock-att-14b', filename: 'novelty_mini_carnations_order.png', extension: 'png', mime_type: 'image/png', size_bytes: 30218, storage_path: '/demo/15266.png', processing_status: 'completed' },
+    ],
   },
   {
     id: 'prop-14b', intake_event_id: 'intake-14', order_id: 'fri-capo', action: 'assign',
@@ -1778,12 +1824,15 @@ function formatTime(dateStr: string): string {
 interface ItemSearchDropdownProps {
   value: string;
   onChange: (value: string) => void;
+  items?: string[];
   className?: string;
 }
 
-const ItemSearchDropdown: React.FC<ItemSearchDropdownProps> = ({ value, onChange, className }) => {
+const ItemSearchDropdown: React.FC<ItemSearchDropdownProps> = ({ value, onChange, items, className }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [search, setSearch] = useState(value);
+  const [fetchedItems, setFetchedItems] = useState<string[]>([]);
+  const [hasFetched, setHasFetched] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
@@ -1801,7 +1850,24 @@ const ItemSearchDropdown: React.FC<ItemSearchDropdownProps> = ({ value, onChange
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  const filtered = CATALOG_ITEMS.filter(item =>
+  // Fetch catalog items from DB if no items prop provided
+  useEffect(() => {
+    if (items && items.length > 0) return;
+    if (hasFetched) return;
+    const fetchItems = async () => {
+      const { data } = await supabaseClient
+        .from('items')
+        .select('name')
+        .eq('active', true)
+        .order('name');
+      if (data) setFetchedItems(data.map(d => d.name));
+      setHasFetched(true);
+    };
+    fetchItems();
+  }, [items, hasFetched]);
+
+  const searchList = items && items.length > 0 ? items : (fetchedItems.length > 0 ? fetchedItems : CATALOG_ITEMS);
+  const filtered = searchList.filter(item =>
     item.toLowerCase().includes(search.toLowerCase())
   );
 
@@ -3235,14 +3301,32 @@ function buildPackingSummary(orders: Order[]): { crop: string; sizes: Record<str
     });
 }
 
-function printPackingSummary(dateStr: string, orders: Order[]) {
+function printPackingSummary(dateStr: string, orders: Order[], customers: Customer[]) {
   const summary = buildPackingSummary(orders);
   const dateDisplay = new Date(dateStr + 'T00:00:00').toLocaleDateString('en-US', {
-    weekday: 'short',
-    month: 'short',
+    weekday: 'long',
+    month: 'long',
     day: 'numeric',
     year: 'numeric',
   });
+
+  // Build customer order rows sorted by sort_order
+  const customerSortMap = new Map(customers.map(c => [c.name, c.sort_order ?? Number.MAX_SAFE_INTEGER]));
+  const sortedOrders = [...orders].sort((a, b) => {
+    const aSort = customerSortMap.get(a.customer_name) ?? Number.MAX_SAFE_INTEGER;
+    const bSort = customerSortMap.get(b.customer_name) ?? Number.MAX_SAFE_INTEGER;
+    if (aSort !== bSort) return aSort - bSort;
+    return a.customer_name.localeCompare(b.customer_name);
+  });
+
+  const orderRows = sortedOrders.flatMap(order =>
+    order.items.map(item => ({
+      customer: order.customer_name,
+      product: item.name,
+      size: item.size,
+      quantity: item.quantity,
+    }))
+  );
 
   // Collect all size codes used across all items
   const allSizes = new Set<string>();
@@ -3254,68 +3338,109 @@ function printPackingSummary(dateStr: string, orders: Order[]) {
   const html = `<!DOCTYPE html>
 <html>
 <head>
-  <title>Crop Packing Summary - ${dateDisplay}</title>
+  <title>Order Sheet - ${dateDisplay}</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
-    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; padding: 24px; color: #1a1a1a; }
-    h1 { font-size: 20px; margin-bottom: 4px; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; padding: 24px; color: #1a1a1a; -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+    h1 { font-size: 22px; font-weight: 700; margin-bottom: 20px; }
+
+    /* Customer Order Sheet */
+    .order-table { width: 100%; border-collapse: collapse; font-size: 14px; }
+    .order-table th { background: #8cb878; color: #1a1a1a; padding: 10px 16px; text-align: left; font-weight: 600; border: 1px solid #7aa866; }
+    .order-table th.size-col, .order-table th.qty-col { text-align: center; width: 60px; }
+    .order-table td { padding: 8px 16px; border: 1px solid #ccc; }
+    .order-table td.size-col, .order-table td.qty-col { text-align: center; width: 60px; }
+    .order-table tr.even td { background: #e8f0e0; }
+    .order-table tr.odd td { background: #fff; }
+
+    /* Crop Packing Summary */
+    .packing-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    .packing-table th { background: #d4a574; color: #1a1a1a; padding: 8px 12px; text-align: center; font-weight: 600; border: 1px solid #b8956a; }
+    .packing-table th.crop-header { text-align: left; background: #c4956a; min-width: 180px; }
+    .packing-table th.size-header { background: #b8c4d8; }
+    .packing-table th.total-header { background: #e8c87a; }
+    .packing-table td { padding: 6px 12px; border: 1px solid #ddd; }
+    .packing-table td.crop-name { font-weight: 500; background: #f9f5f0; }
+    .packing-table td.size-cell { text-align: center; background: #f0f4fa; }
+    .packing-table td.size-cell.has-value { font-weight: 600; color: #1a1a1a; }
+    .packing-table td.size-cell.empty { color: #ccc; }
+    .packing-table td.total-cell { text-align: center; font-weight: 700; background: #fdf6e3; }
+    .packing-table tr:nth-child(even) td.crop-name { background: #f4efe8; }
+    .packing-table tr:nth-child(even) td.size-cell { background: #eaeff5; }
+    .packing-table tr:nth-child(even) td.total-cell { background: #f8f0d8; }
+    .packing-table .totals-row td { font-weight: 700; background: #e8e0d4 !important; border-top: 2px solid #999; }
+    .packing-table .totals-row td.size-cell { background: #d8e0ec !important; }
+    .packing-table .totals-row td.total-cell { background: #f0e4c0 !important; }
+
     .subtitle { font-size: 14px; color: #666; margin-bottom: 16px; }
-    table { width: 100%; border-collapse: collapse; font-size: 13px; }
-    th { background: #d4a574; color: #1a1a1a; padding: 8px 12px; text-align: center; font-weight: 600; border: 1px solid #b8956a; }
-    th.crop-header { text-align: left; background: #c4956a; min-width: 180px; }
-    th.size-header { background: #b8c4d8; }
-    th.total-header { background: #e8c87a; }
-    td { padding: 6px 12px; border: 1px solid #ddd; }
-    td.crop-name { font-weight: 500; background: #f9f5f0; }
-    td.size-cell { text-align: center; background: #f0f4fa; }
-    td.size-cell.has-value { font-weight: 600; color: #1a1a1a; }
-    td.size-cell.empty { color: #ccc; }
-    td.total-cell { text-align: center; font-weight: 700; background: #fdf6e3; }
-    tr:nth-child(even) td.crop-name { background: #f4efe8; }
-    tr:nth-child(even) td.size-cell { background: #eaeff5; }
-    tr:nth-child(even) td.total-cell { background: #f8f0d8; }
+    .page-break { page-break-before: always; margin-top: 24px; }
     .footer { margin-top: 16px; font-size: 11px; color: #999; }
-    .totals-row td { font-weight: 700; background: #e8e0d4 !important; border-top: 2px solid #999; }
-    .totals-row td.size-cell { background: #d8e0ec !important; }
-    .totals-row td.total-cell { background: #f0e4c0 !important; }
+
     @media print {
       body { padding: 0; }
       @page { margin: 0.5in; }
+      .page-break { page-break-before: always; }
     }
   </style>
 </head>
 <body>
-  <h1>Crop Packing Summary and Harvest Records</h1>
-  <div class="subtitle">${dateDisplay} &mdash; ${summary.length} crop${summary.length !== 1 ? 's' : ''} &middot; ${orders.length} order${orders.length !== 1 ? 's' : ''}</div>
-  <table>
+  <!-- Page 1: Customer Order Sheet -->
+  <h1>${dateDisplay}</h1>
+  <table class="order-table">
     <thead>
       <tr>
-        <th class="crop-header">Crop/Product (A-Z)</th>
-        ${sizeColumns.map(s => `<th class="size-header">${SIZE_LABELS[s] || s}<br><span style="font-size:11px;font-weight:400">Units</span></th>`).join('')}
-        <th class="total-header">Total Units</th>
+        <th>Customer</th>
+        <th>Product</th>
+        <th class="size-col">Size</th>
+        <th class="qty-col">Qty</th>
       </tr>
     </thead>
     <tbody>
-      ${summary.map(row => `
-        <tr>
-          <td class="crop-name">${row.crop}</td>
-          ${sizeColumns.map(s => {
-            const val = row.sizes[s] || 0;
-            return `<td class="size-cell ${val > 0 ? 'has-value' : 'empty'}">${val > 0 ? val : ''}</td>`;
-          }).join('')}
-          <td class="total-cell">${row.total}</td>
+      ${orderRows.map((row, i) => `
+        <tr class="${i % 2 === 0 ? 'even' : 'odd'}">
+          <td>${row.customer}</td>
+          <td>${row.product}</td>
+          <td class="size-col">${row.size}</td>
+          <td class="qty-col">${row.quantity}</td>
         </tr>
       `).join('')}
-      <tr class="totals-row">
-        <td class="crop-name">TOTALS</td>
-        ${sizeColumns.map(s => {
-          const colTotal = summary.reduce((sum, row) => sum + (row.sizes[s] || 0), 0);
-          return `<td class="size-cell">${colTotal > 0 ? colTotal : ''}</td>`;
-        }).join('')}
-        <td class="total-cell">${summary.reduce((sum, row) => sum + row.total, 0)}</td>
-      </tr>
     </tbody>
   </table>
+
+  <!-- Page 2: Crop Packing Summary -->
+  <div class="page-break">
+    <h1>Crop Packing Summary and Harvest Records</h1>
+    <div class="subtitle">${dateDisplay} &mdash; ${summary.length} crop${summary.length !== 1 ? 's' : ''} &middot; ${orders.length} order${orders.length !== 1 ? 's' : ''}</div>
+    <table class="packing-table">
+      <thead>
+        <tr>
+          <th class="crop-header">Crop/Product (A-Z)</th>
+          ${sizeColumns.map(s => `<th class="size-header">${SIZE_LABELS[s] || s}<br><span style="font-size:11px;font-weight:400">Units</span></th>`).join('')}
+          <th class="total-header">Total Units</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${summary.map(row => `
+          <tr>
+            <td class="crop-name">${row.crop}</td>
+            ${sizeColumns.map(s => {
+              const val = row.sizes[s] || 0;
+              return `<td class="size-cell ${val > 0 ? 'has-value' : 'empty'}">${val > 0 ? val : ''}</td>`;
+            }).join('')}
+            <td class="total-cell">${row.total}</td>
+          </tr>
+        `).join('')}
+        <tr class="totals-row">
+          <td class="crop-name">TOTALS</td>
+          ${sizeColumns.map(s => {
+            const colTotal = summary.reduce((sum, row) => sum + (row.sizes[s] || 0), 0);
+            return `<td class="size-cell">${colTotal > 0 ? colTotal : ''}</td>`;
+          }).join('')}
+          <td class="total-cell">${summary.reduce((sum, row) => sum + row.total, 0)}</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
   <div class="footer">Generated from Frootful</div>
   <script>window.onload = function() { window.print(); }</script>
 </body>
@@ -3666,8 +3791,8 @@ const AssignOrderSection: React.FC<{
                 <p className="text-xs text-red-600">Customer requested to cancel this entire order.</p>
               </div>
             )}
-            {/* Delete Order label - all lines are removals */}
-            {matchedOrder && !proposal.tags?.intent && editableLines.length > 0 && editableLines.every(l => l.change_type === 'remove') && (
+            {/* Delete Order label - all existing order items are being removed */}
+            {matchedOrder && !proposal.tags?.intent && editableLines.length > 0 && editableLines.every(l => l.change_type === 'remove') && matchedOrder.items.length > 0 && matchedOrder.items.every(item => editableLines.some(l => l.change_type === 'remove' && (l.order_line_id ? l.order_line_id === item.order_line_id : l.item_name === item.name))) && (
               <div className="mb-2 px-3 py-2 bg-red-100 border border-red-300 rounded-lg">
                 <p className="text-sm font-semibold text-red-700">Cancel Order</p>
                 <p className="text-xs text-red-600">This order will be cancelled.</p>
@@ -3926,6 +4051,86 @@ const InboxCard: React.FC<InboxCardProps> = ({
   const [collapsed, setCollapsed] = useState(false);
   const [messageExpanded, setMessageExpanded] = useState(false);
   const [contentNeedsExpand, setContentNeedsExpand] = useState(false);
+  const hasAttachments = !!(proposal.attachments && proposal.attachments.length > 0);
+  const [attachmentsExpanded, setAttachmentsExpanded] = useState(hasAttachments);
+  const [attachmentUrls, setAttachmentUrls] = useState<Record<string, string>>({});
+  // Inline viewer state — all image attachments auto-expanded, each with own zoom/pan
+  const allImageAttIds = useMemo(() => {
+    if (!proposal.attachments) return new Set<string>();
+    return new Set(proposal.attachments.filter(a => a.mime_type?.startsWith('image/')).map(a => a.id));
+  }, [proposal.attachments]);
+  const [expandedAttIds, setExpandedAttIds] = useState<Set<string>>(allImageAttIds);
+  const [viewerStates, setViewerStates] = useState<Record<string, { zoom: number; pan: { x: number; y: number } }>>({});
+  const inlineDragRef = useRef<{ dragging: boolean; startX: number; startY: number; startPanX: number; startPanY: number }>({ dragging: false, startX: 0, startY: 0, startPanX: 0, startPanY: 0 });
+
+  const getViewerState = (attId: string) => viewerStates[attId] || { zoom: 1, pan: { x: 0, y: 0 } };
+  const setViewerZoom = (attId: string, fn: (z: number) => number) => {
+    setViewerStates(prev => {
+      const cur = prev[attId] || { zoom: 1, pan: { x: 0, y: 0 } };
+      return { ...prev, [attId]: { ...cur, zoom: fn(cur.zoom) } };
+    });
+  };
+  const setViewerPan = (attId: string, pan: { x: number; y: number }) => {
+    setViewerStates(prev => {
+      const cur = prev[attId] || { zoom: 1, pan: { x: 0, y: 0 } };
+      return { ...prev, [attId]: { ...cur, pan } };
+    });
+  };
+  const resetViewer = (attId: string) => {
+    setViewerStates(prev => ({ ...prev, [attId]: { zoom: 1, pan: { x: 0, y: 0 } } }));
+  };
+  // Full-screen lightbox state (opened via dedicated button)
+  const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
+  const [lightboxZoom, setLightboxZoom] = useState(1);
+  const [lightboxPan, setLightboxPan] = useState({ x: 0, y: 0 });
+  const lightboxDragRef = useRef<{ dragging: boolean; startX: number; startY: number; startPanX: number; startPanY: number }>({ dragging: false, startX: 0, startY: 0, startPanX: 0, startPanY: 0 });
+  const lightboxOpenedAt = useRef(0);
+
+  const toggleInlineViewer = useCallback((attId: string) => {
+    setExpandedAttIds(prev => {
+      const next = new Set(prev);
+      if (next.has(attId)) {
+        next.delete(attId);
+      } else {
+        next.add(attId);
+        resetViewer(attId);
+      }
+      return next;
+    });
+  }, []);
+
+  const openLightbox = useCallback((url: string) => {
+    lightboxOpenedAt.current = Date.now();
+    setLightboxUrl(url);
+    setLightboxZoom(1);
+    setLightboxPan({ x: 0, y: 0 });
+  }, []);
+
+  const closeLightbox = useCallback(() => {
+    if (Date.now() - lightboxOpenedAt.current < 200) return;
+    setLightboxUrl(null);
+  }, []);
+
+  // Eagerly load attachment URLs when attachments are present
+  useEffect(() => {
+    if (!hasAttachments) return;
+    const loadUrls = async () => {
+      const urls: Record<string, string> = {};
+      const viewable = ['pdf', 'png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp'];
+      for (const att of proposal.attachments!) {
+        if (att.storage_path.startsWith('/demo/')) {
+          urls[att.id] = att.storage_path;
+        } else if (att.extension && viewable.includes(att.extension.toLowerCase())) {
+          const { data: signedUrlData } = await supabaseClient
+            .storage.from('intake-files')
+            .createSignedUrl(att.storage_path, 3600);
+          if (signedUrlData?.signedUrl) urls[att.id] = signedUrlData.signedUrl;
+        }
+      }
+      setAttachmentUrls(urls);
+    };
+    loadUrls();
+  }, [hasAttachments]);
 
   const allMessages = useMemo(() => {
     return proposal.timeline
@@ -3957,6 +4162,12 @@ const InboxCard: React.FC<InboxCardProps> = ({
           <span className="font-medium text-gray-900 truncate">{proposal.channel === 'email' ? 'Email' : 'SMS'}</span>
           <span className="text-gray-400">&middot;</span>
           <span className="text-gray-500 flex-shrink-0">Received by Frootful {formatTime(proposal.created_at)}</span>
+          {proposal.attachments && proposal.attachments.length > 0 && (
+            <span className="inline-flex items-center gap-1 text-xs text-gray-400 flex-shrink-0">
+              <Paperclip className="w-3 h-3" />
+              {proposal.attachments.length}
+            </span>
+          )}
           {proposal.message_count > 1 && (
             <span className="text-xs bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded-full flex-shrink-0">
               {proposal.message_count}
@@ -4093,6 +4304,116 @@ const InboxCard: React.FC<InboxCardProps> = ({
               </button>
             </div>
           )}
+
+          {/* Attachments bar */}
+          {proposal.attachments && proposal.attachments.length > 0 && (
+            <div className="border-t border-gray-200">
+              <button
+                onClick={() => setAttachmentsExpanded(!attachmentsExpanded)}
+                className="w-full px-3 py-2 flex items-center gap-2 text-xs text-gray-500 hover:bg-gray-50 transition-colors"
+              >
+                <Paperclip className="w-3.5 h-3.5" />
+                <span>{proposal.attachments.length} attachment{proposal.attachments.length > 1 ? 's' : ''}</span>
+                {attachmentsExpanded ? <ChevronUp className="w-3 h-3 ml-auto" /> : <ChevronDown className="w-3 h-3 ml-auto" />}
+              </button>
+              {attachmentsExpanded && (
+                <div className="px-3 pb-3 space-y-2">
+                  {proposal.attachments.map(att => {
+                    const isImage = att.mime_type?.startsWith('image/');
+                    const isPdf = att.extension?.toLowerCase() === 'pdf';
+                    const isSpreadsheet = ['xlsx', 'xls', 'csv'].includes(att.extension?.toLowerCase() || '');
+                    const sizeLabel = att.size_bytes
+                      ? att.size_bytes > 1024 * 1024
+                        ? `${(att.size_bytes / (1024 * 1024)).toFixed(1)} MB`
+                        : `${Math.round(att.size_bytes / 1024)} KB`
+                      : '';
+                    const url = attachmentUrls[att.id];
+                    return (
+                      <div key={att.id} className="border border-gray-200 rounded-lg overflow-hidden bg-gray-50">
+                        <div className="flex items-center gap-2 px-3 py-2">
+                          {isImage ? <ImageIcon className="w-4 h-4 text-blue-500" /> : isPdf ? <FileText className="w-4 h-4 text-red-500" /> : isSpreadsheet ? <FileSpreadsheet className="w-4 h-4 text-green-600" /> : <FileText className="w-4 h-4 text-gray-400" />}
+                          <span className="text-xs font-medium text-gray-700 truncate">{att.filename}</span>
+                          {sizeLabel && <span className="text-xs text-gray-400 flex-shrink-0">{sizeLabel}</span>}
+                          {url && (
+                            <a href={url} target="_blank" rel="noopener noreferrer" className="ml-auto text-xs text-blue-600 hover:text-blue-800 flex-shrink-0">
+                              Open
+                            </a>
+                          )}
+                        </div>
+                        {isImage && url && expandedAttIds.has(att.id) ? (() => {
+                          const vs = getViewerState(att.id);
+                          return (
+                          <div className="relative border-t border-gray-200">
+                            <div className="flex items-center gap-1 px-2 py-1 bg-gray-100 border-b border-gray-200">
+                              <button onClick={() => setViewerZoom(att.id, z => Math.max(0.25, z - 0.25))} className="p-1 rounded hover:bg-gray-200 text-gray-600" title="Zoom out"><ZoomOut className="w-3.5 h-3.5" /></button>
+                              <span className="text-xs text-gray-500 min-w-[2.5rem] text-center">{Math.round(vs.zoom * 100)}%</span>
+                              <button onClick={() => setViewerZoom(att.id, z => Math.min(5, z + 0.25))} className="p-1 rounded hover:bg-gray-200 text-gray-600" title="Zoom in"><ZoomIn className="w-3.5 h-3.5" /></button>
+                              <button onClick={() => resetViewer(att.id)} className="p-1 rounded hover:bg-gray-200 text-gray-600" title="Reset"><RotateCcw className="w-3.5 h-3.5" /></button>
+                              <div className="flex-1" />
+                              <button onClick={(e) => { e.stopPropagation(); openLightbox(url); }} className="p-1 rounded hover:bg-gray-200 text-gray-600" title="Full screen"><Maximize2 className="w-3.5 h-3.5" /></button>
+                              <button onClick={() => toggleInlineViewer(att.id)} className="p-1 rounded hover:bg-gray-200 text-gray-600" title="Collapse"><ChevronUp className="w-3.5 h-3.5" /></button>
+                            </div>
+                            <div
+                              className="overflow-hidden cursor-grab active:cursor-grabbing select-none bg-gray-800"
+                              style={{ height: '20rem' }}
+                              onWheel={e => {
+                                e.stopPropagation();
+                                setViewerZoom(att.id, z => Math.min(5, Math.max(0.25, z + (e.deltaY < 0 ? 0.15 : -0.15))));
+                              }}
+                              onMouseDown={e => {
+                                const curPan = getViewerState(att.id).pan;
+                                inlineDragRef.current = { dragging: true, startX: e.clientX, startY: e.clientY, startPanX: curPan.x, startPanY: curPan.y };
+                                const onMove = (ev: MouseEvent) => {
+                                  if (!inlineDragRef.current.dragging) return;
+                                  setViewerPan(att.id, {
+                                    x: inlineDragRef.current.startPanX + (ev.clientX - inlineDragRef.current.startX),
+                                    y: inlineDragRef.current.startPanY + (ev.clientY - inlineDragRef.current.startY),
+                                  });
+                                };
+                                const onUp = () => {
+                                  inlineDragRef.current.dragging = false;
+                                  window.removeEventListener('mousemove', onMove);
+                                  window.removeEventListener('mouseup', onUp);
+                                };
+                                window.addEventListener('mousemove', onMove);
+                                window.addEventListener('mouseup', onUp);
+                              }}
+                            >
+                              <img
+                                src={url}
+                                alt={att.filename}
+                                className="pointer-events-none w-full h-full object-contain"
+                                style={{
+                                  transform: `translate(${vs.pan.x}px, ${vs.pan.y}px) scale(${vs.zoom})`,
+                                  transformOrigin: 'center center',
+                                }}
+                                draggable={false}
+                              />
+                            </div>
+                          </div>
+                          );
+                        })() : isImage && url ? (
+                          <div className="px-3 pb-2">
+                            <img
+                              src={url}
+                              alt={att.filename}
+                              className="max-h-48 rounded border border-gray-200 object-contain cursor-pointer hover:opacity-90 transition-opacity"
+                              onClick={(e) => { e.stopPropagation(); toggleInlineViewer(att.id); }}
+                            />
+                          </div>
+                        ) : null}
+                        {isPdf && url && (
+                          <div className="px-3 pb-2">
+                            <iframe src={url} className="w-full h-48 rounded border border-gray-200" title={att.filename} />
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          )}
         </div>
 
         {/* Multi-message expansion */}
@@ -4186,6 +4507,92 @@ const InboxCard: React.FC<InboxCardProps> = ({
           </div>
           {/* End flex container */}
         </div>
+      )}
+
+      {/* Image lightbox overlay — portaled to body to escape overflow clipping */}
+      {lightboxUrl && createPortal(
+        <div
+          className="fixed inset-0 z-[9999] bg-black/80 flex items-center justify-center"
+          onClick={closeLightbox}
+        >
+          {/* Toolbar */}
+          <div className="absolute top-4 left-1/2 -translate-x-1/2 flex items-center gap-1 z-10 bg-gray-900/90 backdrop-blur-sm rounded-full px-3 py-2 shadow-lg" onClick={e => e.stopPropagation()}>
+            <button
+              onClick={() => setLightboxZoom(z => Math.max(0.25, z - 0.25))}
+              className="p-1.5 rounded-full hover:bg-white/20 text-white transition-colors"
+              title="Zoom out"
+            >
+              <ZoomOut className="w-5 h-5" />
+            </button>
+            <span className="text-white text-sm font-medium min-w-[3.5rem] text-center">{Math.round(lightboxZoom * 100)}%</span>
+            <button
+              onClick={() => setLightboxZoom(z => Math.min(5, z + 0.25))}
+              className="p-1.5 rounded-full hover:bg-white/20 text-white transition-colors"
+              title="Zoom in"
+            >
+              <ZoomIn className="w-5 h-5" />
+            </button>
+            <div className="w-px h-5 bg-white/20 mx-1" />
+            <button
+              onClick={() => { setLightboxZoom(1); setLightboxPan({ x: 0, y: 0 }); }}
+              className="p-1.5 rounded-full hover:bg-white/20 text-white transition-colors"
+              title="Reset view"
+            >
+              <RotateCcw className="w-5 h-5" />
+            </button>
+            <div className="w-px h-5 bg-white/20 mx-1" />
+            <button
+              onClick={closeLightbox}
+              className="p-1.5 rounded-full hover:bg-white/20 text-white transition-colors"
+              title="Close"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          </div>
+
+          {/* Image with pan & zoom */}
+          <div
+            className="overflow-hidden cursor-grab active:cursor-grabbing select-none"
+            style={{ maxWidth: '90vw', maxHeight: '90vh' }}
+            onClick={e => e.stopPropagation()}
+            onWheel={e => {
+              e.stopPropagation();
+              setLightboxZoom(z => Math.min(5, Math.max(0.25, z + (e.deltaY < 0 ? 0.15 : -0.15))));
+            }}
+            onMouseDown={e => {
+              lightboxDragRef.current = { dragging: true, startX: e.clientX, startY: e.clientY, startPanX: lightboxPan.x, startPanY: lightboxPan.y };
+              const onMove = (ev: MouseEvent) => {
+                if (!lightboxDragRef.current.dragging) return;
+                setLightboxPan({
+                  x: lightboxDragRef.current.startPanX + (ev.clientX - lightboxDragRef.current.startX),
+                  y: lightboxDragRef.current.startPanY + (ev.clientY - lightboxDragRef.current.startY),
+                });
+              };
+              const onUp = () => {
+                lightboxDragRef.current.dragging = false;
+                window.removeEventListener('mousemove', onMove);
+                window.removeEventListener('mouseup', onUp);
+              };
+              window.addEventListener('mousemove', onMove);
+              window.addEventListener('mouseup', onUp);
+            }}
+          >
+            <img
+              src={lightboxUrl}
+              alt="Attachment preview"
+              className="pointer-events-none"
+              style={{
+                transform: `translate(${lightboxPan.x}px, ${lightboxPan.y}px) scale(${lightboxZoom})`,
+                transformOrigin: 'center center',
+                maxWidth: '90vw',
+                maxHeight: '90vh',
+                objectFit: 'contain',
+              }}
+              draggable={false}
+            />
+          </div>
+        </div>,
+        document.body
       )}
     </div>
   );
@@ -4348,6 +4755,14 @@ const Dashboard: React.FC<DashboardProps> = ({ organizationId, layout = 'default
   const [viewMode, setViewMode] = useState<ViewMode>('week');
   const [sidebarTab, setSidebarTab] = useState<'inbox' | 'orders' | 'upload' | 'analytics' | 'catalog' | 'history'>('inbox');
   const [orders, setOrders] = useState<Order[]>([]);
+  const [editingOrderId, setEditingOrderId] = useState<string | null>(null);
+  const [editableOrderLines, setEditableOrderLines] = useState<(OrderItem & { _action?: 'add' | 'modify' | 'remove' })[]>([]);
+  const [savingOrderId, setSavingOrderId] = useState<string | null>(null);
+  const [creatingNewOrder, setCreatingNewOrder] = useState(false);
+  const [newOrderCustomer, setNewOrderCustomer] = useState('');
+  const [newOrderDeliveryDate, setNewOrderDeliveryDate] = useState('');
+  const [newOrderLines, setNewOrderLines] = useState<{ name: string; size: string; quantity: number }[]>([{ name: '', size: 'S', quantity: 1 }]);
+  const [savingNewOrder, setSavingNewOrder] = useState(false);
   const [proposals, setProposals] = useState<Proposal[]>(MOCK_PROPOSALS);
   const inboxMessageCount = useMemo(() => {
     const seen = new Set<string>();
@@ -4367,6 +4782,7 @@ const Dashboard: React.FC<DashboardProps> = ({ organizationId, layout = 'default
 
   // Catalog state
   const [catalogItems, setCatalogItems] = useState<CatalogItem[]>([]);
+  const catalogItemNames = useMemo(() => catalogItems.map(i => i.name), [catalogItems]);
   const [catalogLoading, setCatalogLoading] = useState(false);
   const [catalogSearch, setCatalogSearch] = useState('');
   const [expandedCatalogItems, setExpandedCatalogItems] = useState<Set<string>>(new Set());
@@ -4404,6 +4820,7 @@ const Dashboard: React.FC<DashboardProps> = ({ organizationId, layout = 'default
       loadOrders();
       loadProposals();
       loadCustomers();
+      loadCatalog();
     } else {
       setIsLoading(false);
     }
@@ -4485,6 +4902,8 @@ const Dashboard: React.FC<DashboardProps> = ({ organizationId, layout = 'default
           created_at: order.created_at,
           items: activeLines.map((line: any) => ({
             order_line_id: line.id,
+            item_id: line.item_id || undefined,
+            item_variant_id: line.item_variant_id || undefined,
             name: line.items?.name || line.product_name || 'Unknown',
             size: line.item_variants?.variant_code || '',
             quantity: line.quantity || 0,
@@ -4513,9 +4932,9 @@ const Dashboard: React.FC<DashboardProps> = ({ organizationId, layout = 'default
   };
 
   // Internal function that loads proposals without managing loading state
-  const USE_MOCK_INBOX = false; // Toggle to false to load real proposals from Supabase
+  const USE_MOCK_INBOX = import.meta.env.DEV && organizationId === 'test-org-id'; // Use mock data for demo org (dev only)
   const loadProposalsInternal = async () => {
-    if (USE_MOCK_INBOX) return; // Keep MOCK_PROPOSALS for testing
+    if (USE_MOCK_INBOX) return; // Keep MOCK_PROPOSALS for demo
     if (!organizationId) return;
 
     const { data, error } = await supabaseClient
@@ -4542,6 +4961,31 @@ const Dashboard: React.FC<DashboardProps> = ({ organizationId, layout = 'default
     if (error) {
       console.error('Error loading proposals:', error);
       return;
+    }
+
+    // Fetch attachments for all intake events in one query
+    const intakeEventIds = [...new Set((data || []).map((r: any) => r.intake_event_id).filter(Boolean))];
+    let attachmentsByEvent: Record<string, ProposalAttachment[]> = {};
+    if (intakeEventIds.length > 0) {
+      const { data: filesData } = await supabaseClient
+        .from('intake_files')
+        .select('id, intake_event_id, filename, extension, mime_type, size_bytes, storage_path, processing_status')
+        .in('intake_event_id', intakeEventIds);
+      if (filesData) {
+        for (const f of filesData) {
+          const evId = (f as any).intake_event_id as string;
+          if (!attachmentsByEvent[evId]) attachmentsByEvent[evId] = [];
+          attachmentsByEvent[evId].push({
+            id: f.id,
+            filename: f.filename,
+            extension: f.extension,
+            mime_type: f.mime_type,
+            size_bytes: f.size_bytes,
+            storage_path: f.storage_path,
+            processing_status: f.processing_status,
+          });
+        }
+      }
     }
 
     const transformed: Proposal[] = (data || []).map((row: any) => {
@@ -4631,6 +5075,7 @@ const Dashboard: React.FC<DashboardProps> = ({ organizationId, layout = 'default
         email_date: rawContent.date || undefined,
         lines,
         timeline,
+        attachments: attachmentsByEvent[row.intake_event_id] || undefined,
       } as Proposal;
     });
 
@@ -4671,8 +5116,9 @@ const Dashboard: React.FC<DashboardProps> = ({ organizationId, layout = 'default
     if (!organizationId) return;
     const { data, error } = await supabaseClient
       .from('customers')
-      .select('id, name, email, phone')
+      .select('id, name, email, phone, sort_order')
       .eq('organization_id', organizationId)
+      .order('sort_order', { ascending: true, nullsFirst: false })
       .order('name');
 
     if (error) {
@@ -4758,6 +5204,124 @@ const Dashboard: React.FC<DashboardProps> = ({ organizationId, layout = 'default
   // Get new order proposals for a date
   const getNewOrderProposalsForDate = (dateKey: string) => {
     return proposals.filter(p => p.order_id === null && p.delivery_date === dateKey);
+  };
+
+  // Handler — create a new order manually
+  const handleCreateNewOrder = async () => {
+    if (!newOrderCustomer.trim() || !newOrderDeliveryDate || !organizationId) return;
+    const validLines = newOrderLines.filter(l => l.name.trim());
+    if (validLines.length === 0) return;
+
+    setSavingNewOrder(true);
+    try {
+      const { data: { session } } = await supabaseClient.auth.getSession();
+      if (!session) return;
+
+      // Create the order
+      const { data: newOrder, error: orderError } = await supabaseClient
+        .from('orders')
+        .insert({
+          organization_id: organizationId,
+          customer_name: newOrderCustomer.trim(),
+          delivery_date: newOrderDeliveryDate,
+          status: 'ready',
+          source_channel: 'dashboard',
+        })
+        .select('id')
+        .single();
+
+      if (orderError || !newOrder) {
+        console.error('Failed to create order:', orderError);
+        return;
+      }
+
+      // Add lines via the update-order edge function
+      const lines = validLines.map(l => ({
+        action: 'add' as const,
+        item_name: l.name,
+        variant_code: l.size || undefined,
+        quantity: l.quantity,
+      }));
+
+      const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/update-order`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${session.access_token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ orderId: newOrder.id, lines }),
+      });
+
+      if (!response.ok) {
+        console.error('Failed to add order lines:', await response.json());
+      }
+
+      // Reset form and reload
+      setCreatingNewOrder(false);
+      setNewOrderCustomer('');
+      setNewOrderDeliveryDate('');
+      setNewOrderLines([{ name: '', size: 'S', quantity: 1 }]);
+      await loadOrders(false);
+    } catch (error) {
+      console.error('Error creating order:', error);
+    } finally {
+      setSavingNewOrder(false);
+    }
+  };
+
+  // Handler — save direct order edits via update-order edge function
+  const handleSaveOrderEdit = async (orderId: string) => {
+    const order = orders.find(o => o.id === orderId);
+    if (!order) return;
+
+    setSavingOrderId(orderId);
+    try {
+      const { data: { session } } = await supabaseClient.auth.getSession();
+      if (!session) return;
+
+      // Build the change lines by comparing editableOrderLines to original
+      const changeLines: { action: string; order_line_id?: string; item_name: string; item_id?: string; item_variant_id?: string; variant_code?: string; quantity: number }[] = [];
+
+      for (const line of editableOrderLines) {
+        if (line._action === 'remove' && line.order_line_id) {
+          changeLines.push({ action: 'remove', order_line_id: line.order_line_id, item_name: line.name, quantity: line.quantity });
+        } else if (line._action === 'add') {
+          if (!line.name.trim()) continue;
+          changeLines.push({ action: 'add', item_name: line.name, variant_code: line.size || undefined, quantity: line.quantity });
+        } else if (line._action === 'modify' && line.order_line_id) {
+          changeLines.push({ action: 'modify', order_line_id: line.order_line_id, item_name: line.name, item_id: line.item_id, variant_code: line.size || undefined, quantity: line.quantity });
+        }
+      }
+
+      if (changeLines.length === 0) {
+        setEditingOrderId(null);
+        setEditableOrderLines([]);
+        return;
+      }
+
+      const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/update-order`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${session.access_token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ orderId, lines: changeLines }),
+      });
+
+      if (!response.ok) {
+        const err = await response.json();
+        console.error('Failed to update order:', err);
+        return;
+      }
+
+      setEditingOrderId(null);
+      setEditableOrderLines([]);
+      await loadOrders(false);
+    } catch (error) {
+      console.error('Error saving order edit:', error);
+    } finally {
+      setSavingOrderId(null);
+    }
   };
 
   // Handlers — apply changes to order via resolve-proposal API, then remove from local state
@@ -5044,6 +5608,8 @@ const Dashboard: React.FC<DashboardProps> = ({ organizationId, layout = 'default
         return <Package className="w-4 h-4" />;
       case 'erp':
         return <LayoutGrid className="w-4 h-4" />;
+      case 'dashboard':
+        return <LayoutDashboard className="w-4 h-4" />;
       default:
         return <Package className="w-4 h-4" />;
     }
@@ -5141,6 +5707,14 @@ const Dashboard: React.FC<DashboardProps> = ({ organizationId, layout = 'default
             <span>Hide days with no orders</span>
           </label>
         )}
+        {/* New Order */}
+        <button
+          onClick={() => setCreatingNewOrder(true)}
+          className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-white bg-green-600 hover:bg-green-700 rounded-lg transition-colors"
+        >
+          <Plus className="w-4 h-4" />
+          New Order
+        </button>
         {/* Reload */}
         <button
           onClick={() => { loadOrders(); loadProposals(); }}
@@ -5279,19 +5853,6 @@ const Dashboard: React.FC<DashboardProps> = ({ organizationId, layout = 'default
                 {!sidebarCollapsed && <span className="font-medium">Orders</span>}
               </button>
               <button
-                onClick={() => setSidebarTab('catalog')}
-                className={`w-full flex items-center ${sidebarCollapsed ? 'justify-center' : ''} gap-3 px-3 py-2.5 rounded-lg transition-colors ${
-                  sidebarTab === 'catalog'
-                    ? 'text-white'
-                    : 'text-gray-600 hover:bg-gray-100'
-                }`}
-                style={sidebarTab === 'catalog' ? { backgroundColor: frootfulGreen } : undefined}
-                title="Catalog"
-              >
-                <ShoppingBag className="w-5 h-5 flex-shrink-0" />
-                {!sidebarCollapsed && <span className="font-medium">Catalog</span>}
-              </button>
-              <button
                 onClick={() => setSidebarTab('history')}
                 className={`w-full flex items-center ${sidebarCollapsed ? 'justify-center' : ''} gap-3 px-3 py-2.5 rounded-lg transition-colors ${
                   sidebarTab === 'history'
@@ -5303,6 +5864,19 @@ const Dashboard: React.FC<DashboardProps> = ({ organizationId, layout = 'default
               >
                 <Clock className="w-5 h-5 flex-shrink-0" />
                 {!sidebarCollapsed && <span className="font-medium">History</span>}
+              </button>
+              <button
+                onClick={() => setSidebarTab('catalog')}
+                className={`w-full flex items-center ${sidebarCollapsed ? 'justify-center' : ''} gap-3 px-3 py-2.5 rounded-lg transition-colors ${
+                  sidebarTab === 'catalog'
+                    ? 'text-white'
+                    : 'text-gray-600 hover:bg-gray-100'
+                }`}
+                style={sidebarTab === 'catalog' ? { backgroundColor: frootfulGreen } : undefined}
+                title="Catalog"
+              >
+                <ShoppingBag className="w-5 h-5 flex-shrink-0" />
+                {!sidebarCollapsed && <span className="font-medium">Catalog</span>}
               </button>
             </div>
           </div>
@@ -5849,6 +6423,120 @@ const Dashboard: React.FC<DashboardProps> = ({ organizationId, layout = 'default
             <div className="space-y-6">
               {headerElement}
 
+              {/* Create New Order Form */}
+              {creatingNewOrder && (
+                <div className="bg-white border border-green-200 rounded-xl p-5 shadow-sm">
+                  <h3 className="text-sm font-semibold text-gray-900 mb-4">Create New Order</h3>
+
+                  <div className="grid grid-cols-2 gap-4 mb-4">
+                    <div>
+                      <label className="block text-xs font-medium text-gray-500 uppercase tracking-wider mb-1">Customer</label>
+                      <CustomerSearchDropdown
+                        value={newOrderCustomer}
+                        onChange={setNewOrderCustomer}
+                        customers={customers}
+                        className="w-full px-3 py-1.5 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-green-500 focus:border-green-500"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-gray-500 uppercase tracking-wider mb-1">Delivery Date</label>
+                      <input
+                        type="date"
+                        value={newOrderDeliveryDate}
+                        onChange={(e) => setNewOrderDeliveryDate(e.target.value)}
+                        className="w-full px-3 py-1.5 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-green-500 focus:border-green-500"
+                      />
+                    </div>
+                  </div>
+
+                  <table className="w-full text-sm mb-2">
+                    <thead>
+                      <tr className="text-left text-xs text-gray-400 uppercase tracking-wider">
+                        <th className="pb-2 font-medium">Item</th>
+                        <th className="pb-2 font-medium w-20 text-center">Size</th>
+                        <th className="pb-2 font-medium w-16 text-center">Qty</th>
+                        <th className="pb-2 w-8"></th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-100">
+                      {newOrderLines.map((line, idx) => (
+                        <tr key={idx} className="bg-green-50">
+                          <td className="py-1.5">
+                            <ItemSearchDropdown
+                              value={line.name}
+                              onChange={(name) => setNewOrderLines(prev => prev.map((l, i) => i === idx ? { ...l, name } : l))}
+                              items={catalogItemNames}
+                              className="w-full px-2 py-0.5 text-sm border border-green-300 rounded bg-white focus:outline-none focus:ring-1 focus:ring-green-500"
+                            />
+                          </td>
+                          <td className="py-1.5 text-center">
+                            <select
+                              value={line.size}
+                              onChange={(e) => setNewOrderLines(prev => prev.map((l, i) => i === idx ? { ...l, size: e.target.value } : l))}
+                              className="px-1 py-0.5 text-sm border border-green-300 rounded bg-white focus:outline-none focus:ring-1 focus:ring-green-500"
+                            >
+                              <option value="">-</option>
+                              {DEFAULT_VARIANTS.map(v => (
+                                <option key={v.code} value={v.code}>{v.code}</option>
+                              ))}
+                            </select>
+                          </td>
+                          <td className="py-1.5 text-center">
+                            <input
+                              type="number"
+                              min="1"
+                              value={line.quantity}
+                              onChange={(e) => setNewOrderLines(prev => prev.map((l, i) => i === idx ? { ...l, quantity: parseInt(e.target.value) || 1 } : l))}
+                              className="w-12 px-1 py-0.5 text-sm text-center border border-green-300 rounded bg-white focus:outline-none focus:ring-1 focus:ring-green-500 font-semibold"
+                            />
+                          </td>
+                          <td className="py-1.5 text-center">
+                            {newOrderLines.length > 1 && (
+                              <button
+                                onClick={() => setNewOrderLines(prev => prev.filter((_, i) => i !== idx))}
+                                className="text-gray-400 hover:text-red-500"
+                              >
+                                <X className="w-3.5 h-3.5" />
+                              </button>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+
+                  <button
+                    onClick={() => setNewOrderLines(prev => [...prev, { name: '', size: 'S', quantity: 1 }])}
+                    className="flex items-center gap-1 text-xs text-green-600 hover:text-green-700 font-medium mb-3"
+                  >
+                    <Plus className="w-3 h-3" />
+                    Add item
+                  </button>
+
+                  <div className="flex items-center gap-2 border-t border-gray-100 pt-3">
+                    <button
+                      onClick={handleCreateNewOrder}
+                      disabled={savingNewOrder || !newOrderCustomer.trim() || !newOrderDeliveryDate}
+                      className="flex items-center gap-1 px-3 py-1.5 text-sm bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 transition-colors"
+                    >
+                      {savingNewOrder ? (
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      ) : (
+                        <Check className="w-3.5 h-3.5" />
+                      )}
+                      Create Order
+                    </button>
+                    <button
+                      onClick={() => { setCreatingNewOrder(false); setNewOrderCustomer(''); setNewOrderDeliveryDate(''); setNewOrderLines([{ name: '', size: 'S', quantity: 1 }]); }}
+                      className="flex items-center gap-1 px-3 py-1.5 text-sm border border-gray-300 text-gray-600 rounded-lg hover:bg-gray-50 transition-colors"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              )}
+
               {!isLoading && (
                 (viewMode === 'week' && filteredDisplayDates.length === 0) ||
                 (viewMode === 'list' && filteredOrders.length === 0)
@@ -5868,9 +6556,12 @@ const Dashboard: React.FC<DashboardProps> = ({ organizationId, layout = 'default
                     const dateKey = date.toISOString().split('T')[0];
                     const customersForDate = getOrdersForDate(date);
                     const customerNames = Object.keys(customersForDate).sort((a, b) => {
-                      const aFirst = customersForDate[a][0]?.created_at || '';
-                      const bFirst = customersForDate[b][0]?.created_at || '';
-                      return aFirst.localeCompare(bFirst);
+                      const aCust = customers.find(c => c.name === a);
+                      const bCust = customers.find(c => c.name === b);
+                      const aSort = aCust?.sort_order ?? Number.MAX_SAFE_INTEGER;
+                      const bSort = bCust?.sort_order ?? Number.MAX_SAFE_INTEGER;
+                      if (aSort !== bSort) return aSort - bSort;
+                      return a.localeCompare(b);
                     });
                     const totalOrders = getTotalOrdersForDate(date);
                     const isExpanded = expandedDates.has(dateKey);
@@ -5913,7 +6604,7 @@ const Dashboard: React.FC<DashboardProps> = ({ organizationId, layout = 'default
                                 onClick={(e) => {
                                   e.stopPropagation();
                                   const allOrdersForDate = Object.values(customersForDate).flat();
-                                  printPackingSummary(dateKey, allOrdersForDate);
+                                  printPackingSummary(dateKey, allOrdersForDate, customers);
                                 }}
                                 className="flex items-center gap-1 px-3 py-1 bg-gray-100 text-gray-600 rounded-full text-sm font-medium hover:bg-gray-200 transition-colors"
                                 title="Print packing summary"
@@ -5971,7 +6662,7 @@ const Dashboard: React.FC<DashboardProps> = ({ organizationId, layout = 'default
                                             {[...new Set(customerOrders.map(o => o.source))].map(source => (
                                               <Tooltip
                                                 key={source}
-                                                text={`${source === 'sms' || source === 'text' ? 'SMS' : source === 'erp' ? 'ERP' : source === 'edi' ? 'EDI' : 'Email'} order`}
+                                                text={`${source === 'sms' || source === 'text' ? 'SMS' : source === 'erp' ? 'ERP' : source === 'edi' ? 'EDI' : source === 'dashboard' ? 'Dashboard' : 'Email'} order`}
                                                 position="bottom"
                                               >
                                                 <div
@@ -5980,11 +6671,12 @@ const Dashboard: React.FC<DashboardProps> = ({ organizationId, layout = 'default
                                                     source === 'sms' || source === 'text' ? 'bg-purple-100 text-purple-600' :
                                                     source === 'edi' ? 'bg-orange-100 text-orange-600' :
                                                     source === 'erp' ? 'bg-teal-100 text-teal-600' :
+                                                    source === 'dashboard' ? 'bg-green-100 text-green-600' :
                                                     'bg-gray-100 text-gray-600'
                                                   }`}
                                                 >
                                                   {getSourceIcon(source)}
-                                                  <span>{source === 'sms' || source === 'text' ? 'SMS' : source === 'erp' ? 'ERP' : source === 'edi' ? 'EDI' : 'Email'}</span>
+                                                  <span>{source === 'sms' || source === 'text' ? 'SMS' : source === 'erp' ? 'ERP' : source === 'edi' ? 'EDI' : source === 'dashboard' ? 'Dashboard' : 'Email'}</span>
                                                 </div>
                                               </Tooltip>
                                             ))}
@@ -6000,33 +6692,185 @@ const Dashboard: React.FC<DashboardProps> = ({ organizationId, layout = 'default
                                       {isCustomerSelected && (
                                         <div className="bg-gray-50 border-t border-gray-200 p-4 pl-12">
                                           <div className="space-y-3">
-                                            {customerOrders.map(order => (
+                                            {customerOrders.map(order => {
+                                              const isEditing = editingOrderId === order.id;
+                                              return (
                                                 <div
                                                   key={order.id}
-                                                  className="rounded-lg border bg-white border-gray-200 p-4"
+                                                  className={`rounded-lg border bg-white p-4 ${isEditing ? 'border-indigo-300 ring-1 ring-indigo-200' : 'border-gray-200 cursor-pointer'}`}
+                                                  onDoubleClick={() => {
+                                                    if (!isEditing) {
+                                                      setEditingOrderId(order.id);
+                                                      setEditableOrderLines(order.items.map(item => ({ ...item })));
+                                                    }
+                                                  }}
+                                                  title={isEditing ? undefined : 'Double-click to edit'}
                                                 >
-                                                  {order.items.length > 0 && (
-                                                    <table className="w-full text-sm">
-                                                      <thead>
-                                                        <tr className="text-left text-xs text-gray-400 uppercase tracking-wider">
-                                                          <th className="pb-2 font-medium">Item</th>
-                                                          <th className="pb-2 font-medium w-16 text-center">Size</th>
-                                                          <th className="pb-2 font-medium w-12 text-center">Qty</th>
-                                                        </tr>
-                                                      </thead>
-                                                      <tbody className="divide-y divide-gray-100">
-                                                        {order.items.map((item, idx) => (
-                                                          <tr key={idx}>
-                                                            <td className="py-1.5 text-gray-700">{item.name}</td>
-                                                            <td className="py-1.5 text-center text-gray-500">{item.size}</td>
-                                                            <td className="py-1.5 text-center text-gray-700 font-medium">{item.quantity}</td>
+                                                  {isEditing ? (
+                                                    /* ---- EDITABLE VIEW ---- */
+                                                    <div>
+                                                      <table className="w-full text-sm">
+                                                        <thead>
+                                                          <tr className="text-left text-xs text-gray-400 uppercase tracking-wider">
+                                                            <th className="pb-2 font-medium">Item</th>
+                                                            <th className="pb-2 font-medium w-20 text-center">Size</th>
+                                                            <th className="pb-2 font-medium w-16 text-center">Qty</th>
+                                                            <th className="pb-2 w-8"></th>
                                                           </tr>
-                                                        ))}
-                                                      </tbody>
-                                                    </table>
+                                                        </thead>
+                                                        <tbody className="divide-y divide-gray-100">
+                                                          {editableOrderLines.map((item, idx) => (
+                                                            item._action === 'remove' ? (
+                                                              <tr key={idx} className="bg-red-50">
+                                                                <td className="py-1.5 text-red-400 line-through">{item.name}</td>
+                                                                <td className="py-1.5 text-center text-red-300 line-through">{item.size}</td>
+                                                                <td className="py-1.5 text-center text-red-400 line-through">{item.quantity}</td>
+                                                                <td className="py-1.5 text-center">
+                                                                  <button
+                                                                    onClick={() => setEditableOrderLines(prev => prev.map((l, i) => i === idx ? { ...l, _action: undefined } : l))}
+                                                                    className="text-gray-400 hover:text-green-600"
+                                                                    title="Undo remove"
+                                                                  >
+                                                                    <RotateCcw className="w-3.5 h-3.5" />
+                                                                  </button>
+                                                                </td>
+                                                              </tr>
+                                                            ) : item._action === 'add' ? (
+                                                              <tr key={idx} className="bg-green-50">
+                                                                <td className="py-1.5">
+                                                                  <ItemSearchDropdown
+                                                                    value={item.name}
+                                                                    onChange={(name) => setEditableOrderLines(prev => prev.map((l, i) => i === idx ? { ...l, name } : l))}
+                                                                    items={catalogItemNames}
+                                                                    className="w-full px-2 py-0.5 text-sm border border-green-300 rounded bg-white focus:outline-none focus:ring-1 focus:ring-green-500"
+                                                                  />
+                                                                </td>
+                                                                <td className="py-1.5 text-center">
+                                                                  <select
+                                                                    value={item.size}
+                                                                    onChange={(e) => setEditableOrderLines(prev => prev.map((l, i) => i === idx ? { ...l, size: e.target.value } : l))}
+                                                                    className="px-1 py-0.5 text-sm border border-green-300 rounded bg-white focus:outline-none focus:ring-1 focus:ring-green-500"
+                                                                  >
+                                                                    <option value="">-</option>
+                                                                    {DEFAULT_VARIANTS.map(v => (
+                                                                      <option key={v.code} value={v.code}>{v.code}</option>
+                                                                    ))}
+                                                                  </select>
+                                                                </td>
+                                                                <td className="py-1.5 text-center">
+                                                                  <input
+                                                                    type="number"
+                                                                    min="1"
+                                                                    value={item.quantity}
+                                                                    onChange={(e) => setEditableOrderLines(prev => prev.map((l, i) => i === idx ? { ...l, quantity: parseInt(e.target.value) || 1 } : l))}
+                                                                    className="w-12 px-1 py-0.5 text-sm text-center border border-green-300 rounded bg-white focus:outline-none focus:ring-1 focus:ring-green-500 font-semibold"
+                                                                  />
+                                                                </td>
+                                                                <td className="py-1.5 text-center">
+                                                                  <button
+                                                                    onClick={() => setEditableOrderLines(prev => prev.filter((_, i) => i !== idx))}
+                                                                    className="text-gray-400 hover:text-red-500"
+                                                                  >
+                                                                    <X className="w-3.5 h-3.5" />
+                                                                  </button>
+                                                                </td>
+                                                              </tr>
+                                                            ) : (
+                                                              <tr key={idx} className={item._action === 'modify' ? 'bg-blue-50' : ''}>
+                                                                <td className="py-1.5 text-gray-700">{item.name}</td>
+                                                                <td className="py-1.5 text-center">
+                                                                  <select
+                                                                    value={item.size}
+                                                                    onChange={(e) => setEditableOrderLines(prev => prev.map((l, i) => i === idx ? { ...l, size: e.target.value, _action: 'modify' as const } : l))}
+                                                                    className="px-1 py-0.5 text-sm border border-gray-300 rounded bg-white focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                                                                  >
+                                                                    <option value="">-</option>
+                                                                    {DEFAULT_VARIANTS.map(v => (
+                                                                      <option key={v.code} value={v.code}>{v.code}</option>
+                                                                    ))}
+                                                                  </select>
+                                                                </td>
+                                                                <td className="py-1.5 text-center">
+                                                                  <input
+                                                                    type="number"
+                                                                    min="1"
+                                                                    value={item.quantity}
+                                                                    onChange={(e) => setEditableOrderLines(prev => prev.map((l, i) => i === idx ? { ...l, quantity: parseInt(e.target.value) || 1, _action: 'modify' as const } : l))}
+                                                                    className="w-12 px-1 py-0.5 text-sm text-center border border-gray-300 rounded bg-white focus:outline-none focus:ring-1 focus:ring-indigo-500 font-semibold"
+                                                                  />
+                                                                </td>
+                                                                <td className="py-1.5 text-center">
+                                                                  <button
+                                                                    onClick={() => setEditableOrderLines(prev => prev.map((l, i) => i === idx ? { ...l, _action: 'remove' as const } : l))}
+                                                                    className="text-gray-400 hover:text-red-500"
+                                                                  >
+                                                                    <X className="w-3.5 h-3.5" />
+                                                                  </button>
+                                                                </td>
+                                                              </tr>
+                                                            )
+                                                          ))}
+                                                        </tbody>
+                                                      </table>
+
+                                                      {/* Add item button */}
+                                                      <button
+                                                        onClick={() => setEditableOrderLines(prev => [...prev, { name: '', size: 'S', quantity: 1, _action: 'add' as const }])}
+                                                        className="mt-2 flex items-center gap-1 text-xs text-green-600 hover:text-green-700 font-medium"
+                                                      >
+                                                        <Plus className="w-3 h-3" />
+                                                        Add item
+                                                      </button>
+
+                                                      {/* Save / Cancel */}
+                                                      <div className="mt-3 flex items-center gap-2 border-t border-gray-100 pt-3">
+                                                        <button
+                                                          onClick={() => handleSaveOrderEdit(order.id)}
+                                                          disabled={savingOrderId === order.id}
+                                                          className="flex items-center gap-1 px-3 py-1.5 text-sm bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 transition-colors"
+                                                        >
+                                                          {savingOrderId === order.id ? (
+                                                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                                          ) : (
+                                                            <Check className="w-3.5 h-3.5" />
+                                                          )}
+                                                          Save
+                                                        </button>
+                                                        <button
+                                                          onClick={() => { setEditingOrderId(null); setEditableOrderLines([]); }}
+                                                          className="flex items-center gap-1 px-3 py-1.5 text-sm border border-gray-300 text-gray-600 rounded-lg hover:bg-gray-50 transition-colors"
+                                                        >
+                                                          <X className="w-3.5 h-3.5" />
+                                                          Cancel
+                                                        </button>
+                                                      </div>
+                                                    </div>
+                                                  ) : (
+                                                    /* ---- READ-ONLY VIEW ---- */
+                                                    order.items.length > 0 && (
+                                                      <table className="w-full text-sm">
+                                                        <thead>
+                                                          <tr className="text-left text-xs text-gray-400 uppercase tracking-wider">
+                                                            <th className="pb-2 font-medium">Item</th>
+                                                            <th className="pb-2 font-medium w-16 text-center">Size</th>
+                                                            <th className="pb-2 font-medium w-12 text-center">Qty</th>
+                                                          </tr>
+                                                        </thead>
+                                                        <tbody className="divide-y divide-gray-100">
+                                                          {order.items.map((item, idx) => (
+                                                            <tr key={idx}>
+                                                              <td className="py-1.5 text-gray-700">{item.name}</td>
+                                                              <td className="py-1.5 text-center text-gray-500">{item.size}</td>
+                                                              <td className="py-1.5 text-center text-gray-700 font-medium">{item.quantity}</td>
+                                                            </tr>
+                                                          ))}
+                                                        </tbody>
+                                                      </table>
+                                                    )
                                                   )}
                                                 </div>
-                                            ))}
+                                              );
+                                            })}
                                           </div>
                                         </div>
                                       )}
@@ -6103,6 +6947,7 @@ const Dashboard: React.FC<DashboardProps> = ({ organizationId, layout = 'default
                                   order.source === 'sms' || order.source === 'text' ? 'bg-purple-100 text-purple-600' :
                                   order.source === 'edi' ? 'bg-orange-100 text-orange-600' :
                                   order.source === 'erp' ? 'bg-teal-100 text-teal-600' :
+                                  order.source === 'dashboard' ? 'bg-green-100 text-green-600' :
                                   'bg-gray-100 text-gray-600'
                                 }`}>
                                   {getSourceIcon(order.source)}
@@ -6172,9 +7017,12 @@ const Dashboard: React.FC<DashboardProps> = ({ organizationId, layout = 'default
               const dateKey = date.toISOString().split('T')[0];
               const customersForDate = getOrdersForDate(date);
               const customerNames = Object.keys(customersForDate).sort((a, b) => {
-                const aFirst = customersForDate[a][0]?.created_at || '';
-                const bFirst = customersForDate[b][0]?.created_at || '';
-                return aFirst.localeCompare(bFirst);
+                const aCust = customers.find(c => c.name === a);
+                const bCust = customers.find(c => c.name === b);
+                const aSort = aCust?.sort_order ?? Number.MAX_SAFE_INTEGER;
+                const bSort = bCust?.sort_order ?? Number.MAX_SAFE_INTEGER;
+                if (aSort !== bSort) return aSort - bSort;
+                return a.localeCompare(b);
               });
               const totalOrders = getTotalOrdersForDate(date);
               const isExpanded = expandedDates.has(dateKey);
@@ -6219,7 +7067,7 @@ const Dashboard: React.FC<DashboardProps> = ({ organizationId, layout = 'default
                           onClick={(e) => {
                             e.stopPropagation();
                             const allOrdersForDate = Object.values(customersForDate).flat();
-                            printPackingSummary(dateKey, allOrdersForDate);
+                            printPackingSummary(dateKey, allOrdersForDate, customers);
                           }}
                           className="flex items-center gap-1 px-3 py-1 bg-gray-100 text-gray-600 rounded-full text-sm font-medium hover:bg-gray-200 transition-colors"
                           title="Print packing summary"
@@ -6281,7 +7129,7 @@ const Dashboard: React.FC<DashboardProps> = ({ organizationId, layout = 'default
                                       {[...new Set(customerOrders.map(o => o.source))].map(source => (
                                         <Tooltip
                                           key={source}
-                                          text={`${source === 'sms' || source === 'text' ? 'SMS' : source === 'erp' ? 'ERP' : source === 'edi' ? 'EDI' : 'Email'} order`}
+                                          text={`${source === 'sms' || source === 'text' ? 'SMS' : source === 'erp' ? 'ERP' : source === 'edi' ? 'EDI' : source === 'dashboard' ? 'Dashboard' : 'Email'} order`}
                                           position="bottom"
                                         >
                                           <div
@@ -6294,7 +7142,7 @@ const Dashboard: React.FC<DashboardProps> = ({ organizationId, layout = 'default
                                             }`}
                                           >
                                             {getSourceIcon(source)}
-                                            <span>{source === 'sms' || source === 'text' ? 'SMS' : source === 'erp' ? 'ERP' : source === 'edi' ? 'EDI' : 'Email'}</span>
+                                            <span>{source === 'sms' || source === 'text' ? 'SMS' : source === 'erp' ? 'ERP' : source === 'edi' ? 'EDI' : source === 'dashboard' ? 'Dashboard' : 'Email'}</span>
                                           </div>
                                         </Tooltip>
                                       ))}
@@ -6446,6 +7294,7 @@ const Dashboard: React.FC<DashboardProps> = ({ organizationId, layout = 'default
                           order.source === 'sms' || order.source === 'text' ? 'bg-purple-100 text-purple-600' :
                           order.source === 'edi' ? 'bg-orange-100 text-orange-600' :
                           order.source === 'erp' ? 'bg-teal-100 text-teal-600' :
+                          order.source === 'dashboard' ? 'bg-green-100 text-green-600' :
                           'bg-gray-100 text-gray-600'
                         }`}>
                           {getSourceIcon(order.source)}
