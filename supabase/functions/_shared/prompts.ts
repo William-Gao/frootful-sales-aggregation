@@ -103,6 +103,16 @@ For general size references (when oz not specified):
 CUSTOMER AND DATE IDENTIFICATION:
 The customer name and delivery dates are often stated explicitly in the message, but sometimes they are implicit. A single message can refer to multiple delivery dates.
 
+DATE CALCULATION:
+Today's date is ${ctx.currentDate}. When the message says "this Tuesday", "this Friday", "starting this week", etc., calculate the actual YYYY-MM-DD dates relative to today. For example, if today is a Monday and the message says "this Tuesday and Friday", compute the upcoming Tuesday and Friday dates. Always produce concrete dates — never leave requestedDeliveryDate empty when day-of-week references are present.
+
+READING THE FULL MESSAGE:
+The email subject line is part of the message. Products, customers, or context mentioned in the subject line (e.g., "Subject: Sorrel & pea tendril") are directly relevant. When the body says "these items", "these micro herbs", "the above", etc., it refers to items named in the subject line or earlier in the message.
+
+UNITS:
+- "pk", "pkg", "pack", "package" = 1 unit (e.g., "1pk" = quantity 1, "2pk" = quantity 2)
+- If no size/variant is specified, omit variantCode
+
 ORDER FREQUENCY:
 - "weekly", "every week", "standing order", "recurring", "regular", "same as usual" → orderFrequency: "recurring"
 - Otherwise → orderFrequency: "one-time"${buildExistingOrdersSection(ctx)}`;
@@ -136,8 +146,11 @@ If the customer wants to CANCEL their order for a specific date (e.g., "cancel 2
 IMPORTANT:
 - Only include items with a matching ID from the available items list
 - CRITICAL: When customer specifies oz weight, look at each item's variants and find the one whose "notes" field contains that oz weight. Do NOT assume oz weights map to specific sizes.
-- Look for day references like "this Tuesday" to determine delivery date
-- If no delivery date mentioned, omit requestedDeliveryDate`
+- Read the ENTIRE message including the subject line — products may be named there and referenced in the body as "these", "each", etc.
+- "X of each" means X quantity of EACH item mentioned (in subject or body). Create a separate orderLine for each item.
+- Look for day references like "this Tuesday" to determine delivery date. Use today's date (${ctx.currentDate}) to calculate the actual YYYY-MM-DD.
+- If no delivery date mentioned, omit requestedDeliveryDate
+- NEVER return an empty orderLines array if products are identifiable in the message`
   }
 };
 

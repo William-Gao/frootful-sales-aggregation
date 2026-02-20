@@ -55,6 +55,7 @@ interface OrderLine {
   line_number: number;
   product_name: string;
   quantity: number;
+  item_variants?: { variant_code: string; variant_name: string } | null;
 }
 
 interface Order {
@@ -664,7 +665,8 @@ Deno.serve(async (req) => {
             id,
             line_number,
             product_name,
-            quantity
+            quantity,
+            item_variants(variant_code, variant_name)
           )
         `)
         .eq('organization_id', organizationId)
@@ -693,7 +695,8 @@ Deno.serve(async (req) => {
             id,
             line_number,
             product_name,
-            quantity
+            quantity,
+            item_variants(variant_code, variant_name)
           )
         `)
         .eq('organization_id', organizationId)
@@ -734,7 +737,8 @@ Deno.serve(async (req) => {
             id,
             line_number,
             product_name,
-            quantity
+            quantity,
+            item_variants(variant_code, variant_name)
           )
         `)
         .eq('organization_id', organizationId)
@@ -1473,6 +1477,31 @@ For general size references (when oz not specified):
 
 Use the catalog items list to find the correct item_id and variant_code.
 
+CRITICAL RULE — TRUST THE EXTRACTED ITEMS:
+The "Extracted items from change request" below have already been parsed by a prior AI step. They represent exactly what the customer wants to ADD or CHANGE. Your job is to compare them against the existing order to produce the minimal set of changes:
+- If an extracted item matches an existing order line (same item) but has a different quantity or variant → MODIFY
+- If an extracted item is not in the existing order → ADD
+- If an extracted item matches an existing order line with the same quantity and variant → NO CHANGE (skip it)
+
+CRITICAL — PARTIAL vs FULL UPDATES:
+Most change requests are PARTIAL — the customer only mentions the items they want to add or modify. Items NOT mentioned in the extracted list should be LEFT ALONE (no change, no removal).
+
+⚠️ ABSOLUTE RULE — NEVER REMOVE UNMENTIONED ITEMS ⚠️
+You MUST NOT generate a "remove" change for any existing order item that is not explicitly mentioned for removal in the raw message. If an item is in the existing order but NOT in the extracted items list, that means the customer didn't mention it — it should stay unchanged.
+
+Only generate a "remove" change if the raw message contains an EXPLICIT removal verb ("remove", "cancel", "delete", "take off", "drop", "no more", "skip") followed by a specific item name. Examples:
+- "remove the basil" → remove basil ✓
+- "cancel the lemon balm" → remove lemon balm ✓
+- "1 wasabi 1 radish mix" (mentions only new items, says nothing about existing items) → ADD wasabi and radish mix. DO NOT remove any existing items. ✓
+- "just need wasabi and radish" (no removal verb) → ADD or MODIFY only the mentioned items. DO NOT remove others. ✓
+
+If you are unsure whether the customer wants to remove an item, DO NOT remove it. Err on the side of keeping existing items.
+
+Do NOT re-interpret the raw message to override the extracted items. The extracted items are the source of truth for what the customer wants to add or change.
+
+VARIANT PRESERVATION:
+When the extracted items specify a variant (e.g., variantCode "L"), keep that variant. When the extracted items do NOT specify a variant, preserve the existing order line's variant. Do NOT change variants unless the extracted items explicitly specify a different one.
+
 For each change, you must:
 - For MODIFY: Include the exact order_line_id from the existing order
 - For ADD: Leave order_line_id as null, specify line_number for insertion
@@ -1496,7 +1525,9 @@ ${JSON.stringify(matchedOrder.order_lines.map((l: any) => ({
           id: l.id,
           line_number: l.line_number,
           product_name: l.product_name,
-          quantity: l.quantity
+          quantity: l.quantity,
+          variant_code: l.item_variants?.variant_code || null,
+          variant_name: l.item_variants?.variant_name || null
         })), null, 2)}
 
 CHANGE REQUEST:
@@ -1534,11 +1565,10 @@ IMPORTANT RULES FOR MODIFICATIONS:
 3. When customer specifies only a quantity change, keep the existing variant
 
 OTHER RULES:
-- For "modify": Match to the existing order line by product name and include its order_line_id
+- For "modify": Match to the existing order line by product name and include its order_line_id. Use the quantity and variant from the EXTRACTED ITEMS.
 - For "add": New items not in the original order, order_line_id should be null
-- For "remove": Items in original order but not in the change request, include order_line_id
-- proposed_values should contain quantity AND variant_code (S, L, or T20) based on the customer's size request
-- ALWAYS include variant_code in proposed_values when the customer specifies a size (small/large/tray)
+- For "remove": ONLY generate a remove if the raw message EXPLICITLY asks to remove/cancel/delete a specific item by name. Do NOT remove items just because they are absent from the extracted items list — most messages are partial updates where unmentioned items should stay unchanged.
+- proposed_values should contain quantity AND variant_code
 - Match item_id from the CATALOG ITEMS list above
 `
       }
