@@ -1,0 +1,456 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>La Gaitana Farms — PO Extraction Mockup</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    body { background: #f9fafb; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; }
+  </style>
+</head>
+<body class="p-8">
+  <h1 class="text-lg font-bold text-gray-900 mb-1">La Gaitana Farms — PO Extraction UI Mockup</h1>
+  <p class="text-sm text-gray-500 mb-8">Based on real PO029889 (Customer 1142 → HEB). Compare current vs proposed layout.</p>
+
+  <div class="grid grid-cols-2 gap-8 max-w-6xl">
+
+    <!-- ===== LEFT: Current format (simple) ===== -->
+    <div>
+      <h2 class="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">Current Format</h2>
+      <div class="bg-green-50 border border-green-200 rounded-lg overflow-hidden">
+        <!-- Header -->
+        <div class="flex items-center justify-between px-3 py-2.5 border-b border-green-200">
+          <p class="text-xs text-green-700 uppercase tracking-wider font-semibold">Create New Order</p>
+          <svg class="w-4 h-4 text-green-600" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M19 9l-7 7-7-7"/></svg>
+        </div>
+
+        <div class="px-3 pb-3">
+          <!-- Customer / Date bar -->
+          <div class="flex items-center gap-3 px-3 py-2 mt-3 bg-white border border-green-200 rounded-lg">
+            <div class="flex items-center gap-2 flex-1">
+              <svg class="w-4 h-4 text-green-500 flex-shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+              <span class="text-sm font-medium text-gray-900">Customer 1142</span>
+            </div>
+            <div class="flex items-center gap-2 flex-shrink-0">
+              <svg class="w-4 h-4 text-green-500" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>
+              <span class="text-xs text-gray-600">Mar 3, 2026</span>
+            </div>
+          </div>
+
+          <!-- Frequency badge -->
+          <div class="mt-2">
+            <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-700 border border-green-200">
+              One-time
+            </span>
+          </div>
+
+          <!-- Items table — CURRENT (simple) -->
+          <div class="border-t border-green-200 mt-3 pt-2">
+            <table class="w-full text-sm">
+              <thead>
+                <tr class="text-xs text-green-600/60 uppercase tracking-wider">
+                  <th class="py-1 text-left font-medium">Item</th>
+                  <th class="py-1 text-center font-medium">Size</th>
+                  <th class="py-1 text-center font-medium">Qty</th>
+                  <th class="py-1 w-6"></th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr class="bg-green-50/50">
+                  <td class="py-1.5 pl-1">
+                    <div class="flex items-center gap-1">
+                      <span class="text-green-600 text-xs font-bold">+</span>
+                      <span class="text-xs text-gray-900">Carnation Asst</span>
+                    </div>
+                  </td>
+                  <td class="py-1.5 text-center">
+                    <span class="px-1.5 py-0.5 text-xs border border-green-300 rounded bg-white">FB</span>
+                  </td>
+                  <td class="py-1.5 text-center">
+                    <span class="w-12 px-1 py-0.5 text-sm text-center border border-green-300 rounded bg-white inline-block">20</span>
+                  </td>
+                  <td class="py-1.5 text-center text-gray-400">×</td>
+                </tr>
+                <tr class="bg-green-50/50">
+                  <td class="py-1.5 pl-1">
+                    <div class="flex items-center gap-1">
+                      <span class="text-green-600 text-xs font-bold">+</span>
+                      <span class="text-xs text-gray-900">Carnations White</span>
+                    </div>
+                  </td>
+                  <td class="py-1.5 text-center">
+                    <span class="px-1.5 py-0.5 text-xs border border-green-300 rounded bg-white">FB</span>
+                  </td>
+                  <td class="py-1.5 text-center">
+                    <span class="w-12 px-1 py-0.5 text-sm text-center border border-green-300 rounded bg-white inline-block">11</span>
+                  </td>
+                  <td class="py-1.5 text-center text-gray-400">×</td>
+                </tr>
+                <tr class="bg-green-50/50">
+                  <td class="py-1.5 pl-1">
+                    <div class="flex items-center gap-1">
+                      <span class="text-green-600 text-xs font-bold">+</span>
+                      <span class="text-xs text-gray-900">Mini Carnations Asst</span>
+                    </div>
+                  </td>
+                  <td class="py-1.5 text-center">
+                    <span class="px-1.5 py-0.5 text-xs border border-green-300 rounded bg-white">FB</span>
+                  </td>
+                  <td class="py-1.5 text-center">
+                    <span class="w-12 px-1 py-0.5 text-sm text-center border border-green-300 rounded bg-white inline-block">17</span>
+                  </td>
+                  <td class="py-1.5 text-center text-gray-400">×</td>
+                </tr>
+                <tr class="bg-green-50/50">
+                  <td class="py-1.5 pl-1">
+                    <div class="flex items-center gap-1">
+                      <span class="text-green-600 text-xs font-bold">+</span>
+                      <span class="text-xs text-gray-900">RBW Mini Carns</span>
+                    </div>
+                  </td>
+                  <td class="py-1.5 text-center">
+                    <span class="px-1.5 py-0.5 text-xs border border-green-300 rounded bg-white">FB</span>
+                  </td>
+                  <td class="py-1.5 text-center">
+                    <span class="w-12 px-1 py-0.5 text-sm text-center border border-green-300 rounded bg-white inline-block">26</span>
+                  </td>
+                  <td class="py-1.5 text-center text-gray-400">×</td>
+                </tr>
+                <tr>
+                  <td colspan="4" class="pt-1">
+                    <button class="flex items-center gap-1 text-xs text-green-600 hover:text-green-700 px-2 py-1 rounded">
+                      <span class="text-sm font-bold">+</span> Add item
+                    </button>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <!-- Action buttons -->
+          <div class="flex items-center gap-2 mt-3 pt-3 border-t border-green-200">
+            <button class="flex-1 flex items-center justify-center gap-1 px-3 py-2 bg-green-600 text-white text-xs font-medium rounded-lg hover:bg-green-700">
+              <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M5 13l4 4L19 7"/></svg>
+              Create Order
+            </button>
+            <button class="px-3 py-2 text-xs text-gray-500 hover:text-gray-700">Reject</button>
+          </div>
+        </div>
+      </div>
+
+      <p class="text-xs text-gray-400 mt-3 italic">Missing: PO number, customer PO, UPC codes, pack size, price, dates, totals. All the context La Gaitana needs is lost.</p>
+    </div>
+
+    <!-- ===== RIGHT: Proposed format (rich PO) ===== -->
+    <div>
+      <h2 class="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">Proposed Format — PO Extraction</h2>
+      <div class="bg-green-50 border border-green-200 rounded-lg overflow-hidden">
+        <!-- Header -->
+        <div class="flex items-center justify-between px-3 py-2.5 border-b border-green-200">
+          <p class="text-xs text-green-700 uppercase tracking-wider font-semibold">Create New Order</p>
+          <svg class="w-4 h-4 text-green-600" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M19 9l-7 7-7-7"/></svg>
+        </div>
+
+        <div class="px-3 pb-3">
+          <!-- Customer / Date bar -->
+          <div class="flex items-center gap-3 px-3 py-2 mt-3 bg-white border border-green-200 rounded-lg">
+            <div class="flex items-center gap-2 flex-1">
+              <svg class="w-4 h-4 text-green-500 flex-shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+              <span class="text-sm font-medium text-gray-900">Customer 1142</span>
+            </div>
+            <div class="flex items-center gap-2 flex-shrink-0">
+              <svg class="w-4 h-4 text-green-500" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>
+              <span class="text-xs text-gray-600">Mar 3, 2026</span>
+            </div>
+          </div>
+
+          <!-- Frequency badge -->
+          <div class="mt-2">
+            <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-700 border border-green-200">
+              One-time
+            </span>
+          </div>
+
+          <!-- PO Metadata Header -->
+          <div class="mt-3 px-3 py-2.5 bg-white border border-green-200 rounded-lg">
+            <!-- Top row: PO identifiers -->
+            <div class="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs">
+              <span>
+                <span class="text-green-600/60 font-medium">PO</span>
+                <span class="text-gray-900 font-semibold ml-1">PO029889</span>
+              </span>
+              <span>
+                <span class="text-green-600/60 font-medium">Cust PO</span>
+                <span class="text-gray-900 ml-1">94X720766</span>
+              </span>
+              <span>
+                <span class="text-green-600/60 font-medium">SO</span>
+                <span class="text-gray-900 ml-1">SO411191</span>
+              </span>
+              <span>
+                <span class="text-green-600/60 font-medium">Sell-to</span>
+                <span class="text-gray-900 ml-1">106</span>
+              </span>
+              <span class="px-1.5 py-0.5 bg-green-100 text-green-700 rounded font-medium">HEB</span>
+            </div>
+            <!-- Bottom row: dates + logistics -->
+            <div class="flex flex-wrap gap-x-4 gap-y-1 text-xs mt-2 text-gray-500">
+              <span>
+                <svg class="w-3 h-3 inline mr-0.5 -mt-0.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>
+                Consolidation: <span class="text-gray-700">Mar 4</span>
+              </span>
+              <span>Arrive: <span class="text-gray-700">Mar 6</span></span>
+              <span>Truck: <span class="text-gray-700">Mar 9</span></span>
+              <span class="text-gray-400">|</span>
+              <span>Ship: <span class="text-gray-700">PASSION</span></span>
+              <span>Loc: <span class="text-gray-700">MBOGOTA</span></span>
+            </div>
+          </div>
+
+          <!-- Items table — PROPOSED (rich PO) -->
+          <div class="border-t border-green-200 mt-3 pt-2">
+            <table class="w-full text-sm">
+              <thead>
+                <tr class="text-xs text-green-600/60 uppercase tracking-wider">
+                  <th class="py-1 text-left font-medium">Code</th>
+                  <th class="py-1 text-left font-medium">Item</th>
+                  <th class="py-1 text-center font-medium">Cases</th>
+                  <th class="py-1 text-center font-medium">Pack</th>
+                  <th class="py-1 text-center font-medium">$/Unit</th>
+                  <th class="py-1 text-right font-medium">UPC</th>
+                  <th class="py-1 w-6"></th>
+                </tr>
+              </thead>
+              <tbody>
+                <!-- Line 1: Carnation Asst -->
+                <tr class="bg-green-50/50">
+                  <td class="py-1.5 pl-1">
+                    <span class="text-xs text-gray-500 font-mono">CBD01794</span>
+                  </td>
+                  <td class="py-1.5">
+                    <div class="flex items-center gap-1">
+                      <span class="text-green-600 text-xs font-bold">+</span>
+                      <span class="text-xs text-gray-900">Carnation Asst</span>
+                    </div>
+                  </td>
+                  <td class="py-1.5 text-center">
+                    <span class="w-12 px-1 py-0.5 text-sm text-center border border-green-300 rounded bg-white inline-block">20</span>
+                  </td>
+                  <td class="py-1.5 text-center text-xs text-gray-600">140</td>
+                  <td class="py-1.5 text-center text-xs text-gray-600">$0.925</td>
+                  <td class="py-1.5 text-right">
+                    <span class="text-[10px] font-mono text-gray-400">841152000137</span>
+                  </td>
+                  <td class="py-1.5 text-center text-gray-400">×</td>
+                </tr>
+                <!-- Line 2: Carnations White -->
+                <tr class="bg-green-50/50">
+                  <td class="py-1.5 pl-1">
+                    <span class="text-xs text-gray-500 font-mono">CBD13451</span>
+                  </td>
+                  <td class="py-1.5">
+                    <div class="flex items-center gap-1">
+                      <span class="text-green-600 text-xs font-bold">+</span>
+                      <span class="text-xs text-gray-900">Carnations White</span>
+                    </div>
+                  </td>
+                  <td class="py-1.5 text-center">
+                    <span class="w-12 px-1 py-0.5 text-sm text-center border border-green-300 rounded bg-white inline-block">11</span>
+                  </td>
+                  <td class="py-1.5 text-center text-xs text-gray-600">140</td>
+                  <td class="py-1.5 text-center text-xs text-gray-600">$0.925</td>
+                  <td class="py-1.5 text-right">
+                    <span class="text-[10px] font-mono text-gray-400">841152040200</span>
+                  </td>
+                  <td class="py-1.5 text-center text-gray-400">×</td>
+                </tr>
+                <!-- Line 3: Mini Carnations Asst -->
+                <tr class="bg-green-50/50">
+                  <td class="py-1.5 pl-1">
+                    <span class="text-xs text-gray-500 font-mono">CBD01788</span>
+                  </td>
+                  <td class="py-1.5">
+                    <div class="flex items-center gap-1">
+                      <span class="text-green-600 text-xs font-bold">+</span>
+                      <span class="text-xs text-gray-900">Mini Carnations Asst</span>
+                    </div>
+                  </td>
+                  <td class="py-1.5 text-center">
+                    <span class="w-12 px-1 py-0.5 text-sm text-center border border-green-300 rounded bg-white inline-block">17</span>
+                  </td>
+                  <td class="py-1.5 text-center text-xs text-gray-600">135</td>
+                  <td class="py-1.5 text-center text-xs text-gray-600">$1.11</td>
+                  <td class="py-1.5 text-right">
+                    <span class="text-[10px] font-mono text-gray-400">841152010201</span>
+                  </td>
+                  <td class="py-1.5 text-center text-gray-400">×</td>
+                </tr>
+                <!-- Line 4: RBW Mini Carns -->
+                <tr class="bg-green-50/50">
+                  <td class="py-1.5 pl-1">
+                    <span class="text-xs text-gray-500 font-mono">CBD01792</span>
+                  </td>
+                  <td class="py-1.5">
+                    <div class="flex items-center gap-1">
+                      <span class="text-green-600 text-xs font-bold">+</span>
+                      <span class="text-xs text-gray-900">RBW Mini Carns</span>
+                    </div>
+                  </td>
+                  <td class="py-1.5 text-center">
+                    <span class="w-12 px-1 py-0.5 text-sm text-center border border-green-300 rounded bg-white inline-block">26</span>
+                  </td>
+                  <td class="py-1.5 text-center text-xs text-gray-600">135</td>
+                  <td class="py-1.5 text-center text-xs text-gray-600">$1.20</td>
+                  <td class="py-1.5 text-right">
+                    <span class="text-[10px] font-mono text-gray-400">841152050071</span>
+                  </td>
+                  <td class="py-1.5 text-center text-gray-400">×</td>
+                </tr>
+                <tr>
+                  <td colspan="7" class="pt-1">
+                    <button class="flex items-center gap-1 text-xs text-green-600 hover:text-green-700 px-2 py-1 rounded">
+                      <span class="text-sm font-bold">+</span> Add item
+                    </button>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <!-- PO Totals -->
+          <div class="flex items-center gap-4 mt-2 pt-2 border-t border-green-200 text-xs text-green-700">
+            <span><span class="font-medium">74</span> cases</span>
+            <span><span class="font-medium">56,530</span> stems</span>
+            <span class="font-semibold ml-auto">$10,773.95</span>
+          </div>
+
+          <!-- Action buttons -->
+          <div class="flex items-center gap-2 mt-3 pt-3 border-t border-green-200">
+            <button class="flex-1 flex items-center justify-center gap-1 px-3 py-2 bg-green-600 text-white text-xs font-medium rounded-lg hover:bg-green-700">
+              <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M5 13l4 4L19 7"/></svg>
+              Create Order
+            </button>
+            <button class="px-3 py-2 text-xs text-gray-500 hover:text-gray-700">Reject</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== SECTION 2: "Order Created" Read-Only View ===== -->
+  <div class="max-w-3xl mt-12">
+    <h2 class="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">Proposed "Order Created" Read-Only View</h2>
+    <div class="bg-green-50 border border-green-200 rounded-lg overflow-hidden">
+      <div class="flex items-center justify-between px-3 py-2.5">
+        <p class="text-xs text-green-700 uppercase tracking-wider font-semibold">Order Created</p>
+        <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-700">
+          <svg class="w-3 h-3" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M5 13l4 4L19 7"/></svg>
+          Created
+        </span>
+      </div>
+      <div class="px-3 pb-3">
+        <!-- Customer / Date -->
+        <div class="flex items-center gap-3 px-3 py-2 bg-white border border-green-200 rounded-lg">
+          <div class="flex items-center gap-2 flex-1">
+            <svg class="w-4 h-4 text-green-500 flex-shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+            <span class="text-sm font-medium text-gray-900">Customer 1142</span>
+          </div>
+          <div class="flex items-center gap-2 flex-shrink-0">
+            <svg class="w-4 h-4 text-green-500" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>
+            <span class="text-xs text-gray-600">Mar 3, 2026</span>
+          </div>
+        </div>
+
+        <!-- PO Metadata (read-only) -->
+        <div class="mt-3 px-3 py-2.5 bg-white border border-green-200 rounded-lg">
+          <div class="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs">
+            <span><span class="text-green-600/60 font-medium">PO</span> <span class="text-gray-900 font-semibold ml-1">PO029889</span></span>
+            <span><span class="text-green-600/60 font-medium">Cust PO</span> <span class="text-gray-900 ml-1">94X720766</span></span>
+            <span><span class="text-green-600/60 font-medium">SO</span> <span class="text-gray-900 ml-1">SO411191</span></span>
+            <span class="px-1.5 py-0.5 bg-green-100 text-green-700 rounded font-medium">HEB</span>
+          </div>
+          <div class="flex flex-wrap gap-x-4 gap-y-1 text-xs mt-2 text-gray-500">
+            <span>Consolidation: <span class="text-gray-700">Mar 4</span></span>
+            <span>Arrive: <span class="text-gray-700">Mar 6</span></span>
+            <span>Truck: <span class="text-gray-700">Mar 9</span></span>
+            <span class="text-gray-400">|</span>
+            <span>Ship: <span class="text-gray-700">PASSION</span></span>
+            <span>Loc: <span class="text-gray-700">MBOGOTA</span></span>
+          </div>
+        </div>
+
+        <!-- Items table (read-only) -->
+        <div class="border-t border-green-200 mt-3 pt-2">
+          <table class="w-full text-sm">
+            <thead>
+              <tr class="text-xs text-green-600/60 uppercase tracking-wider">
+                <th class="py-1 text-left font-medium">Code</th>
+                <th class="py-1 text-left font-medium">Item</th>
+                <th class="py-1 text-center font-medium">Cases</th>
+                <th class="py-1 text-center font-medium">Pack</th>
+                <th class="py-1 text-center font-medium">$/Unit</th>
+                <th class="py-1 text-right font-medium">UPC</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr class="text-green-800">
+                <td class="py-1 text-left text-xs font-mono text-gray-500">CBD01794</td>
+                <td class="py-1 text-left text-xs">Carnation Asst</td>
+                <td class="py-1 text-center text-xs font-medium">20</td>
+                <td class="py-1 text-center text-xs">140</td>
+                <td class="py-1 text-center text-xs">$0.925</td>
+                <td class="py-1 text-right text-[10px] font-mono text-gray-400">841152000137</td>
+              </tr>
+              <tr class="text-green-800">
+                <td class="py-1 text-left text-xs font-mono text-gray-500">CBD13451</td>
+                <td class="py-1 text-left text-xs">Carnations White</td>
+                <td class="py-1 text-center text-xs font-medium">11</td>
+                <td class="py-1 text-center text-xs">140</td>
+                <td class="py-1 text-center text-xs">$0.925</td>
+                <td class="py-1 text-right text-[10px] font-mono text-gray-400">841152040200</td>
+              </tr>
+              <tr class="text-green-800">
+                <td class="py-1 text-left text-xs font-mono text-gray-500">CBD01788</td>
+                <td class="py-1 text-left text-xs">Mini Carnations Asst</td>
+                <td class="py-1 text-center text-xs font-medium">17</td>
+                <td class="py-1 text-center text-xs">135</td>
+                <td class="py-1 text-center text-xs">$1.11</td>
+                <td class="py-1 text-right text-[10px] font-mono text-gray-400">841152010201</td>
+              </tr>
+              <tr class="text-green-800">
+                <td class="py-1 text-left text-xs font-mono text-gray-500">CBD01792</td>
+                <td class="py-1 text-left text-xs">RBW Mini Carns</td>
+                <td class="py-1 text-center text-xs font-medium">26</td>
+                <td class="py-1 text-center text-xs">135</td>
+                <td class="py-1 text-center text-xs">$1.20</td>
+                <td class="py-1 text-right text-[10px] font-mono text-gray-400">841152050071</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <!-- PO Totals -->
+        <div class="flex items-center gap-4 mt-2 pt-2 border-t border-green-200 text-xs text-green-700">
+          <span><span class="font-medium">74</span> cases</span>
+          <span><span class="font-medium">56,530</span> stems</span>
+          <span class="font-semibold ml-auto">$10,773.95</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== SECTION 3: Design notes ===== -->
+  <div class="max-w-3xl mt-12 mb-16 text-sm text-gray-600">
+    <h2 class="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">Design Notes</h2>
+    <ul class="space-y-2 list-disc pl-5">
+      <li><strong>Conditional rendering</strong> — The richer table (Code/Item/Cases/Pack/$/UPC) only appears when <code class="px-1 py-0.5 bg-gray-100 rounded text-xs">po_metadata</code> is present. All existing proposals continue using the simple Item/Size/Qty format.</li>
+      <li><strong>PO metadata card</strong> — Sits between the customer/date bar and the items table. Shows PO identifiers (PO#, Cust PO, SO, Sell-to) and logistics (dates, ship method, consolidation location). HEB badge uses the existing green pill style.</li>
+      <li><strong>Totals row</strong> — Only shown when <code class="px-1 py-0.5 bg-gray-100 rounded text-xs">po_metadata</code> has totals. Cases + stems on the left, dollar amount right-aligned.</li>
+      <li><strong>UPC column</strong> — 10px monospace font so the barcodes are readable but don't dominate the layout.</li>
+      <li><strong>Editing</strong> — Cases column is editable (same number input as Qty today). Code, Pack, $/Unit, UPC are read-only display. Item name is still the searchable dropdown.</li>
+      <li><strong>No breaking changes</strong> — All new fields are optional. Existing proposals work exactly as before.</li>
+    </ul>
+  </div>
+</body>
+</html>

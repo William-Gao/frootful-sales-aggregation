@@ -835,7 +835,7 @@ const AdminDashboard: React.FC = () => {
           intake_event_id: selectedIntakeEvent?.id || null,
           status: 'pending',
           type: 'change_order',
-          tags: { ...formTags, intent: 'change_order' }
+          tags: { ...formTags }
         })
         .select()
         .single();

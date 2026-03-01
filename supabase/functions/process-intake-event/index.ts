@@ -879,7 +879,7 @@ Deno.serve(async (req) => {
               intake_event_id: intakeEvent.id,
               status: 'pending',
               type: 'new_order',
-              tags: { intent: 'new_order', order_frequency: groupAnalysis.orderFrequency || 'one-time' }
+              tags: { order_frequency: groupAnalysis.orderFrequency || 'one-time' }
             })
             .select()
             .single();
@@ -1013,7 +1013,7 @@ Deno.serve(async (req) => {
               intake_event_id: intakeEvent.id,
               status: 'pending',
               type: 'change_order',
-              tags: { intent: 'change_order', order_frequency: groupAnalysis.orderFrequency || 'one-time' }
+              tags: { order_frequency: groupAnalysis.orderFrequency || 'one-time' }
             })
             .select()
             .single();
@@ -1141,7 +1141,7 @@ Deno.serve(async (req) => {
               intake_event_id: intakeEvent.id,
               status: 'pending',
               type: 'cancel_order',
-              tags: { intent: 'cancel_order', order_frequency: 'one-time' }
+              tags: { order_frequency: 'one-time' }
             })
             .select()
             .single();
@@ -1154,11 +1154,12 @@ Deno.serve(async (req) => {
           await supabase.from('order_events').insert({
             order_id: matchedOrder.id,
             intake_event_id: intakeEvent.id,
-            type: 'cancel_proposed',
+            type: 'change_proposed',
             metadata: {
               proposal_id: proposal.id,
               channel: intakeEvent.channel,
-              reasoning: intentResult.reasoning
+              reasoning: intentResult.reasoning,
+              intent: 'cancel_order'
             }
           });
 

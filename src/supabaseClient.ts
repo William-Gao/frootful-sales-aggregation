@@ -41,3 +41,20 @@ export async function getSupabaseClient() {
 
 // For backward compatibility, export a promise that resolves to the client
 export const supabaseClient = initializeSupabase();
+
+/**
+ * Get a valid access token, refreshing the session if needed.
+ * Throws if no valid session exists.
+ */
+export async function getAccessToken(): Promise<string> {
+  const client = supabaseClient as SupabaseClient;
+  const { data: { session }, error } = await client.auth.getSession();
+  if (error || !session) {
+    const { data: { session: refreshed }, error: refreshError } = await client.auth.refreshSession();
+    if (refreshError || !refreshed) {
+      throw new Error('Not authenticated');
+    }
+    return refreshed.access_token;
+  }
+  return session.access_token;
+}

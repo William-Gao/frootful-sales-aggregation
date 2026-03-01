@@ -17,11 +17,14 @@
     "env:staging": "cp .env.staging .env && echo 'Switched to staging environment'",
     "env:prod": "cp .env.production .env && echo 'Switched to production environment'",
     "dev:staging": "cp .env.staging .env && vite",
+    "dev:prod": "cp .env.production .env && vite",
     "supabase:deploy:staging": "supabase functions deploy --project-ref laxhubapvubwwoafrewk",
     "supabase:deploy:prod": "supabase functions deploy --project-ref zkglvdfppodwlgzhfgqs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.50.0",
+    "@usecrow/client": "^0.1.43",
+    "@usecrow/ui": "^0.1.57",
     "lucide-react": "^0.344.0",
     "pdfjs-dist": "^5.4.394",
     "react": "^18.3.1",
@@ -29,7 +32,8 @@
     "react-pdf": "^10.2.0",
     "react-router-dom": "^6.28.0",
     "recharts": "^3.7.0",
-    "terser": "^5.42.0"
+    "terser": "^5.42.0",
+    "xlsx": "^0.18.5"
   },
   "devDependencies": {
     "@eslint/js": "^9.9.1",

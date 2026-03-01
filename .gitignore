@@ -38,3 +38,9 @@ Client Secret*
 
 # Build outputs
 dist-demo
+
+# Python virtual environments
+venv/
+.venv/
+__pycache__/
+*.pyc

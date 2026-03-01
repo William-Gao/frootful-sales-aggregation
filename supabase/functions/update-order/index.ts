@@ -22,7 +22,8 @@ interface ChangeLine {
 
 interface UpdateOrderPayload {
   orderId: string;
-  lines: ChangeLine[];
+  lines?: ChangeLine[];
+  cancel_entire_order?: boolean;
 }
 
 Deno.serve(async (req) => {
@@ -50,9 +51,9 @@ Deno.serve(async (req) => {
     }
 
     const payload: UpdateOrderPayload = await req.json();
-    const { orderId, lines } = payload;
+    const { orderId, lines, cancel_entire_order } = payload;
 
-    if (!orderId || !lines || lines.length === 0) {
+    if (!orderId || (!cancel_entire_order && (!lines || lines.length === 0))) {
       return new Response(
         JSON.stringify({ success: false, error: 'Missing orderId or lines' }),
         { status: 400, headers: { 'Content-Type': 'application/json', ...corsHeaders } }
@@ -84,6 +85,36 @@ Deno.serve(async (req) => {
       return new Response(
         JSON.stringify({ success: false, error: 'Unauthorized' }),
         { status: 403, headers: { 'Content-Type': 'application/json', ...corsHeaders } }
+      );
+    }
+
+    // Cancel entire order
+    if (cancel_entire_order) {
+      const { error: cancelError } = await supabase
+        .from('orders')
+        .update({ status: 'cancelled', updated_at: new Date().toISOString() })
+        .eq('id', orderId);
+      if (cancelError) throw cancelError;
+
+      // Soft-delete all active lines
+      await supabase
+        .from('order_lines')
+        .update({ status: 'deleted' })
+        .eq('order_id', orderId)
+        .eq('status', 'active');
+
+      // Audit event
+      await supabase.from('order_events').insert({
+        order_id: orderId,
+        type: 'cancelled',
+        metadata: { cancelled_by: user.email, source: 'dashboard' },
+      });
+
+      console.log(`Order ${orderId} cancelled by ${user.email}`);
+
+      return new Response(
+        JSON.stringify({ success: true, message: 'Order cancelled' }),
+        { headers: { 'Content-Type': 'application/json', ...corsHeaders } }
       );
     }
 
