@@ -38,6 +38,7 @@ interface Customer {
   name: string;
   email: string | null;
   phone: string | null;
+  sort_order: number | null;
 }
 
 interface ItemVariant {
@@ -324,7 +325,7 @@ const AdminDashboard: React.FC = () => {
       // Fetch customers for this org
       const { data: customersData, error: customersError } = await supabaseClient
         .from('customers')
-        .select('id, name, email, phone')
+        .select('id, name, email, phone, sort_order')
         .eq('organization_id', org.id)
         .eq('active', true)
         .order('name');
