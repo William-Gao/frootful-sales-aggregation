@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { supabaseClient } from '../supabaseClient';
+import { supabaseClient, getAccessToken } from '../supabaseClient';
 
 // Helper function to format date strings (YYYY-MM-DD) without timezone issues
 const formatDateString = (dateStr: string): string => {
@@ -204,11 +204,10 @@ export default function ProposalDiffModal({ proposalId, orderId, onClose, onReso
 
     // Fallback: fetch via edge function if props not provided
     try {
-      const { data: { session } } = await supabaseClient.auth.getSession();
-      if (!session) return;
+      const accessToken = await getAccessToken();
 
       const res = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/get-catalog-data`, {
-        headers: { Authorization: `Bearer ${session.access_token}` },
+        headers: { Authorization: `Bearer ${accessToken}` },
       });
       if (!res.ok) return;
       const data = await res.json();
@@ -645,13 +644,13 @@ export default function ProposalDiffModal({ proposalId, orderId, onClose, onReso
         order_line_id: l.order_line_id || null,
       }));
 
-      const session = await supabaseClient.auth.getSession();
+      const accessToken = await getAccessToken();
       const response = await fetch(
         `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/resolve-proposal`,
         {
           method: 'POST',
           headers: {
-            'Authorization': `Bearer ${session.data.session?.access_token}`,
+            'Authorization': `Bearer ${accessToken}`,
             'Content-Type': 'application/json'
           },
           body: JSON.stringify({
@@ -692,13 +691,13 @@ export default function ProposalDiffModal({ proposalId, orderId, onClose, onReso
         return;
       }
 
-      const session = await supabaseClient.auth.getSession();
+      const accessToken = await getAccessToken();
       const response = await fetch(
         `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/resolve-proposal`,
         {
           method: 'POST',
           headers: {
-            'Authorization': `Bearer ${session.data.session?.access_token}`,
+            'Authorization': `Bearer ${accessToken}`,
             'Content-Type': 'application/json'
           },
           body: JSON.stringify({
@@ -836,7 +835,7 @@ export default function ProposalDiffModal({ proposalId, orderId, onClose, onReso
         return;
       }
 
-      const session = await supabaseClient.auth.getSession();
+      const accessToken = await getAccessToken();
 
       // Step 1: Reject the current proposal
       await (supabaseClient as any)
@@ -853,7 +852,7 @@ export default function ProposalDiffModal({ proposalId, orderId, onClose, onReso
         {
           method: 'POST',
           headers: {
-            'Authorization': `Bearer ${session.data.session?.access_token}`,
+            'Authorization': `Bearer ${accessToken}`,
             'Content-Type': 'application/json'
           },
           body: JSON.stringify({
@@ -896,13 +895,13 @@ export default function ProposalDiffModal({ proposalId, orderId, onClose, onReso
         .eq('id', proposalId);
 
       // Step 2: Call process-intake-event to create new proposal
-      const session = await supabaseClient.auth.getSession();
+      const accessToken = await getAccessToken();
       const response = await fetch(
         `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/process-intake-event`,
         {
           method: 'POST',
           headers: {
-            'Authorization': `Bearer ${session.data.session?.access_token}`,
+            'Authorization': `Bearer ${accessToken}`,
             'Content-Type': 'application/json'
           },
           body: JSON.stringify({ intakeEventId })
@@ -943,7 +942,7 @@ export default function ProposalDiffModal({ proposalId, orderId, onClose, onReso
         return;
       }
 
-      const session = await supabaseClient.auth.getSession();
+      const accessToken = await getAccessToken();
 
       // Step 1: Reject the current proposal
       await (supabaseClient as any)
@@ -960,7 +959,7 @@ export default function ProposalDiffModal({ proposalId, orderId, onClose, onReso
         {
           method: 'POST',
           headers: {
-            'Authorization': `Bearer ${session.data.session?.access_token}`,
+            'Authorization': `Bearer ${accessToken}`,
             'Content-Type': 'application/json'
           },
           body: JSON.stringify({

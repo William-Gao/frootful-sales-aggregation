@@ -207,8 +207,19 @@ async function handleAccept(
     const customerName = payload.customerName || 'Unknown Customer';
     const customerId = payload.customerId || null;
 
-    // Get first original line's proposed_values for org/channel info
+    // Get first original line's proposed_values for user info
     const firstOriginal = originalLines[0]?.proposed_values || {};
+
+    // Resolve source channel from the linked intake event
+    let sourceChannel: string | null = firstOriginal.source_channel || null;
+    if (!sourceChannel && proposal.intake_event_id) {
+      const { data: intakeEvent } = await supabase
+        .from('intake_events')
+        .select('channel')
+        .eq('id', proposal.intake_event_id)
+        .single();
+      if (intakeEvent?.channel) sourceChannel = intakeEvent.channel;
+    }
 
     const { data: newOrder, error: createError } = await supabase
       .from('orders')
@@ -217,7 +228,7 @@ async function handleAccept(
         customer_id: customerId,
         customer_name: customerName,
         delivery_date: payload.deliveryDate || null,
-        source_channel: firstOriginal.source_channel || null,
+        source_channel: sourceChannel,
         status: 'pushed_to_erp',
         created_by_user_id: firstOriginal.created_by_user_id || null,
       })

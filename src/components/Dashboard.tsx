@@ -22,6 +22,7 @@ import {
   MessageSquare,
   Package,
   Paperclip,
+  Phone,
   Plus,
   Printer,
   Search,
@@ -34,18 +35,22 @@ import {
   ShoppingBag,
   Upload,
   User,
-  Sparkles,
+  Users,
   X,
   ZoomIn,
   ZoomOut,
   RotateCcw,
   Maximize2,
+  MoreHorizontal,
+  Pencil,
+  Trash2,
 } from 'lucide-react';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { supabaseClient } from '../supabaseClient';
+import { supabaseClient, getAccessToken } from '../supabaseClient';
 import UploadOrdersSection from './UploadOrdersSection';
 import AnalyticsDashboard from './AnalyticsDashboard';
+import * as XLSX from 'xlsx';
 
 // ============================================================================
 // TOOLTIP COMPONENT
@@ -108,7 +113,10 @@ interface Order {
   delivery_date?: string;
   created_at: string;
   line_count?: number;
+  sort_position?: number | null;
 }
+
+type ProposalType = 'new_order' | 'change_order' | 'cancel_order';
 
 interface ProposalLine {
   id: string;
@@ -149,6 +157,7 @@ interface ProposalAttachment {
 interface Proposal {
   id: string;
   order_id: string | null; // null = new order proposal
+  type?: ProposalType;
   intake_event_id: string; // Reference to the original intake event
   action?: 'create' | 'assign' | 'undetermined'; // AI-determined action. 'create' = AI recommends new order, 'assign' = matched to existing, 'undetermined' = could not determine
   customer_name: string;
@@ -165,7 +174,7 @@ interface Proposal {
   lines: ProposalLine[];
   timeline: TimelineEvent[];
   order_frequency?: 'one-time' | 'recurring';
-  tags?: { intent?: string; order_frequency?: string };
+  tags?: { order_frequency?: string; erp_sync_status?: string; source?: string; [key: string]: string | undefined };
   attachments?: ProposalAttachment[];
 }
 
@@ -174,7 +183,14 @@ interface Customer {
   name: string;
   email?: string | null;
   phone?: string | null;
-  sort_order?: number | null;
+  notes?: string | null;
+  item_notes?: CustomerItemNote[];
+}
+
+interface CustomerItemNote {
+  id: string;
+  item_name: string;
+  note: string;
 }
 
 interface IntakeHistoryProposalLine {
@@ -190,12 +206,12 @@ interface IntakeHistoryProposalLine {
 interface IntakeHistoryProposal {
   id: string;
   status: 'pending' | 'accepted' | 'rejected' | null;
+  type?: ProposalType;
   customer_name: string | null;
   delivery_date: string | null;
   order_id: string | null;
   lines: IntakeHistoryProposalLine[];
   tags?: {
-    intent?: string;
     order_frequency?: 'one-time' | 'recurring';
     erp_sync_status?: 'pending' | 'synced';
   };
@@ -293,1111 +309,6 @@ FEB_3.setDate(TODAY.getDate() + 5);
 const FEB_4 = new Date(TODAY);
 FEB_4.setDate(TODAY.getDate() + 6);
 
-const MOCK_STANDING_ORDERS: Order[] = [
-  // === Friday 1/30 orders ===
-  {
-    id: 'fri-capo',
-    customer_name: 'Capo',
-    status: 'pending',
-    source: 'erp',
-    delivery_date: TOMORROW.toISOString().split('T')[0],
-    created_at: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
-    items: [{ name: 'Basil, Genovese', size: 'L', quantity: 4 }],
-    line_count: 1,
-  },
-  {
-    id: 'fri-hunters',
-    customer_name: 'Hunters',
-    status: 'pending',
-    source: 'erp',
-    delivery_date: TOMORROW.toISOString().split('T')[0],
-    created_at: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
-    items: [{ name: 'Pea, Tendril', size: 'L', quantity: 1 }],
-    line_count: 1,
-  },
-  {
-    id: 'fri-fatbaby',
-    customer_name: 'Fat Baby',
-    status: 'pending',
-    source: 'erp',
-    delivery_date: TOMORROW.toISOString().split('T')[0],
-    created_at: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
-    items: [
-      { name: 'Shiso, Red', size: 'L', quantity: 1 },
-      { name: 'Cilantro', size: 'L', quantity: 2 },
-    ],
-    line_count: 2,
-  },
-  {
-    id: 'fri-loco',
-    customer_name: 'Loco',
-    status: 'pending',
-    source: 'erp',
-    delivery_date: TOMORROW.toISOString().split('T')[0],
-    created_at: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
-    items: [{ name: 'Cilantro', size: 'L', quantity: 2 }],
-    line_count: 1,
-  },
-  {
-    id: 'fri-224boston',
-    customer_name: '224 Boston',
-    status: 'pending',
-    source: 'erp',
-    delivery_date: TOMORROW.toISOString().split('T')[0],
-    created_at: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
-    items: [
-      { name: 'Basil, Genovese', size: 'L', quantity: 1 },
-      { name: 'Rainbow MIX', size: 'L', quantity: 2 },
-    ],
-    line_count: 2,
-  },
-  {
-    id: 'fri-petulas',
-    customer_name: "Petula's",
-    status: 'pending',
-    source: 'erp',
-    delivery_date: TOMORROW.toISOString().split('T')[0],
-    created_at: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
-    items: [
-      { name: 'Cilantro', size: 'L', quantity: 1 },
-      { name: 'Basil, Genovese', size: 'L', quantity: 1 },
-    ],
-    line_count: 2,
-  },
-  {
-    id: 'fri-chickadee',
-    customer_name: 'Chickadee',
-    status: 'pending',
-    source: 'erp',
-    delivery_date: TOMORROW.toISOString().split('T')[0],
-    created_at: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
-    items: [{ name: 'Sunflower', size: 'T20', quantity: 1 }],
-    line_count: 1,
-  },
-  {
-    id: 'fri-coquette',
-    customer_name: 'Coquette',
-    status: 'pending',
-    source: 'erp',
-    delivery_date: TOMORROW.toISOString().split('T')[0],
-    created_at: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
-    items: [{ name: 'Basil, Genovese', size: 'L', quantity: 2 }],
-    line_count: 1,
-  },
-  {
-    id: 'fri-nautilus',
-    customer_name: 'Nautilus',
-    status: 'pending',
-    source: 'erp',
-    delivery_date: TOMORROW.toISOString().split('T')[0],
-    created_at: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
-    items: [{ name: 'Shiso, Red', size: 'L', quantity: 2 }],
-    line_count: 1,
-  },
-  {
-    id: 'fri-woodshill',
-    customer_name: 'Woods Hill Pier 4',
-    status: 'pending',
-    source: 'erp',
-    delivery_date: TOMORROW.toISOString().split('T')[0],
-    created_at: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
-    items: [
-      { name: 'Celery', size: 'L', quantity: 1 },
-      { name: 'Arugula', size: 'L', quantity: 1 },
-    ],
-    line_count: 2,
-  },
-  {
-    id: 'fri-theblock',
-    customer_name: 'The Block',
-    status: 'pending',
-    source: 'erp',
-    delivery_date: TOMORROW.toISOString().split('T')[0],
-    created_at: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
-    items: [
-      { name: 'Arugula', size: 'S', quantity: 2 },
-      { name: 'Cilantro', size: 'S', quantity: 2 },
-      { name: 'Nasturtium', size: 'L', quantity: 1 },
-    ],
-    line_count: 3,
-  },
-  {
-    id: 'fri-davios',
-    customer_name: "Davio's Seaport",
-    status: 'pending',
-    source: 'erp',
-    delivery_date: TOMORROW.toISOString().split('T')[0],
-    created_at: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
-    items: [{ name: "Davio's MIX", size: 'L', quantity: 4 }],
-    line_count: 1,
-  },
-  {
-    id: 'fri-serafina',
-    customer_name: 'Serafina Seaport',
-    status: 'pending',
-    source: 'erp',
-    delivery_date: TOMORROW.toISOString().split('T')[0],
-    created_at: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
-    items: [{ name: 'Basil, Genovese', size: 'T20', quantity: 2 }],
-    line_count: 1,
-  },
-  {
-    id: 'fri-row34',
-    customer_name: 'Row 34',
-    status: 'pending',
-    source: 'erp',
-    delivery_date: TOMORROW.toISOString().split('T')[0],
-    created_at: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
-    items: [
-      { name: 'Basil, Genovese', size: 'L', quantity: 1 },
-      { name: 'Radish Mix', size: 'L', quantity: 1 },
-      { name: 'Lemon Balm', size: 'L', quantity: 1 },
-      { name: 'Mustard, Wasabi', size: 'L', quantity: 1 },
-    ],
-    line_count: 4,
-  },
-  {
-    id: 'fri-trade',
-    customer_name: 'Trade',
-    status: 'pending',
-    source: 'erp',
-    delivery_date: TOMORROW.toISOString().split('T')[0],
-    created_at: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
-    items: [
-      { name: 'Basil, Thai', size: 'S', quantity: 2 },
-      { name: 'Cilantro', size: 'L', quantity: 1 },
-    ],
-    line_count: 2,
-  },
-  {
-    id: 'fri-oya',
-    customer_name: 'O Ya',
-    status: 'pending',
-    source: 'erp',
-    delivery_date: TOMORROW.toISOString().split('T')[0],
-    created_at: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
-    items: [
-      { name: 'Basil, Thai', size: 'S', quantity: 1 },
-      { name: 'Shiso, Red', size: 'L', quantity: 1 },
-    ],
-    line_count: 2,
-  },
-  {
-    id: 'fri-baleia',
-    customer_name: 'Baleia',
-    status: 'pending',
-    source: 'erp',
-    delivery_date: TOMORROW.toISOString().split('T')[0],
-    created_at: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
-    items: [
-      { name: 'Cilantro', size: 'L', quantity: 3 },
-      { name: 'Basil, Thai', size: 'S', quantity: 3 },
-    ],
-    line_count: 2,
-  },
-  {
-    id: 'fri-fuji',
-    customer_name: 'Fuji at Ink Block',
-    status: 'pending',
-    source: 'erp',
-    delivery_date: TOMORROW.toISOString().split('T')[0],
-    created_at: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
-    items: [
-      { name: 'Mustard, Wasabi', size: 'L', quantity: 2 },
-      { name: 'Radish, Sango', size: 'L', quantity: 1 },
-    ],
-    line_count: 2,
-  },
-  {
-    id: 'fri-capri',
-    customer_name: 'Capri Italian Steakhouse',
-    status: 'pending',
-    source: 'erp',
-    delivery_date: TOMORROW.toISOString().split('T')[0],
-    created_at: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
-    items: [
-      { name: 'Basil, Genovese', size: 'L', quantity: 2 },
-      { name: 'Lemon Balm', size: 'S', quantity: 1 },
-    ],
-    line_count: 2,
-  },
-  {
-    id: 'fri-311',
-    customer_name: '311',
-    status: 'pending',
-    source: 'erp',
-    delivery_date: TOMORROW.toISOString().split('T')[0],
-    created_at: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
-    items: [{ name: 'Mustard, Green Mizuna', size: 'S', quantity: 3 }],
-    line_count: 1,
-  },
-  {
-    id: 'fri-douzo',
-    customer_name: 'Douzo',
-    status: 'pending',
-    source: 'erp',
-    delivery_date: TOMORROW.toISOString().split('T')[0],
-    created_at: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
-    items: [
-      { name: 'Rainbow MIX', size: 'L', quantity: 1 },
-      { name: 'Radish, Kaiware', size: 'L', quantity: 3 },
-      { name: 'Cilantro', size: 'S', quantity: 1 },
-    ],
-    line_count: 3,
-  },
-  {
-    id: 'fri-srv',
-    customer_name: 'SRV',
-    status: 'pending',
-    source: 'erp',
-    delivery_date: TOMORROW.toISOString().split('T')[0],
-    created_at: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
-    items: [
-      { name: 'Nasturtium', size: 'L', quantity: 1 },
-      { name: 'Pea, Tendril', size: 'S', quantity: 1 },
-      { name: 'Sorrel, Red Veined', size: 'L', quantity: 1 },
-    ],
-    line_count: 3,
-  },
-  {
-    id: 'fri-zuma',
-    customer_name: 'Zuma',
-    status: 'pending',
-    source: 'erp',
-    delivery_date: TOMORROW.toISOString().split('T')[0],
-    created_at: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
-    items: [
-      { name: 'Rainbow MIX', size: 'L', quantity: 5 },
-      { name: 'Shiso, Red', size: 'L', quantity: 4 },
-    ],
-    line_count: 2,
-  },
-  {
-    id: 'fri-nagomi',
-    customer_name: 'Nagomi',
-    status: 'pending',
-    source: 'erp',
-    delivery_date: TOMORROW.toISOString().split('T')[0],
-    created_at: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
-    items: [
-      { name: 'Passion MIX', size: 'L', quantity: 1 },
-      { name: 'Rainbow MIX', size: 'L', quantity: 2 },
-    ],
-    line_count: 2,
-  },
-  {
-    id: 'fri-locofenway',
-    customer_name: 'Loco Fenway',
-    status: 'pending',
-    source: 'erp',
-    delivery_date: TOMORROW.toISOString().split('T')[0],
-    created_at: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
-    items: [
-      { name: 'Cilantro', size: 'L', quantity: 2 },
-      { name: 'Radish, Sango', size: 'L', quantity: 1 },
-    ],
-    line_count: 2,
-  },
-  {
-    id: 'fri-asta',
-    customer_name: 'Asta',
-    status: 'pending',
-    source: 'erp',
-    delivery_date: TOMORROW.toISOString().split('T')[0],
-    created_at: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
-    items: [
-      { name: 'Pea, Tendril', size: 'T20', quantity: 2 },
-      { name: 'Shungiku', size: 'T20', quantity: 1 },
-      { name: 'Borage', size: 'T20', quantity: 1 },
-      { name: 'Nasturtium', size: 'T20', quantity: 1 },
-    ],
-    line_count: 4,
-  },
-  {
-    id: 'fri-lapadrona',
-    customer_name: 'La Padrona',
-    status: 'pending',
-    source: 'erp',
-    delivery_date: TOMORROW.toISOString().split('T')[0],
-    created_at: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
-    items: [
-      { name: 'Basil, Genovese', size: 'T20', quantity: 5 },
-      { name: 'Shiso, Red', size: 'T20', quantity: 2 },
-      { name: 'Tokyo Onion', size: 'T20', quantity: 3 },
-      { name: 'Lemon Balm', size: 'T20', quantity: 1 },
-      { name: 'Pea, Tendril', size: 'T20', quantity: 1 },
-    ],
-    line_count: 5,
-  },
-  {
-    id: 'fri-banks',
-    customer_name: 'The Banks Seafood',
-    status: 'pending',
-    source: 'erp',
-    delivery_date: TOMORROW.toISOString().split('T')[0],
-    created_at: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
-    items: [
-      { name: 'Pea, Tendril', size: 'T20', quantity: 2 },
-      { name: 'Sorrel, Red Veined', size: 'S', quantity: 1 },
-      { name: 'Cilantro', size: 'L', quantity: 2 },
-    ],
-    line_count: 3,
-  },
-  {
-    id: 'fri-daviosarlington',
-    customer_name: "Davio's Arlington",
-    status: 'pending',
-    source: 'erp',
-    delivery_date: TOMORROW.toISOString().split('T')[0],
-    created_at: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
-    items: [{ name: 'Radish Mix', size: 'L', quantity: 5 }],
-    line_count: 1,
-  },
-  {
-    id: 'fri-cactus',
-    customer_name: 'Cactus Club Cafe - Boston',
-    status: 'pending',
-    source: 'erp',
-    delivery_date: TOMORROW.toISOString().split('T')[0],
-    created_at: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
-    items: [{ name: 'Sunflower', size: 'L', quantity: 3 }],
-    line_count: 1,
-  },
-  {
-    id: 'fri-bistro',
-    customer_name: 'Bistro Du Midi',
-    status: 'pending',
-    source: 'erp',
-    delivery_date: TOMORROW.toISOString().split('T')[0],
-    created_at: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
-    items: [
-      { name: 'Cilantro', size: 'L', quantity: 1 },
-      { name: 'Sunflower', size: 'L', quantity: 1 },
-      { name: 'Nutrition MIX', size: 'L', quantity: 1 },
-      { name: 'Basil, Genovese', size: 'S', quantity: 1 },
-      { name: 'Nasturtium', size: 'S', quantity: 1 },
-      { name: 'Anise Hyssop', size: 'S', quantity: 1 },
-    ],
-    line_count: 6,
-  },
-  {
-    id: 'fri-1928',
-    customer_name: '1928',
-    status: 'pending',
-    source: 'erp',
-    delivery_date: TOMORROW.toISOString().split('T')[0],
-    created_at: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
-    items: [
-      { name: 'Cilantro', size: 'S', quantity: 1 },
-      { name: 'Cabbage', size: 'S', quantity: 1 },
-      { name: 'Basil, Genovese', size: 'S', quantity: 1 },
-      { name: 'Lemon Balm', size: 'S', quantity: 1 },
-      { name: 'Shiso, Green', size: 'L', quantity: 1 },
-    ],
-    line_count: 5,
-  },
-  {
-    id: 'fri-ruka',
-    customer_name: 'Ruka',
-    status: 'pending',
-    source: 'erp',
-    delivery_date: TOMORROW.toISOString().split('T')[0],
-    created_at: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
-    items: [
-      { name: 'Basil, Thai', size: 'S', quantity: 3 },
-      { name: 'Shiso, Red', size: 'S', quantity: 2 },
-      { name: 'Cilantro', size: 'S', quantity: 5 },
-      { name: 'Basil, Genovese', size: 'S', quantity: 6 },
-    ],
-    line_count: 4,
-  },
-  {
-    id: 'fri-yvonnes',
-    customer_name: "Yvonne's",
-    status: 'pending',
-    source: 'erp',
-    delivery_date: TOMORROW.toISOString().split('T')[0],
-    created_at: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
-    items: [{ name: 'Lettuce, Crisphead', size: 'L', quantity: 2 }],
-    line_count: 1,
-  },
-  {
-    id: 'fri-mariel',
-    customer_name: 'Mariel',
-    status: 'pending',
-    source: 'erp',
-    delivery_date: TOMORROW.toISOString().split('T')[0],
-    created_at: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
-    items: [
-      { name: 'Basil, Genovese', size: 'L', quantity: 4 },
-      { name: 'Pea, Tendril', size: 'L', quantity: 1 },
-      { name: 'Sorrel, Red Veined', size: 'S', quantity: 1 },
-      { name: 'Basil, Thai', size: 'L', quantity: 4 },
-    ],
-    line_count: 4,
-  },
-  {
-    id: 'fri-oceanaire',
-    customer_name: 'The Oceanaire',
-    status: 'pending',
-    source: 'erp',
-    delivery_date: TOMORROW.toISOString().split('T')[0],
-    created_at: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
-    items: [
-      { name: 'Radish Mix', size: 'L', quantity: 1 },
-      { name: 'Cilantro', size: 'S', quantity: 1 },
-      { name: 'Mustard, Wasabi', size: 'S', quantity: 1 },
-    ],
-    line_count: 3,
-  },
-  {
-    id: 'fri-mammamaria',
-    customer_name: 'Mamma Maria',
-    status: 'pending',
-    source: 'erp',
-    delivery_date: TOMORROW.toISOString().split('T')[0],
-    created_at: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
-    items: [
-      { name: 'Basil, Genovese', size: 'L', quantity: 1 },
-      { name: 'Sorrel, Red Veined', size: 'S', quantity: 3 },
-      { name: 'Radish, Sango', size: 'S', quantity: 1 },
-      { name: 'Lemon Balm', size: 'S', quantity: 1 },
-    ],
-    line_count: 4,
-  },
-  // === Feb 3 orders ===
-  {
-    id: 'feb3-capo',
-    customer_name: 'Capo',
-    status: 'pending',
-    source: 'erp',
-    delivery_date: FEB_3.toISOString().split('T')[0],
-    created_at: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
-    items: [{ name: 'Basil, Genovese', size: 'L', quantity: 4 }],
-    line_count: 1,
-  },
-  {
-    id: 'feb3-hunters',
-    customer_name: 'Hunters',
-    status: 'pending',
-    source: 'erp',
-    delivery_date: FEB_3.toISOString().split('T')[0],
-    created_at: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
-    items: [{ name: 'Pea, Tendril', size: 'L', quantity: 1 }],
-    line_count: 1,
-  },
-  {
-    id: 'feb3-fatbaby',
-    customer_name: 'Fat Baby',
-    status: 'pending',
-    source: 'erp',
-    delivery_date: FEB_3.toISOString().split('T')[0],
-    created_at: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
-    items: [
-      { name: 'Cilantro', size: 'L', quantity: 2 },
-      { name: 'Amaranth', size: 'L', quantity: 1 },
-    ],
-    line_count: 2,
-  },
-  {
-    id: 'feb3-loco',
-    customer_name: 'Loco',
-    status: 'pending',
-    source: 'erp',
-    delivery_date: FEB_3.toISOString().split('T')[0],
-    created_at: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
-    items: [
-      { name: 'Cilantro', size: 'L', quantity: 2 },
-      { name: 'Radish, Sango', size: 'S', quantity: 1 },
-    ],
-    line_count: 2,
-  },
-  {
-    id: 'feb3-petulas',
-    customer_name: "Petula's",
-    status: 'pending',
-    source: 'erp',
-    delivery_date: FEB_3.toISOString().split('T')[0],
-    created_at: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
-    items: [
-      { name: 'Cilantro', size: 'L', quantity: 1 },
-      { name: 'Basil, Genovese', size: 'L', quantity: 1 },
-    ],
-    line_count: 2,
-  },
-  {
-    id: 'feb3-coquette',
-    customer_name: 'Coquette',
-    status: 'pending',
-    source: 'erp',
-    delivery_date: FEB_3.toISOString().split('T')[0],
-    created_at: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
-    items: [{ name: 'Basil, Genovese', size: 'L', quantity: 2 }],
-    line_count: 1,
-  },
-  {
-    id: 'feb3-oceanprime',
-    customer_name: 'Ocean Prime',
-    status: 'pending',
-    source: 'erp',
-    delivery_date: FEB_3.toISOString().split('T')[0],
-    created_at: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
-    items: [
-      { name: 'Shiso, Green', size: 'L', quantity: 2 },
-      { name: 'Radish, Kaiware', size: 'L', quantity: 4 },
-      { name: 'Pea, Tendril', size: 'L', quantity: 3 },
-    ],
-    line_count: 3,
-  },
-  {
-    id: 'feb3-nautilus',
-    customer_name: 'Nautilus',
-    status: 'pending',
-    source: 'erp',
-    delivery_date: FEB_3.toISOString().split('T')[0],
-    created_at: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
-    items: [{ name: 'Shiso, Red', size: 'L', quantity: 2 }],
-    line_count: 1,
-  },
-  {
-    id: 'feb3-theblock',
-    customer_name: 'The Block',
-    status: 'pending',
-    source: 'erp',
-    delivery_date: FEB_3.toISOString().split('T')[0],
-    created_at: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
-    items: [
-      { name: 'Arugula', size: 'S', quantity: 2 },
-      { name: 'Nasturtium', size: 'S', quantity: 1 },
-      { name: 'Cilantro', size: 'S', quantity: 2 },
-    ],
-    line_count: 3,
-  },
-  {
-    id: 'feb3-woodshill',
-    customer_name: 'Woods Hill Pier 4',
-    status: 'pending',
-    source: 'erp',
-    delivery_date: FEB_3.toISOString().split('T')[0],
-    created_at: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
-    items: [
-      { name: 'Shiso, Red', size: 'S', quantity: 1 },
-      { name: 'Arugula', size: 'L', quantity: 1 },
-    ],
-    line_count: 2,
-  },
-  {
-    id: 'feb3-davios',
-    customer_name: "Davio's Seaport",
-    status: 'pending',
-    source: 'erp',
-    delivery_date: FEB_3.toISOString().split('T')[0],
-    created_at: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
-    items: [{ name: "Davio's MIX", size: 'L', quantity: 4 }],
-    line_count: 1,
-  },
-  {
-    id: 'feb3-serafina',
-    customer_name: 'Serafina Seaport',
-    status: 'pending',
-    source: 'erp',
-    delivery_date: FEB_3.toISOString().split('T')[0],
-    created_at: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
-    items: [{ name: 'Basil, Genovese', size: 'T20', quantity: 1 }],
-    line_count: 1,
-  },
-  {
-    id: 'feb3-row34',
-    customer_name: 'Row 34',
-    status: 'pending',
-    source: 'erp',
-    delivery_date: FEB_3.toISOString().split('T')[0],
-    created_at: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
-    items: [
-      { name: 'Lemon Balm', size: 'L', quantity: 1 },
-      { name: 'Basil, Genovese', size: 'L', quantity: 1 },
-      { name: 'Radish Mix', size: 'L', quantity: 1 },
-      { name: 'Mustard, Wasabi', size: 'L', quantity: 1 },
-    ],
-    line_count: 4,
-  },
-  {
-    id: 'feb3-trade',
-    customer_name: 'Trade',
-    status: 'pending',
-    source: 'erp',
-    delivery_date: FEB_3.toISOString().split('T')[0],
-    created_at: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
-    items: [{ name: 'Lemon Balm', size: 'S', quantity: 3 }],
-    line_count: 1,
-  },
-  {
-    id: 'feb3-oya',
-    customer_name: 'O Ya',
-    status: 'pending',
-    source: 'erp',
-    delivery_date: FEB_3.toISOString().split('T')[0],
-    created_at: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
-    items: [
-      { name: 'Shiso, Red', size: 'S', quantity: 1 },
-      { name: 'Basil, Thai', size: 'S', quantity: 2 },
-      { name: 'Cilantro', size: 'S', quantity: 1 },
-      { name: 'Celery', size: 'S', quantity: 1 },
-      { name: 'Lemon Balm', size: 'S', quantity: 1 },
-    ],
-    line_count: 5,
-  },
-  {
-    id: 'feb3-baleia',
-    customer_name: 'Baleia',
-    status: 'pending',
-    source: 'erp',
-    delivery_date: FEB_3.toISOString().split('T')[0],
-    created_at: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
-    items: [
-      { name: 'Cilantro', size: 'L', quantity: 2 },
-      { name: 'Basil, Thai', size: 'S', quantity: 2 },
-    ],
-    line_count: 2,
-  },
-  {
-    id: 'feb3-capri',
-    customer_name: 'Capri Italian Steakhouse',
-    status: 'pending',
-    source: 'erp',
-    delivery_date: FEB_3.toISOString().split('T')[0],
-    created_at: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
-    items: [
-      { name: 'Basil, Genovese', size: 'L', quantity: 2 },
-      { name: 'Lemon Balm', size: 'S', quantity: 1 },
-    ],
-    line_count: 2,
-  },
-  {
-    id: 'feb3-311',
-    customer_name: '311',
-    status: 'pending',
-    source: 'erp',
-    delivery_date: FEB_3.toISOString().split('T')[0],
-    created_at: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
-    items: [{ name: 'Mustard, Green Mizuna', size: 'S', quantity: 3 }],
-    line_count: 1,
-  },
-  {
-    id: 'feb3-douzo',
-    customer_name: 'Douzo',
-    status: 'pending',
-    source: 'erp',
-    delivery_date: FEB_3.toISOString().split('T')[0],
-    created_at: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
-    items: [
-      { name: 'Cilantro', size: 'S', quantity: 1 },
-      { name: 'Rainbow MIX', size: 'L', quantity: 1 },
-      { name: 'Radish, Kaiware', size: 'L', quantity: 3 },
-    ],
-    line_count: 3,
-  },
-  {
-    id: 'feb3-gigi',
-    customer_name: 'Gigi',
-    status: 'pending',
-    source: 'erp',
-    delivery_date: FEB_3.toISOString().split('T')[0],
-    created_at: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
-    items: [{ name: 'Basil, Genovese', size: 'S', quantity: 3 }],
-    line_count: 1,
-  },
-  {
-    id: 'feb3-srv',
-    customer_name: 'SRV',
-    status: 'pending',
-    source: 'erp',
-    delivery_date: FEB_3.toISOString().split('T')[0],
-    created_at: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
-    items: [
-      { name: 'Nasturtium', size: 'S', quantity: 1 },
-      { name: 'Lemon Balm', size: 'S', quantity: 1 },
-      { name: 'Beets, Bulls Blood', size: 'S', quantity: 1 },
-      { name: 'Sorrel, Red Veined', size: 'S', quantity: 1 },
-      { name: 'Pea, Tendril', size: 'L', quantity: 1 },
-    ],
-    line_count: 5,
-  },
-  {
-    id: 'feb3-zuma',
-    customer_name: 'Zuma',
-    status: 'pending',
-    source: 'erp',
-    delivery_date: FEB_3.toISOString().split('T')[0],
-    created_at: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
-    items: [
-      { name: 'Rainbow MIX', size: 'L', quantity: 3 },
-      { name: 'Shiso, Red', size: 'L', quantity: 3 },
-    ],
-    line_count: 2,
-  },
-  {
-    id: 'feb3-glasshouse',
-    customer_name: 'Glass House',
-    status: 'pending',
-    source: 'erp',
-    delivery_date: FEB_3.toISOString().split('T')[0],
-    created_at: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
-    items: [{ name: 'Nutrition MIX', size: 'L', quantity: 2 }],
-    line_count: 1,
-  },
-  {
-    id: 'feb3-catalyst',
-    customer_name: 'Catalyst',
-    status: 'pending',
-    source: 'erp',
-    delivery_date: FEB_3.toISOString().split('T')[0],
-    created_at: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
-    items: [
-      { name: 'Lemon Balm', size: 'S', quantity: 1 },
-      { name: 'Shiso, Red', size: 'S', quantity: 1 },
-      { name: 'Basil, Genovese', size: 'L', quantity: 1 },
-      { name: 'Rainbow MIX', size: 'L', quantity: 2 },
-    ],
-    line_count: 4,
-  },
-  {
-    id: 'feb3-nagomi',
-    customer_name: 'Nagomi',
-    status: 'pending',
-    source: 'erp',
-    delivery_date: FEB_3.toISOString().split('T')[0],
-    created_at: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
-    items: [
-      { name: 'Passion MIX', size: 'L', quantity: 1 },
-      { name: 'Rainbow MIX', size: 'L', quantity: 1 },
-    ],
-    line_count: 2,
-  },
-  {
-    id: 'feb3-locofenway',
-    customer_name: 'Loco Fenway',
-    status: 'pending',
-    source: 'erp',
-    delivery_date: FEB_3.toISOString().split('T')[0],
-    created_at: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
-    items: [
-      { name: 'Cilantro', size: 'L', quantity: 2 },
-      { name: 'Radish, Sango', size: 'L', quantity: 1 },
-    ],
-    line_count: 2,
-  },
-  {
-    id: 'feb3-deuxave',
-    customer_name: 'Deuxave',
-    status: 'pending',
-    source: 'erp',
-    delivery_date: FEB_3.toISOString().split('T')[0],
-    created_at: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
-    items: [
-      { name: 'Basil, Genovese', size: 'L', quantity: 1 },
-      { name: 'Lemon Balm', size: 'S', quantity: 1 },
-      { name: 'Shiso, Red', size: 'S', quantity: 1 },
-      { name: 'Mustard, Wasabi', size: 'S', quantity: 1 },
-      { name: 'Kale', size: 'S', quantity: 1 },
-      { name: 'Radish Mix', size: 'L', quantity: 1 },
-      { name: 'Sorrel, Red Veined', size: 'S', quantity: 1 },
-    ],
-    line_count: 7,
-  },
-  {
-    id: 'feb3-uni',
-    customer_name: 'Uni',
-    status: 'pending',
-    source: 'erp',
-    delivery_date: FEB_3.toISOString().split('T')[0],
-    created_at: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
-    items: [
-      { name: 'Shiso, Red', size: 'S', quantity: 2 },
-      { name: 'Cilantro', size: 'S', quantity: 2 },
-    ],
-    line_count: 2,
-  },
-  {
-    id: 'feb3-typhoon',
-    customer_name: 'Typhoon',
-    status: 'pending',
-    source: 'erp',
-    delivery_date: FEB_3.toISOString().split('T')[0],
-    created_at: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
-    items: [{ name: 'Radish, Kaiware', size: 'T20', quantity: 1 }],
-    line_count: 1,
-  },
-  {
-    id: 'feb3-porto',
-    customer_name: 'Porto',
-    status: 'pending',
-    source: 'erp',
-    delivery_date: FEB_3.toISOString().split('T')[0],
-    created_at: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
-    items: [{ name: 'Shiso, Red', size: 'T20', quantity: 1 }],
-    line_count: 1,
-  },
-  {
-    id: 'feb3-lapadrona',
-    customer_name: 'La Padrona',
-    status: 'pending',
-    source: 'erp',
-    delivery_date: FEB_3.toISOString().split('T')[0],
-    created_at: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
-    items: [
-      { name: 'Basil, Genovese', size: 'T20', quantity: 4 },
-      { name: 'Shiso, Red', size: 'T20', quantity: 3 },
-      { name: 'Tokyo Onion', size: 'T20', quantity: 3 },
-    ],
-    line_count: 3,
-  },
-  {
-    id: 'feb3-banks',
-    customer_name: 'The Banks Seafood',
-    status: 'pending',
-    source: 'erp',
-    delivery_date: FEB_3.toISOString().split('T')[0],
-    created_at: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
-    items: [
-      { name: 'Cilantro', size: 'L', quantity: 1 },
-      { name: 'Pea, Tendril', size: 'T20', quantity: 1 },
-      { name: 'Sorrel, Red Veined', size: 'S', quantity: 1 },
-    ],
-    line_count: 3,
-  },
-  {
-    id: 'feb3-daviosarlington',
-    customer_name: "Davio's Arlington",
-    status: 'pending',
-    source: 'erp',
-    delivery_date: FEB_3.toISOString().split('T')[0],
-    created_at: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
-    items: [{ name: 'Radish Mix', size: 'L', quantity: 5 }],
-    line_count: 1,
-  },
-  {
-    id: 'feb3-cactus',
-    customer_name: 'Cactus Club Cafe - Boston',
-    status: 'pending',
-    source: 'erp',
-    delivery_date: FEB_3.toISOString().split('T')[0],
-    created_at: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
-    items: [{ name: 'Sunflower', size: 'L', quantity: 3 }],
-    line_count: 1,
-  },
-  {
-    id: 'feb3-1928',
-    customer_name: '1928',
-    status: 'pending',
-    source: 'erp',
-    delivery_date: FEB_3.toISOString().split('T')[0],
-    created_at: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
-    items: [
-      { name: 'Shiso, Green', size: 'L', quantity: 1 },
-      { name: 'Lemon Balm', size: 'S', quantity: 1 },
-      { name: 'Cabbage', size: 'S', quantity: 1 },
-      { name: 'Basil, Genovese', size: 'S', quantity: 1 },
-      { name: 'Shiso, Red', size: 'S', quantity: 1 },
-      { name: 'Cilantro', size: 'S', quantity: 1 },
-    ],
-    line_count: 6,
-  },
-  {
-    id: 'feb3-ruka',
-    customer_name: 'Ruka',
-    status: 'pending',
-    source: 'erp',
-    delivery_date: FEB_3.toISOString().split('T')[0],
-    created_at: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
-    items: [
-      { name: 'Cilantro', size: 'S', quantity: 5 },
-      { name: 'Basil, Thai', size: 'S', quantity: 2 },
-      { name: 'Basil, Genovese', size: 'S', quantity: 5 },
-      { name: 'Shiso, Red', size: 'S', quantity: 2 },
-    ],
-    line_count: 4,
-  },
-  {
-    id: 'feb3-mariel',
-    customer_name: 'Mariel',
-    status: 'pending',
-    source: 'erp',
-    delivery_date: FEB_3.toISOString().split('T')[0],
-    created_at: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
-    items: [
-      { name: 'Basil, Genovese', size: 'L', quantity: 4 },
-      { name: 'Sorrel, Red Veined', size: 'S', quantity: 1 },
-      { name: 'Pea, Tendril', size: 'L', quantity: 1 },
-      { name: 'Basil, Thai', size: 'L', quantity: 3 },
-    ],
-    line_count: 4,
-  },
-  {
-    id: 'feb3-oceanaire',
-    customer_name: 'The Oceanaire',
-    status: 'pending',
-    source: 'erp',
-    delivery_date: FEB_3.toISOString().split('T')[0],
-    created_at: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
-    items: [
-      { name: 'Radish Mix', size: 'L', quantity: 1 },
-      { name: 'Mustard, Wasabi', size: 'S', quantity: 1 },
-    ],
-    line_count: 2,
-  },
-  {
-    id: 'feb3-mammamaria',
-    customer_name: 'Mamma Maria',
-    status: 'pending',
-    source: 'erp',
-    delivery_date: FEB_3.toISOString().split('T')[0],
-    created_at: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
-    items: [
-      { name: 'Sorrel, Red Veined', size: 'S', quantity: 3 },
-      { name: 'Basil, Genovese', size: 'L', quantity: 2 },
-      { name: 'Radish, Sango', size: 'S', quantity: 1 },
-      { name: 'Lemon Balm', size: 'S', quantity: 1 },
-    ],
-    line_count: 4,
-  },
-  // === Feb 4 (Wednesday) orders ===
-  {
-    id: 'feb4-kaia',
-    customer_name: 'Kaia South End',
-    status: 'pending',
-    source: 'erp',
-    delivery_date: FEB_4.toISOString().split('T')[0],
-    created_at: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
-    items: [
-      { name: 'Nasturtium', size: 'S', quantity: 1 },
-      { name: 'Basil, Genovese', size: 'L', quantity: 1 },
-      { name: 'Shiso, Red', size: 'S', quantity: 1 },
-    ],
-    line_count: 3,
-  },
-  {
-    id: 'feb4-shoreleave',
-    customer_name: 'Shore Leave',
-    status: 'pending',
-    source: 'erp',
-    delivery_date: FEB_4.toISOString().split('T')[0],
-    created_at: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
-    items: [
-      { name: 'Shiso, Red', size: 'S', quantity: 1 },
-      { name: 'Cilantro', size: 'L', quantity: 1 },
-      { name: 'Celery', size: 'S', quantity: 1 },
-      { name: 'Mustard, Wasabi', size: 'S', quantity: 1 },
-    ],
-    line_count: 4,
-  },
-  {
-    id: 'feb4-zuma',
-    customer_name: 'Zuma',
-    status: 'pending',
-    source: 'erp',
-    delivery_date: FEB_4.toISOString().split('T')[0],
-    created_at: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
-    items: [
-      { name: 'Rainbow MIX', size: 'L', quantity: 3 },
-      { name: 'Shiso, Red', size: 'L', quantity: 3 },
-    ],
-    line_count: 2,
-  },
-  {
-    id: 'feb4-dovetail',
-    customer_name: 'Dovetail Charlestown',
-    status: 'pending',
-    source: 'erp',
-    delivery_date: FEB_4.toISOString().split('T')[0],
-    created_at: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
-    items: [
-      { name: 'Basil, Genovese', size: 'L', quantity: 1 },
-      { name: 'Tokyo Onion', size: 'L', quantity: 1 },
-    ],
-    line_count: 2,
-  },
-  {
-    id: 'feb4-brewersfork',
-    customer_name: "Brewer's Fork",
-    status: 'pending',
-    source: 'erp',
-    delivery_date: FEB_4.toISOString().split('T')[0],
-    created_at: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
-    items: [{ name: 'Cilantro', size: 'L', quantity: 1 }],
-    line_count: 1,
-  },
-  {
-    id: 'feb4-prima',
-    customer_name: 'Prima',
-    status: 'pending',
-    source: 'erp',
-    delivery_date: FEB_4.toISOString().split('T')[0],
-    created_at: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
-    items: [{ name: 'Basil, Genovese', size: 'L', quantity: 1 }],
-    line_count: 1,
-  },
-  {
-    id: 'feb4-cafesushi',
-    customer_name: 'Cafe Sushi',
-    status: 'pending',
-    source: 'erp',
-    delivery_date: FEB_4.toISOString().split('T')[0],
-    created_at: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
-    items: [{ name: 'Radish, Sango', size: 'T20', quantity: 1 }],
-    line_count: 1,
-  },
-  {
-    id: 'feb4-pammys',
-    customer_name: "Pammy's",
-    status: 'pending',
-    source: 'erp',
-    delivery_date: FEB_4.toISOString().split('T')[0],
-    created_at: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
-    items: [{ name: 'Lemon Balm', size: 'T20', quantity: 1 }],
-    line_count: 1,
-  },
-  {
-    id: 'feb4-harvest',
-    customer_name: 'Harvest',
-    status: 'pending',
-    source: 'erp',
-    delivery_date: FEB_4.toISOString().split('T')[0],
-    created_at: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
-    items: [{ name: 'Pea, Tendril', size: 'T20', quantity: 2 }],
-    line_count: 1,
-  },
-  {
-    id: 'feb4-nine',
-    customer_name: 'Nine Restaurant',
-    status: 'pending',
-    source: 'erp',
-    delivery_date: FEB_4.toISOString().split('T')[0],
-    created_at: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
-    items: [
-      { name: 'Rainbow MIX', size: 'L', quantity: 1 },
-      { name: 'Sorrel, Red Veined', size: 'S', quantity: 1 },
-      { name: 'Mustard, Purple Mizuna', size: 'S', quantity: 1 },
-      { name: 'Fennel, Bronze', size: 'T20', quantity: 1 },
-    ],
-    line_count: 4,
-  },
-  {
-    id: 'feb4-thaiger',
-    customer_name: 'Thaiger Den',
-    status: 'pending',
-    source: 'erp',
-    delivery_date: FEB_4.toISOString().split('T')[0],
-    created_at: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
-    items: [
-      { name: 'Sorrel, Red Veined', size: 'T20', quantity: 1 },
-      { name: 'Tokyo Onion', size: 'T20', quantity: 1 },
-      { name: 'Shiso, Green', size: 'T20', quantity: 1 },
-    ],
-    line_count: 3,
-  },
-];
-
 // Helper to build timeline entries concisely
 const mkTl = (id: string, minsAgo: number, ch: 'sms' | 'email', content: string, from: string, subject?: string): TimelineEvent[] => [
   { id: `${id}-msg`, type: 'communication', timestamp: new Date(Date.now() - minsAgo * 60 * 1000).toISOString(), channel: ch, content, from, subject },
@@ -1407,400 +318,304 @@ const mkTl = (id: string, minsAgo: number, ch: 'sms' | 'email', content: string,
 const d = (dt: Date) => dt.toISOString().split('T')[0];
 const ago = (mins: number) => new Date(Date.now() - mins * 60 * 1000).toISOString();
 
+const MOCK_STANDING_ORDERS: Order[] = [
+  // 1. Orange Flower Connect — PO #61203 Rainbow Dianthus (from 1081.png)
+  {
+    id: 'order-1',
+    order_number: 'ORD-61203',
+    customer_name: 'Orange Flower Connect',
+    customer_email: 'sales@orangeflower.co',
+    items: [
+      { name: 'Rainbow Dianthus 8 Stem Mix Bunch x12', size: 'Large', quantity: 34 },
+    ],
+    status: 'ready',
+    source: 'email',
+    delivery_date: d(TOMORROW),
+    created_at: ago(45),
+  },
+  // 2. 121 — PO027985 Raffines/Solomios (from 1142.png)
+  {
+    id: 'order-2',
+    order_number: 'ORD-027985',
+    customer_name: '121',
+    customer_email: null,
+    items: [
+      { name: 'Raffines/Solomios Combo Box', size: 'Large', quantity: 4 },
+    ],
+    status: 'ready',
+    source: 'email',
+    delivery_date: d(TOMORROW),
+    created_at: ago(30),
+  },
+  // 3. Flower Buyer — Novelty Mini Carnations (from 15266.png)
+  {
+    id: 'order-3',
+    order_number: 'ORD-467881',
+    customer_name: 'Flower Buyer',
+    customer_email: 'sales@orangeflower.co',
+    items: [
+      { name: 'Consumer Novelty Mini Carnations', size: 'Large', quantity: 30 },
+    ],
+    status: 'ready',
+    source: 'email',
+    delivery_date: d(DAY_AFTER),
+    created_at: ago(20),
+  },
+  // 4. Flores del Valle — standing order (SMS modify target)
+  {
+    id: 'order-4',
+    order_number: 'ORD-9934',
+    customer_name: 'Flores del Valle',
+    customer_email: 'pedidos@floresdelvalle.co',
+    customer_phone: '+57 310 555 4422',
+    items: [
+      { name: 'Moonlight', size: 'S', quantity: 10 },
+      { name: 'Zeppelin', size: 'S', quantity: 8 },
+      { name: 'Don Pedro', size: 'S', quantity: 5 },
+      { name: 'Halo', size: 'S', quantity: 6 },
+    ],
+    status: 'ready',
+    source: 'email',
+    delivery_date: d(DAY_AFTER),
+    created_at: ago(120),
+  },
+  // 5. 71001 — Mini Carn Rainbow (from 1622.png)
+  {
+    id: 'order-5',
+    order_number: 'ORD-2006546',
+    customer_name: '71001',
+    customer_email: null,
+    items: [
+      { name: 'Mini Carn Rainbow', size: 'Large', quantity: 40 },
+    ],
+    status: 'ready',
+    source: 'email',
+    delivery_date: '2026-04-17',
+    created_at: ago(10),
+  },
+  // 6. Bloom Distribution — Carnations & Mini Carnations (from 865.xlsx)
+  {
+    id: 'order-6',
+    order_number: 'ORD-8651',
+    customer_name: 'Bloom Distribution',
+    customer_email: 'gaotioncapital@gmail.com',
+    items: [
+      // Carnations
+      { name: 'Moonlight', size: 'S', quantity: 3 },
+      { name: 'Olympia', size: 'S', quantity: 3 },
+      { name: 'Polar Route', size: 'S', quantity: 3 },
+      { name: 'Damascus', size: 'S', quantity: 3 },
+      { name: 'Kino', size: 'S', quantity: 2 },
+      { name: 'Zurigo', size: 'S', quantity: 3 },
+      { name: 'Zeppelin', size: 'S', quantity: 10 },
+      { name: 'Zafiro', size: 'S', quantity: 3 },
+      { name: 'Mwetalica', size: 'S', quantity: 2 },
+      { name: 'Clearwater', size: 'S', quantity: 4 },
+      { name: 'Farida', size: 'S', quantity: 2 },
+      { name: 'Antigua', size: 'S', quantity: 1 },
+      { name: 'Don Pedro', size: 'S', quantity: 8 },
+      { name: 'Lege Pink', size: 'S', quantity: 3 },
+      { name: 'Zenith', size: 'S', quantity: 3 },
+      { name: 'Verona', size: 'S', quantity: 4 },
+      { name: 'Doncel', size: 'S', quantity: 10 },
+      { name: 'Orange Flame', size: 'S', quantity: 2 },
+      { name: 'Brut', size: 'S', quantity: 4 },
+      { name: 'Novia / Lizzy', size: 'S', quantity: 2 },
+      { name: 'Caroline Gold', size: 'S', quantity: 2 },
+      { name: 'Lege Marone', size: 'S', quantity: 2 },
+      { name: 'Spritz', size: 'S', quantity: 2 },
+      { name: 'Halo', size: 'S', quantity: 4 },
+      { name: 'Polimnia', size: 'S', quantity: 2 },
+      { name: 'Diletta', size: 'S', quantity: 1 },
+      { name: 'Gobi', size: 'S', quantity: 3 },
+      { name: 'Greenshot', size: 'S', quantity: 3 },
+      { name: 'Yucari Violet', size: 'S', quantity: 1 },
+      // Mini Carnations
+      { name: 'Aragon', size: 'S', quantity: 6 },
+      { name: 'Nimbus Select', size: 'S', quantity: 5 },
+      { name: 'Chateux', size: 'S', quantity: 4 },
+      { name: 'Pigeon', size: 'S', quantity: 5 },
+      { name: 'Lorenzo', size: 'S', quantity: 0 },
+      { name: 'Nenufar', size: 'S', quantity: 6 },
+      { name: 'Mocha Sweet', size: 'S', quantity: 2 },
+      { name: 'Epsilon', size: 'S', quantity: 2 },
+      { name: 'Atlantis', size: 'S', quantity: 2 },
+      { name: 'Lava', size: 'S', quantity: 4 },
+      { name: 'Tuna', size: 'S', quantity: 4 },
+      { name: 'Tuparo', size: 'S', quantity: 3 },
+      { name: 'Valentine', size: 'S', quantity: 4 },
+      { name: 'Academy', size: 'S', quantity: 10 },
+      { name: 'Zagara', size: 'S', quantity: 4 },
+      { name: 'Dino', size: 'S', quantity: 1 },
+      { name: 'Cesar', size: 'S', quantity: 1 },
+      { name: 'Kumquat', size: 'S', quantity: 2 },
+    ],
+    status: 'ready',
+    source: 'email',
+    delivery_date: d(TOMORROW),
+    created_at: ago(5),
+  },
+];
+
 const MOCK_PROPOSALS: Proposal[] = [
-  // ━━━ SINGLES ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-  // 1. Single ASSIGN — SMS modification to existing order
+  // 1. Email order — Intl Purchase Order #61203 (1081.png) — already created as order-1
   {
-    id: 'prop-1', intake_event_id: 'intake-1', order_id: 'fri-bistro', action: 'assign',
-    order_frequency: 'one-time', customer_name: 'Bistro Du Midi', delivery_date: d(TOMORROW),
-    message_count: 1, channel: 'sms', created_at: ago(2),
-    message_preview: 'Hey Bennett can we remove the cilantro and sunflower for this Friday. Also change Anise to 2 larges and add 2 large shiso green',
-    message_full: 'Hey Bennett can we remove the cilantro and sunflower for this Friday. Also change Anise to 2 larges and add 2 large shiso green',
+    id: 'prop-1', intake_event_id: 'intake-1', order_id: null, action: 'create',
+    order_frequency: 'one-time', customer_name: 'Flower Buyer', delivery_date: d(TOMORROW),
+    message_count: 1, channel: 'email', created_at: ago(45),
+    message_preview: 'Hi Bennett,\n\nPlease find attached our international purchase order #61203 for Rainbow Dianthus 8 Stem Mix Bunch x12.\n\nQty: 34 bunches\nDelivery: 1/15/2026 via Miami Jan 34 flight\nVendor: Cota, Cundinamarca, Colombia\n\nPlease confirm receipt.\n\nBest,\nKM Handling',
+    message_full: 'Hi Bennett,\n\nPlease find attached our international purchase order #61203 for Rainbow Dianthus 8 Stem Mix Bunch x12.\n\nQty: 34 bunches\nDelivery: 1/15/2026 via Miami Jan 34 flight\nVendor: Cota, Cundinamarca, Colombia\n\nPlease confirm receipt.\n\nBest,\nKM Handling',
+    message_html: '<p>Hi Bennett,</p><p>Please find attached our international purchase order #61203 for Rainbow Dianthus 8 Stem Mix Bunch x12.</p><p>Qty: 34 bunches<br/>Delivery: 1/15/2026 via Miami Jan 34 flight<br/>Vendor: Cota, Cundinamarca, Colombia</p><p>Please confirm receipt.</p><p>Best,<br/>KM Handling</p>',
+    sender: 'Orders <orders@kmhandling.com>', subject: 'PO #61203 — Rainbow Dianthus', email_date: ago(45),
     lines: [
-      { id: 'l-1a', change_type: 'remove', item_name: 'Cilantro', size: 'Large', quantity: 1 },
-      { id: 'l-1b', change_type: 'remove', item_name: 'Sunflower', size: 'Large', quantity: 1 },
-      { id: 'l-1c', change_type: 'modify', item_name: 'Anise Hyssop', size: 'Large', quantity: 2, original_quantity: 1 },
-      { id: 'l-1d', change_type: 'add', item_name: 'Shiso, Green', size: 'Large', quantity: 2 },
+      { id: 'l-1a', change_type: 'add', item_name: 'Rainbow Dianthus 8 Stem Mix Bunch x12', size: 'Large', quantity: 34 },
     ],
-    timeline: mkTl('t1', 2, 'sms', 'Hey Bennett can we remove the cilantro and sunflower for this Friday. Also change Anise to 2 larges and add 2 large shiso green', 'Bistro Du Midi'),
-  },
-
-  // 2. Single ASSIGN — email with HTML (possible mismatch)
-  {
-    id: 'prop-2', intake_event_id: 'intake-2', order_id: 'fri-oceanaire', action: 'assign',
-    order_frequency: 'one-time', customer_name: 'The Oceanaire', delivery_date: d(TOMORROW),
-    message_count: 1, channel: 'email', created_at: ago(15),
-    message_preview: 'Hey Bennett, could we modify our order for Sorrel to just 1 instead of 3? Just for this Friday\n\nThanks,\nMarco',
-    message_full: 'Hey Bennett, could we modify our order for Sorrel to just 1 instead of 3? Just for this Friday\n\nThanks,\nMarco',
-    message_html: '<p>Hey Bennett,</p><p>Could we modify our order for Sorrel to just 1 instead of 3? Just for this Friday.</p><p>Thanks,<br/>Marco</p>',
-    sender: 'Marco <chef@mammamia.com>', subject: 'Modification', email_date: 'Thu, Feb 13 at 9:15 AM',
-    lines: [{ id: 'l-2a', change_type: 'modify', item_name: 'Sorrel, Red Veined', size: 'Small', quantity: 1, original_quantity: 3 }],
-    timeline: mkTl('t2', 15, 'email', 'Hey Bennett, could we modify our order for Sorrel to just 1 instead of 3?', 'Marco <chef@mammamia.com>', 'Modification'),
+    timeline: mkTl('t1', 45, 'email', 'Please find attached our international purchase order #61203 for Rainbow Dianthus 8 Stem Mix Bunch x12. Qty: 34 bunches.', 'Orders <orders@kmhandling.com>', 'PO #61203 — Rainbow Dianthus'),
     attachments: [
-      { id: 'mock-att-2a', filename: 'intl_purchase_order_61203.png', extension: 'png', mime_type: 'image/png', size_bytes: 48427, storage_path: '/demo/1081.png', processing_status: 'completed' },
+      { id: 'att-1a', filename: 'intl_purchase_order_61203.png', extension: 'png', mime_type: 'image/png', size_bytes: 48427, storage_path: '/demo/1081.png', processing_status: 'completed' },
     ],
   },
 
-  // 3. Single CREATE — new recurring order
+  // 2. Email order — PO027985 Raffines/Solomios (1142.png) — already created as order-2
+  {
+    id: 'prop-2', intake_event_id: 'intake-2', order_id: null, action: 'create',
+    order_frequency: 'one-time', customer_name: '121', delivery_date: d(TOMORROW),
+    message_count: 1, channel: 'email', created_at: ago(30),
+    message_preview: 'Bennett,\n\nAttached is PO027985 from Farm Export Co.\n\n4 cases Raffines/Solomios Combo Box\nConsolidation: MBOGOTA, 02-18-2026\nArrive: 02-20-2026\nShipment: PASSION, Truck 02-23-2026\n\nTotal: 4 cases, 48 qty, $83.52\n\nThanks',
+    message_full: 'Bennett,\n\nAttached is PO027985 from Farm Export Co.\n\n4 cases Raffines/Solomios Combo Box\nConsolidation: MBOGOTA, 02-18-2026\nArrive: 02-20-2026\nShipment: PASSION, Truck 02-23-2026\n\nTotal: 4 cases, 48 qty, $83.52\n\nThanks',
+    message_html: '<p>Bennett,</p><p>Attached is PO027985 from Farm Export Co.</p><p>4 cases Raffines/Solomios Combo Box<br/>Consolidation: MBOGOTA, 02-18-2026<br/>Arrive: 02-20-2026<br/>Shipment: PASSION, Truck 02-23-2026</p><p>Total: 4 cases, 48 qty, $83.52</p><p>Thanks</p>',
+    sender: 'Logistics <logistics@farmexport.co>', subject: 'PO027985 — Raffines/Solomios Combo', email_date: ago(30),
+    lines: [
+      { id: 'l-2a', change_type: 'add', item_name: 'Raffines/Solomios Combo Box', size: 'Large', quantity: 4 },
+    ],
+    timeline: mkTl('t2', 30, 'email', 'Attached is PO027985 from Farm Export Co. 4 cases Raffines/Solomios Combo Box. Total: $83.52', 'Logistics <logistics@farmexport.co>', 'PO027985 — Raffines/Solomios Combo'),
+    attachments: [
+      { id: 'att-2a', filename: 'PO027985_consolidated.png', extension: 'png', mime_type: 'image/png', size_bytes: 70500, storage_path: '/demo/1142.png', processing_status: 'completed' },
+    ],
+  },
+
+  // 3. Email order — Novelty Mini Carnations (15266.png) — already created as order-3
   {
     id: 'prop-3', intake_event_id: 'intake-3', order_id: null, action: 'create',
-    order_frequency: 'recurring', customer_name: 'Uni', delivery_date: d(TOMORROW),
-    message_count: 1, channel: 'sms', created_at: ago(5),
-    message_preview: 'Hey guys can we add on a 2oz micro cilantro and a micro shiso for fridays? This would be weekly',
-    message_full: 'Hey guys can we add on a 2oz micro cilantro and a micro shiso for fridays? This would be weekly',
+    order_frequency: 'one-time', customer_name: 'Flower Buyer', delivery_date: d(DAY_AFTER),
+    message_count: 1, channel: 'email', created_at: ago(20),
+    message_preview: 'Hi Bennett,\n\nPlease see attached order for Consumer Novelty Mini Carnations.\n\n30 boxes, D Quarter G, 15 per box\nClient: 27510\nFecha Finca: 02/21/2026\nCodigo Flor: CB-X30310\nPO Cliente: 467881\n\nRegards,\nFlower Buyer',
+    message_full: 'Hi Bennett,\n\nPlease see attached order for Consumer Novelty Mini Carnations.\n\n30 boxes, D Quarter G, 15 per box\nClient: 27510\nFecha Finca: 02/21/2026\nCodigo Flor: CB-X30310\nPO Cliente: 467881\n\nRegards,\nFlower Buyer',
+    message_html: '<p>Hi Bennett,</p><p>Please see attached order for Consumer Novelty Mini Carnations.</p><p>30 boxes, D Quarter G, 15 per box<br/>Client: 27510<br/>Fecha Finca: 02/21/2026<br/>Codigo Flor: CB-X30310<br/>PO Cliente: 467881</p><p>Regards,<br/>Flower Buyer</p>',
+    sender: 'Sales <sales@orangeflower.co>', subject: 'Order — Novelty Mini Carnations x30', email_date: ago(20),
     lines: [
-      { id: 'l-3a', change_type: 'add', item_name: 'Cilantro', size: 'Small', quantity: 1 },
-      { id: 'l-3b', change_type: 'add', item_name: 'Shiso, Green', size: 'Small', quantity: 1 },
+      { id: 'l-3a', change_type: 'add', item_name: 'Consumer Novelty Mini Carnations', size: 'Large', quantity: 30 },
     ],
-    timeline: mkTl('t3', 5, 'sms', 'Hey guys can we add on a 2oz micro cilantro and a micro shiso for fridays? This would be weekly', 'Uni'),
-  },
-
-  // 4. Single UNDETERMINED
-  {
-    id: 'prop-4', intake_event_id: 'intake-4', order_id: null, action: 'undetermined',
-    customer_name: 'Ruka', delivery_date: d(DAY_AFTER),
-    message_count: 1, channel: 'email', created_at: ago(30),
-    message_preview: 'Order for Wednesday: 5 cilantro small, 2 thai basil small',
-    message_full: 'Order for Wednesday: 5 cilantro small, 2 thai basil small',
-    sender: 'Ruka <chef@ruka.com>', subject: 'Wednesday order', email_date: ago(30),
-    lines: [
-      { id: 'l-4a', change_type: 'add', item_name: 'Cilantro', size: 'Small', quantity: 5 },
-      { id: 'l-4b', change_type: 'add', item_name: 'Basil, Thai', size: 'Small', quantity: 2 },
-    ],
-    timeline: mkTl('t4', 30, 'email', 'Order for Wednesday: 5 cilantro small, 2 thai basil small', 'Ruka <chef@ruka.com>', 'Wednesday order'),
+    timeline: mkTl('t3', 20, 'email', 'Please see attached order for Consumer Novelty Mini Carnations. 30 boxes, D Quarter G.', 'Sales <sales@orangeflower.co>', 'Order — Novelty Mini Carnations x30'),
     attachments: [
-      { id: 'mock-att-4a', filename: 'PO027985_consolidated.png', extension: 'png', mime_type: 'image/png', size_bytes: 70500, storage_path: '/demo/1142.png', processing_status: 'completed' },
-      { id: 'mock-att-4b', filename: 'order_items_breakdown.xlsx', extension: 'xlsx', mime_type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', size_bytes: 13122, storage_path: '/demo/865.xlsx', processing_status: 'completed' },
+      { id: 'att-3a', filename: 'novelty_mini_carnations_order.png', extension: 'png', mime_type: 'image/png', size_bytes: 30218, storage_path: '/demo/15266.png', processing_status: 'completed' },
     ],
   },
 
-  // 5. Single CANCEL
+  // 4. Email order — Farm PO #2006546 Mini Carn Rainbow (1622.png)
   {
-    id: 'prop-5', intake_event_id: 'intake-5', order_id: 'fri-capo', action: 'assign',
-    order_frequency: 'one-time', customer_name: 'Capo', delivery_date: d(TOMORROW),
-    message_count: 1, channel: 'sms', created_at: ago(10),
-    message_preview: 'Hey Bennett, we need to cancel our order for this Friday. Kitchen closed for renovations. Sorry!',
-    message_full: 'Hey Bennett, we need to cancel our order for this Friday. Kitchen closed for renovations. Sorry!',
-    tags: { intent: 'cancel_order' }, lines: [],
-    timeline: mkTl('t5', 10, 'sms', 'Hey Bennett, we need to cancel our order for this Friday. Kitchen closed for renovations. Sorry!', 'Capo'),
-  },
-
-  // 6. Single CREATE — simple one-time order
-  {
-    id: 'prop-6', intake_event_id: 'intake-6', order_id: null, action: 'create',
-    order_frequency: 'one-time', customer_name: 'Desnuda', delivery_date: d(TOMORROW),
-    message_count: 1, channel: 'sms', created_at: ago(45),
-    message_preview: 'Desnuda\n1 large cilantro\n1 large Tokyo\n1 large Thai basil',
-    message_full: 'Desnuda\n1 large cilantro\n1 large Tokyo\n1 large Thai basil',
+    id: 'prop-4', intake_event_id: 'intake-4', order_id: null, action: 'create',
+    order_frequency: 'one-time', customer_name: '71001', delivery_date: '2026-02-23',
+    message_count: 1, channel: 'email', created_at: ago(10),
+    message_preview: 'Bennett,\n\nAttached is Purchase Order for Farm #2006546.\n\nItem: Mini Carn Rainbow\nQty: 40\nBox: HB, Pack: 26, Stems: 17680\nFarm Ship: 04/17/2026\nCustomer PO: 329026\nUnit Cost: $3.57\nTotal: $3,712.80\n\nFarm: Farm Export Co\nClient: 71001',
+    message_full: 'Bennett,\n\nAttached is Purchase Order for Farm #2006546.\n\nItem: Mini Carn Rainbow\nQty: 40\nBox: HB, Pack: 26, Stems: 17680\nFarm Ship: 04/17/2026\nCustomer PO: 329026\nUnit Cost: $3.57\nTotal: $3,712.80\n\nFarm: Farm Export Co\nClient: 71001',
+    message_html: '<p>Bennett,</p><p>Attached is Purchase Order for Farm #2006546.</p><p>Item: Mini Carn Rainbow<br/>Qty: 40<br/>Box: HB, Pack: 26, Stems: 17680<br/>Farm Ship: 04/17/2026<br/>Customer PO: 329026<br/>Unit Cost: $3.57<br/>Total: $3,712.80</p><p>Farm: Farm Export Co<br/>Client: 71001</p>',
+    sender: 'Purchasing <purchasing@farmexport.co>', subject: 'Farm PO #2006546 — Mini Carn Rainbow', email_date: ago(10),
     lines: [
-      { id: 'l-6a', change_type: 'add', item_name: 'Cilantro', size: 'Large', quantity: 1 },
-      { id: 'l-6b', change_type: 'add', item_name: 'Tokyo Onion', size: 'Large', quantity: 1 },
-      { id: 'l-6c', change_type: 'add', item_name: 'Basil, Thai', size: 'Large', quantity: 1 },
+      { id: 'l-4a', change_type: 'add', item_name: 'Mini Carn Rainbow', size: 'Large', quantity: 40 },
     ],
-    timeline: mkTl('t6', 45, 'sms', 'Desnuda\n1 large cilantro\n1 large Tokyo\n1 large Thai basil', 'Desnuda'),
-  },
-
-  // ━━━ TWO-ACTION COMBOS ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-  // 7. CREATE + CREATE (two dates)
-  ...[
-    { id: 'prop-7a', date: d(TOMORROW), lines: [
-      { id: 'l-7a1', change_type: 'add' as const, item_name: 'Pea Shoots', size: 'Small', quantity: 3 },
-      { id: 'l-7a2', change_type: 'add' as const, item_name: 'Sunflower', size: 'Small', quantity: 2 },
-    ]},
-    { id: 'prop-7b', date: d(DAY_AFTER), lines: [
-      { id: 'l-7b1', change_type: 'add' as const, item_name: 'Arugula, Astro', size: 'Large', quantity: 4 },
-      { id: 'l-7b2', change_type: 'add' as const, item_name: 'Sorrel, Red Veined', size: 'Small', quantity: 1 },
-    ]},
-  ].map(p => ({
-    ...p, intake_event_id: 'intake-7', order_id: null, action: 'create' as const,
-    order_frequency: 'one-time' as const, customer_name: 'Oleana', delivery_date: p.date,
-    message_count: 1, channel: 'sms' as const, created_at: ago(8),
-    message_preview: 'Hey Bennett! For Tuesday 3 pea shoots sm, 2 sunflower sm. Thursday 4 arugula lg, 1 sorrel sm. Thanks!',
-    message_full: 'Hey Bennett! For Tuesday 3 pea shoots sm, 2 sunflower sm. Thursday 4 arugula lg, 1 sorrel sm. Thanks!',
-    timeline: mkTl('t7', 8, 'sms', 'Hey Bennett! For Tuesday 3 pea shoots sm, 2 sunflower sm. Thursday 4 arugula lg, 1 sorrel sm. Thanks!', 'Oleana'),
-  })),
-
-  // 8. CREATE + ASSIGN (new order Tue + modify existing Thu)
-  {
-    id: 'prop-8a', intake_event_id: 'intake-8', order_id: null, action: 'create',
-    order_frequency: 'one-time', customer_name: 'Mamma Maria', delivery_date: d(TOMORROW),
-    message_count: 1, channel: 'email', created_at: ago(12),
-    message_preview: 'Hi Bennett,\nTuesday: new order — 3 sm cilantro, 2 lg genovese, 1 sm borage.\nThursday: change arugula from 2→4, add 1 lg shiso.\nThanks, Marco',
-    message_full: 'Hi Bennett,\nTuesday: new order — 3 sm cilantro, 2 lg genovese, 1 sm borage.\nThursday: change arugula from 2→4, add 1 lg shiso.\nThanks, Marco',
-    message_html: '<p>Hi Bennett,</p><p>Tuesday: new order &mdash; 3 sm cilantro, 2 lg genovese, 1 sm borage.</p><p>Thursday: change arugula from 2&rarr;4, add 1 lg shiso.</p><p>Thanks, Marco</p>',
-    sender: 'Marco <chef@mammamaria.com>', subject: 'Orders for this week', email_date: ago(12),
-    lines: [
-      { id: 'l-8a1', change_type: 'add', item_name: 'Cilantro', size: 'Small', quantity: 3 },
-      { id: 'l-8a2', change_type: 'add', item_name: 'Basil, Genovese', size: 'Large', quantity: 2 },
-      { id: 'l-8a3', change_type: 'add', item_name: 'Borage', size: 'Small', quantity: 1 },
-    ],
-    timeline: mkTl('t8', 12, 'email', 'Tuesday: new order. Thursday: modify existing.', 'Marco <chef@mammamaria.com>', 'Orders for this week'),
+    timeline: mkTl('t4', 10, 'email', 'Attached is Purchase Order for Farm #2006546. Mini Carn Rainbow, Qty: 40. Total: $3,712.80', 'Purchasing <purchasing@farmexport.co>', 'Farm PO #2006546 — Mini Carn Rainbow'),
     attachments: [
-      { id: 'mock-att-8a', filename: 'farm_PO_2006546.png', extension: 'png', mime_type: 'image/png', size_bytes: 46083, storage_path: '/demo/1622.png', processing_status: 'completed' },
-      { id: 'mock-att-8b', filename: 'novelty_mini_carnations_order.png', extension: 'png', mime_type: 'image/png', size_bytes: 30218, storage_path: '/demo/15266.png', processing_status: 'completed' },
-      { id: 'mock-att-8c', filename: 'line_items_detail.xlsx', extension: 'xlsx', mime_type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', size_bytes: 13122, storage_path: '/demo/865.xlsx', processing_status: 'completed' },
+      { id: 'att-4a', filename: 'farm_PO_2006546.png', extension: 'png', mime_type: 'image/png', size_bytes: 46083, storage_path: '/demo/1622.png', processing_status: 'completed' },
     ],
   },
+
+  // 5. Email order — Line items detail spreadsheet (865.xlsx)
   {
-    id: 'prop-8b', intake_event_id: 'intake-8', order_id: 'fri-oceanaire', action: 'assign',
-    order_frequency: 'one-time', customer_name: 'Mamma Maria', delivery_date: d(DAY_AFTER),
-    message_count: 1, channel: 'email', created_at: ago(12),
-    message_preview: 'Hi Bennett,\nTuesday: new order — 3 sm cilantro, 2 lg genovese, 1 sm borage.\nThursday: change arugula from 2→4, add 1 lg shiso.\nThanks, Marco',
-    message_full: 'Hi Bennett,\nTuesday: new order — 3 sm cilantro, 2 lg genovese, 1 sm borage.\nThursday: change arugula from 2→4, add 1 lg shiso.\nThanks, Marco',
-    message_html: '<p>Hi Bennett,</p><p>Tuesday: new order &mdash; 3 sm cilantro, 2 lg genovese, 1 sm borage.</p><p>Thursday: change arugula from 2&rarr;4, add 1 lg shiso.</p><p>Thanks, Marco</p>',
-    sender: 'Marco <chef@mammamaria.com>', subject: 'Orders for this week', email_date: ago(12),
+    id: 'prop-5', intake_event_id: 'intake-5', order_id: null, action: 'create',
+    order_frequency: 'one-time', customer_name: 'Bloom Distribution', delivery_date: '2026-01-15',
+    message_count: 1, channel: 'email', created_at: ago(5),
+    message_preview: '---------- Forwarded message ---------\nFrom: Konstantin Nople <konstantin.nople@gmail.com>\nSubject: Weekly Order -- Line Items Attached\nTo: Gaotion <gaotioncapital@gmail.com>\n\nHi Bennett,\n\nAttached is our weekly line items breakdown for this week. Please review quantities and confirm.\n\nLet me know if anything needs adjusting.\n\nBest,\nBloom Distribution',
+    message_full: '---------- Forwarded message ---------\nFrom: Konstantin Nople <konstantin.nople@gmail.com>\nSubject: Weekly Order -- Line Items Attached\nTo: Gaotion <gaotioncapital@gmail.com>\n\nHi Bennett,\n\nAttached is our weekly line items breakdown for this week. Please review quantities and confirm.\n\nLet me know if anything needs adjusting.\n\nBest,\nBloom Distribution',
+    message_html: '<p>---------- Forwarded message ---------<br/>From: Konstantin Nople &lt;konstantin.nople@gmail.com&gt;<br/>Subject: Weekly Order -- Line Items Attached<br/>To: Gaotion &lt;gaotioncapital@gmail.com&gt;</p><hr/><p>Hi Bennett,</p><p>Attached is our weekly line items breakdown for this week. Please review quantities and confirm.</p><p>Let me know if anything needs adjusting.</p><p>Best,<br/>Bloom Distribution</p>',
+    sender: 'Orders <gaotioncapital@gmail.com>', subject: 'Weekly Order — Line Items Attached', email_date: ago(5),
     lines: [
-      { id: 'l-8b1', change_type: 'modify', item_name: 'Arugula, Astro', size: 'Large', quantity: 4, original_quantity: 2 },
-      { id: 'l-8b2', change_type: 'add', item_name: 'Shiso, Green', size: 'Large', quantity: 1 },
+      // Carnations
+      { id: 'l-5-c01', change_type: 'add', item_name: 'Moonlight', size: 'S', quantity: 3 },
+      { id: 'l-5-c02', change_type: 'add', item_name: 'Olympia', size: 'S', quantity: 3 },
+      { id: 'l-5-c03', change_type: 'add', item_name: 'Polar Route', size: 'S', quantity: 3 },
+      { id: 'l-5-c04', change_type: 'add', item_name: 'Damascus', size: 'S', quantity: 3 },
+      { id: 'l-5-c05', change_type: 'add', item_name: 'Kino', size: 'S', quantity: 2 },
+      { id: 'l-5-c06', change_type: 'add', item_name: 'Zurigo', size: 'S', quantity: 3 },
+      { id: 'l-5-c07', change_type: 'add', item_name: 'Zeppelin', size: 'S', quantity: 10 },
+      { id: 'l-5-c08', change_type: 'add', item_name: 'Zafiro', size: 'S', quantity: 3 },
+      { id: 'l-5-c09', change_type: 'add', item_name: 'Mwetalica', size: 'S', quantity: 2 },
+      { id: 'l-5-c10', change_type: 'add', item_name: 'Clearwater', size: 'S', quantity: 4 },
+      { id: 'l-5-c11', change_type: 'add', item_name: 'Farida', size: 'S', quantity: 2 },
+      { id: 'l-5-c12', change_type: 'add', item_name: 'Antigua', size: 'S', quantity: 1 },
+      { id: 'l-5-c13', change_type: 'add', item_name: 'Don Pedro', size: 'S', quantity: 8 },
+      { id: 'l-5-c14', change_type: 'add', item_name: 'Lege Pink', size: 'S', quantity: 3 },
+      { id: 'l-5-c15', change_type: 'add', item_name: 'Zenith', size: 'S', quantity: 3 },
+      { id: 'l-5-c16', change_type: 'add', item_name: 'Verona', size: 'S', quantity: 4 },
+      { id: 'l-5-c17', change_type: 'add', item_name: 'Doncel', size: 'S', quantity: 10 },
+      { id: 'l-5-c18', change_type: 'add', item_name: 'Orange Flame', size: 'S', quantity: 2 },
+      { id: 'l-5-c19', change_type: 'add', item_name: 'Brut', size: 'S', quantity: 4 },
+      { id: 'l-5-c20', change_type: 'add', item_name: 'Novia / Lizzy', size: 'S', quantity: 2 },
+      { id: 'l-5-c21', change_type: 'add', item_name: 'Caroline Gold', size: 'S', quantity: 2 },
+      { id: 'l-5-c22', change_type: 'add', item_name: 'Lege Marone', size: 'S', quantity: 2 },
+      { id: 'l-5-c23', change_type: 'add', item_name: 'Spritz', size: 'S', quantity: 2 },
+      { id: 'l-5-c24', change_type: 'add', item_name: 'Halo', size: 'S', quantity: 4 },
+      { id: 'l-5-c25', change_type: 'add', item_name: 'Polimnia', size: 'S', quantity: 2 },
+      { id: 'l-5-c26', change_type: 'add', item_name: 'Diletta', size: 'S', quantity: 1 },
+      { id: 'l-5-c27', change_type: 'add', item_name: 'Gobi', size: 'S', quantity: 3 },
+      { id: 'l-5-c28', change_type: 'add', item_name: 'Greenshot', size: 'S', quantity: 3 },
+      { id: 'l-5-c29', change_type: 'add', item_name: 'Yucari Violet', size: 'S', quantity: 1 },
+      // Mini Carnations
+      { id: 'l-5-m01', change_type: 'add', item_name: 'Aragon', size: 'S', quantity: 6 },
+      { id: 'l-5-m02', change_type: 'add', item_name: 'Nimbus Select', size: 'S', quantity: 5 },
+      { id: 'l-5-m03', change_type: 'add', item_name: 'Chateux', size: 'S', quantity: 4 },
+      { id: 'l-5-m04', change_type: 'add', item_name: 'Pigeon', size: 'S', quantity: 5 },
+      { id: 'l-5-m05', change_type: 'add', item_name: 'Lorenzo', size: 'S', quantity: 0 },
+      { id: 'l-5-m06', change_type: 'add', item_name: 'Nenufar', size: 'S', quantity: 6 },
+      { id: 'l-5-m07', change_type: 'add', item_name: 'Mocha Sweet', size: 'S', quantity: 2 },
+      { id: 'l-5-m08', change_type: 'add', item_name: 'Epsilon', size: 'S', quantity: 2 },
+      { id: 'l-5-m09', change_type: 'add', item_name: 'Atlantis', size: 'S', quantity: 2 },
+      { id: 'l-5-m10', change_type: 'add', item_name: 'Lava', size: 'S', quantity: 4 },
+      { id: 'l-5-m11', change_type: 'add', item_name: 'Tuna', size: 'S', quantity: 4 },
+      { id: 'l-5-m12', change_type: 'add', item_name: 'Tuparo', size: 'S', quantity: 3 },
+      { id: 'l-5-m13', change_type: 'add', item_name: 'Valentine', size: 'S', quantity: 4 },
+      { id: 'l-5-m14', change_type: 'add', item_name: 'Academy', size: 'S', quantity: 10 },
+      { id: 'l-5-m15', change_type: 'add', item_name: 'Zagara', size: 'S', quantity: 4 },
+      { id: 'l-5-m16', change_type: 'add', item_name: 'Dino', size: 'S', quantity: 1 },
+      { id: 'l-5-m17', change_type: 'add', item_name: 'Cesar', size: 'S', quantity: 1 },
+      { id: 'l-5-m18', change_type: 'add', item_name: 'Kumquat', size: 'S', quantity: 2 },
     ],
-    timeline: mkTl('t8b', 12, 'email', 'Tuesday: new order. Thursday: modify existing.', 'Marco <chef@mammamaria.com>', 'Orders for this week'),
+    timeline: mkTl('t5', 5, 'email', 'Attached is our weekly line items breakdown for this week. Please review quantities and confirm.', 'Orders <gaotioncapital@gmail.com>', 'Weekly Order — Line Items Attached'),
     attachments: [
-      { id: 'mock-att-8a', filename: 'farm_PO_2006546.png', extension: 'png', mime_type: 'image/png', size_bytes: 46083, storage_path: '/demo/1622.png', processing_status: 'completed' },
-      { id: 'mock-att-8b', filename: 'novelty_mini_carnations_order.png', extension: 'png', mime_type: 'image/png', size_bytes: 30218, storage_path: '/demo/15266.png', processing_status: 'completed' },
-      { id: 'mock-att-8c', filename: 'line_items_detail.xlsx', extension: 'xlsx', mime_type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', size_bytes: 13122, storage_path: '/demo/865.xlsx', processing_status: 'completed' },
+      { id: 'att-5a', filename: 'line_items_detail.xlsx', extension: 'xlsx', mime_type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', size_bytes: 13122, storage_path: '/demo/865.xlsx', processing_status: 'completed' },
     ],
   },
 
-  // 9. CREATE + UNDETERMINED (parsed one date, couldn't parse the other)
+  // 6. SMS modify — Flores del Valle texts to change quantities on order-4
   {
-    id: 'prop-9a', intake_event_id: 'intake-9', order_id: null, action: 'create',
-    customer_name: 'Row 34', delivery_date: d(TOMORROW),
-    message_count: 1, channel: 'sms', created_at: ago(25),
-    message_preview: 'For Tuesday: 2 sm pea shoots, 1 lg Tokyo onion. For Thursday the usual please.',
-    message_full: 'For Tuesday: 2 sm pea shoots, 1 lg Tokyo onion. For Thursday the usual please.',
+    id: 'prop-6', intake_event_id: 'intake-6', order_id: 'order-4', action: 'assign',
+    order_frequency: 'one-time', customer_name: 'Flores del Valle', delivery_date: d(DAY_AFTER),
+    message_count: 1, channel: 'sms', created_at: ago(120),
+    message_preview: 'Hey Bennett, can you bump the Moonlight up to 15 and drop the Don Pedro to 2? Also add 4 boxes of Farida. Thanks!',
+    message_full: 'Hey Bennett, can you bump the Moonlight up to 15 and drop the Don Pedro to 2? Also add 4 boxes of Farida. Thanks!',
+    sender: '+57 310 555 4422',
     lines: [
-      { id: 'l-9a1', change_type: 'add', item_name: 'Pea Shoots', size: 'Small', quantity: 2 },
-      { id: 'l-9a2', change_type: 'add', item_name: 'Tokyo Onion', size: 'Large', quantity: 1 },
+      { id: 'l-6a', change_type: 'modify', item_name: 'Moonlight', size: 'S', quantity: 15, original_quantity: 10, original_size: 'S' },
+      { id: 'l-6b', change_type: 'modify', item_name: 'Don Pedro', size: 'S', quantity: 2, original_quantity: 5, original_size: 'S' },
+      { id: 'l-6c', change_type: 'add', item_name: 'Farida', size: 'S', quantity: 4 },
     ],
-    timeline: mkTl('t9', 25, 'sms', 'For Tuesday: 2 sm pea shoots, 1 lg Tokyo onion. For Thursday the usual please.', 'Row 34'),
-  },
-  {
-    id: 'prop-9b', intake_event_id: 'intake-9', order_id: null, action: 'undetermined',
-    customer_name: 'Row 34', delivery_date: d(DAY_AFTER),
-    message_count: 1, channel: 'sms', created_at: ago(25),
-    message_preview: 'For Tuesday: 2 sm pea shoots, 1 lg Tokyo onion. For Thursday the usual please.',
-    message_full: 'For Tuesday: 2 sm pea shoots, 1 lg Tokyo onion. For Thursday the usual please.',
-    lines: [],
-    timeline: mkTl('t9b', 25, 'sms', 'For Tuesday: 2 sm pea shoots, 1 lg Tokyo onion. For Thursday the usual please.', 'Row 34'),
+    timeline: [
+      { id: 't6-msg', type: 'communication', timestamp: ago(120), channel: 'sms', content: 'Hey Bennett, can you bump the Moonlight up to 15 and drop the Don Pedro to 2? Also add 4 boxes of Farida. Thanks!', from: '+57 310 555 4422' },
+      { id: 't6-ai', type: 'event', timestamp: ago(119), eventType: 'ai_analysis' },
+    ],
+    attachments: [],
   },
 
-  // 10. CANCEL + CREATE (cancel one day, new order another)
-  {
-    id: 'prop-10a', intake_event_id: 'intake-10', order_id: 'fri-bistro', action: 'assign',
-    order_frequency: 'one-time', customer_name: 'Neptune Oyster', delivery_date: d(TOMORROW),
-    message_count: 1, channel: 'sms', created_at: ago(7),
-    message_preview: 'Hey cancel our Tuesday order please, kitchen flood. But we still need Thursday: 3 lg basil, 2 sm sorrel, 1 lg cilantro.',
-    message_full: 'Hey cancel our Tuesday order please, kitchen flood. But we still need Thursday: 3 lg basil, 2 sm sorrel, 1 lg cilantro.',
-    tags: { intent: 'cancel_order' }, lines: [],
-    timeline: mkTl('t10', 7, 'sms', 'Hey cancel our Tuesday order please, kitchen flood. But we still need Thursday: 3 lg basil, 2 sm sorrel, 1 lg cilantro.', 'Neptune Oyster'),
-  },
-  {
-    id: 'prop-10b', intake_event_id: 'intake-10', order_id: null, action: 'create',
-    order_frequency: 'one-time', customer_name: 'Neptune Oyster', delivery_date: d(DAY_AFTER),
-    message_count: 1, channel: 'sms', created_at: ago(7),
-    message_preview: 'Hey cancel our Tuesday order please, kitchen flood. But we still need Thursday: 3 lg basil, 2 sm sorrel, 1 lg cilantro.',
-    message_full: 'Hey cancel our Tuesday order please, kitchen flood. But we still need Thursday: 3 lg basil, 2 sm sorrel, 1 lg cilantro.',
-    lines: [
-      { id: 'l-10b1', change_type: 'add', item_name: 'Basil, Genovese', size: 'Large', quantity: 3 },
-      { id: 'l-10b2', change_type: 'add', item_name: 'Sorrel, Red Veined', size: 'Small', quantity: 2 },
-      { id: 'l-10b3', change_type: 'add', item_name: 'Cilantro', size: 'Large', quantity: 1 },
-    ],
-    timeline: mkTl('t10b', 7, 'sms', 'Hey cancel our Tuesday order please, kitchen flood. But we still need Thursday: 3 lg basil, 2 sm sorrel, 1 lg cilantro.', 'Neptune Oyster'),
-  },
-
-  // 11. ASSIGN + ASSIGN (modify two different existing orders from one email)
-  {
-    id: 'prop-11a', intake_event_id: 'intake-11', order_id: 'fri-bistro', action: 'assign',
-    order_frequency: 'one-time', customer_name: 'Island Creek Oyster Bar', delivery_date: d(TOMORROW),
-    message_count: 1, channel: 'email', created_at: ago(18),
-    message_preview: 'Bennett — Tue order: swap cilantro for parsley, keep everything else. Thu order: double the arugula and add 2 sm borage. Thanks!',
-    message_full: 'Bennett — Tue order: swap cilantro for parsley, keep everything else. Thu order: double the arugula and add 2 sm borage. Thanks!',
-    sender: 'ICOB <orders@islandcreek.com>', subject: 'Order updates this week', email_date: ago(18),
-    lines: [
-      { id: 'l-11a1', change_type: 'remove', item_name: 'Cilantro', size: 'Small', quantity: 2 },
-      { id: 'l-11a2', change_type: 'add', item_name: 'Parsley, Italian', size: 'Small', quantity: 2 },
-    ],
-    timeline: mkTl('t11', 18, 'email', 'Tue order: swap cilantro for parsley. Thu order: double arugula, add borage.', 'ICOB <orders@islandcreek.com>', 'Order updates this week'),
-  },
-  {
-    id: 'prop-11b', intake_event_id: 'intake-11', order_id: 'fri-capo', action: 'assign',
-    order_frequency: 'one-time', customer_name: 'Island Creek Oyster Bar', delivery_date: d(DAY_AFTER),
-    message_count: 1, channel: 'email', created_at: ago(18),
-    message_preview: 'Bennett — Tue order: swap cilantro for parsley, keep everything else. Thu order: double the arugula and add 2 sm borage. Thanks!',
-    message_full: 'Bennett — Tue order: swap cilantro for parsley, keep everything else. Thu order: double the arugula and add 2 sm borage. Thanks!',
-    sender: 'ICOB <orders@islandcreek.com>', subject: 'Order updates this week', email_date: ago(18),
-    lines: [
-      { id: 'l-11b1', change_type: 'modify', item_name: 'Arugula, Astro', size: 'Large', quantity: 4, original_quantity: 2 },
-      { id: 'l-11b2', change_type: 'add', item_name: 'Borage', size: 'Small', quantity: 2 },
-    ],
-    timeline: mkTl('t11b', 18, 'email', 'Tue order: swap cilantro for parsley. Thu order: double arugula, add borage.', 'ICOB <orders@islandcreek.com>', 'Order updates this week'),
-  },
-
-  // ━━━ BIG MULTI-ACTION COMBOS ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-  // 12. CANCEL + CREATE + ASSIGN (three actions from one long email)
-  {
-    id: 'prop-12a', intake_event_id: 'intake-12', order_id: 'fri-oceanaire', action: 'assign',
-    order_frequency: 'one-time', customer_name: 'Toro', delivery_date: d(TOMORROW),
-    message_count: 1, channel: 'email', created_at: ago(3),
-    message_preview: 'Hi Bennett,\n\nCancel Monday order — we\'re closed.\nTuesday: modify arugula 2→5, remove sunflower.\nWednesday: new order — 4 lg cilantro, 2 sm pea shoots, 3 lg basil genovese.\n\nThanks!',
-    message_full: 'Hi Bennett,\n\nCancel Monday order — we\'re closed.\nTuesday: modify arugula 2→5, remove sunflower.\nWednesday: new order — 4 lg cilantro, 2 sm pea shoots, 3 lg basil genovese.\n\nThanks!',
-    message_html: '<p>Hi Bennett,</p><p>Cancel Monday order &mdash; we\'re closed.<br/>Tuesday: modify arugula 2&rarr;5, remove sunflower.<br/>Wednesday: new order &mdash; 4 lg cilantro, 2 sm pea shoots, 3 lg basil genovese.</p><p>Thanks!</p>',
-    sender: 'Toro <chef@toro-restaurant.com>', subject: 'This week\'s changes', email_date: ago(3),
-    tags: { intent: 'cancel_order' }, lines: [],
-    timeline: mkTl('t12', 3, 'email', 'Cancel Monday. Modify Tuesday. New order Wednesday.', 'Toro <chef@toro-restaurant.com>', 'This week\'s changes'),
-  },
-  {
-    id: 'prop-12b', intake_event_id: 'intake-12', order_id: 'fri-bistro', action: 'assign',
-    order_frequency: 'one-time', customer_name: 'Toro', delivery_date: d(DAY_AFTER),
-    message_count: 1, channel: 'email', created_at: ago(3),
-    message_preview: 'Hi Bennett,\n\nCancel Monday order — we\'re closed.\nTuesday: modify arugula 2→5, remove sunflower.\nWednesday: new order — 4 lg cilantro, 2 sm pea shoots, 3 lg basil genovese.\n\nThanks!',
-    message_full: 'Hi Bennett,\n\nCancel Monday order — we\'re closed.\nTuesday: modify arugula 2→5, remove sunflower.\nWednesday: new order — 4 lg cilantro, 2 sm pea shoots, 3 lg basil genovese.\n\nThanks!',
-    sender: 'Toro <chef@toro-restaurant.com>', subject: 'This week\'s changes', email_date: ago(3),
-    lines: [
-      { id: 'l-12b1', change_type: 'modify', item_name: 'Arugula, Astro', size: 'Large', quantity: 5, original_quantity: 2 },
-      { id: 'l-12b2', change_type: 'remove', item_name: 'Sunflower', size: 'Small', quantity: 1 },
-    ],
-    timeline: mkTl('t12b', 3, 'email', 'Cancel Monday. Modify Tuesday. New order Wednesday.', 'Toro <chef@toro-restaurant.com>', 'This week\'s changes'),
-  },
-  {
-    id: 'prop-12c', intake_event_id: 'intake-12', order_id: null, action: 'create',
-    order_frequency: 'one-time', customer_name: 'Toro', delivery_date: d(DAY_3),
-    message_count: 1, channel: 'email', created_at: ago(3),
-    message_preview: 'Hi Bennett,\n\nCancel Monday order — we\'re closed.\nTuesday: modify arugula 2→5, remove sunflower.\nWednesday: new order — 4 lg cilantro, 2 sm pea shoots, 3 lg basil genovese.\n\nThanks!',
-    message_full: 'Hi Bennett,\n\nCancel Monday order — we\'re closed.\nTuesday: modify arugula 2→5, remove sunflower.\nWednesday: new order — 4 lg cilantro, 2 sm pea shoots, 3 lg basil genovese.\n\nThanks!',
-    sender: 'Toro <chef@toro-restaurant.com>', subject: 'This week\'s changes', email_date: ago(3),
-    lines: [
-      { id: 'l-12c1', change_type: 'add', item_name: 'Cilantro', size: 'Large', quantity: 4 },
-      { id: 'l-12c2', change_type: 'add', item_name: 'Pea Shoots', size: 'Small', quantity: 2 },
-      { id: 'l-12c3', change_type: 'add', item_name: 'Basil, Genovese', size: 'Large', quantity: 3 },
-    ],
-    timeline: mkTl('t12c', 3, 'email', 'Cancel Monday. Modify Tuesday. New order Wednesday.', 'Toro <chef@toro-restaurant.com>', 'This week\'s changes'),
-  },
-
-  // 13. CREATE + CREATE + CREATE (three-date weekly order from one SMS)
-  ...[
-    { id: 'prop-13a', date: d(TOMORROW), lines: [
-      { id: 'l-13a1', change_type: 'add' as const, item_name: 'Cilantro', size: 'Small', quantity: 2 },
-      { id: 'l-13a2', change_type: 'add' as const, item_name: 'Sunflower', size: 'Large', quantity: 1 },
-    ]},
-    { id: 'prop-13b', date: d(DAY_3), lines: [
-      { id: 'l-13b1', change_type: 'add' as const, item_name: 'Pea Shoots', size: 'Small', quantity: 3 },
-      { id: 'l-13b2', change_type: 'add' as const, item_name: 'Arugula, Astro', size: 'Large', quantity: 2 },
-    ]},
-    { id: 'prop-13c', date: d(FEB_3), lines: [
-      { id: 'l-13c1', change_type: 'add' as const, item_name: 'Borage', size: 'Small', quantity: 1 },
-      { id: 'l-13c2', change_type: 'add' as const, item_name: 'Basil, Genovese', size: 'Large', quantity: 4 },
-      { id: 'l-13c3', change_type: 'add' as const, item_name: 'Shiso, Green', size: 'Small', quantity: 2 },
-    ]},
-  ].map(p => ({
-    ...p, intake_event_id: 'intake-13', order_id: null, action: 'create' as const,
-    order_frequency: 'one-time' as const, customer_name: 'Legal Sea Foods', delivery_date: p.date,
-    message_count: 1, channel: 'sms' as const, created_at: ago(20),
-    message_preview: 'Order for this week:\nMon: 2 sm cilantro, 1 lg sunflower\nWed: 3 sm pea shoots, 2 lg arugula\nFri: 1 sm borage, 4 lg genovese, 2 sm shiso',
-    message_full: 'Order for this week:\nMon: 2 sm cilantro, 1 lg sunflower\nWed: 3 sm pea shoots, 2 lg arugula\nFri: 1 sm borage, 4 lg genovese, 2 sm shiso',
-    timeline: mkTl('t13', 20, 'sms', 'Order for this week:\nMon: 2 sm cilantro, 1 lg sunflower\nWed: 3 sm pea shoots, 2 lg arugula\nFri: 1 sm borage, 4 lg genovese, 2 sm shiso', 'Legal Sea Foods'),
-  })),
-
-  // 14. CREATE + CANCEL + CREATE + ASSIGN (four actions, one email — the big one)
-  {
-    id: 'prop-14a', intake_event_id: 'intake-14', order_id: null, action: 'create',
-    order_frequency: 'one-time', customer_name: 'Sarma', delivery_date: d(TOMORROW),
-    message_count: 1, channel: 'email', created_at: ago(1),
-    message_preview: 'Bennett, big week ahead:\n1) Mon new order: 5 sm cilantro, 3 lg sunflower, 2 sm pea shoots\n2) Tue: CANCEL — closed for private event\n3) Wed new order: 2 lg basil thai, 1 sm borage, 4 lg arugula\n4) Thu: change shiso from 1→3, add 2 lg sorrel to existing\nThanks!',
-    message_full: 'Bennett, big week ahead:\n1) Mon new order: 5 sm cilantro, 3 lg sunflower, 2 sm pea shoots\n2) Tue: CANCEL — closed for private event\n3) Wed new order: 2 lg basil thai, 1 sm borage, 4 lg arugula\n4) Thu: change shiso from 1→3, add 2 lg sorrel to existing\nThanks!',
-    message_html: '<p>Bennett, big week ahead:</p><ol><li>Mon new order: 5 sm cilantro, 3 lg sunflower, 2 sm pea shoots</li><li>Tue: <b>CANCEL</b> &mdash; closed for private event</li><li>Wed new order: 2 lg basil thai, 1 sm borage, 4 lg arugula</li><li>Thu: change shiso from 1&rarr;3, add 2 lg sorrel to existing</li></ol><p>Thanks!</p>',
-    sender: 'Sarma <chef@sarmarestaurant.com>', subject: 'Full week order changes', email_date: ago(1),
-    lines: [
-      { id: 'l-14a1', change_type: 'add', item_name: 'Cilantro', size: 'Small', quantity: 5 },
-      { id: 'l-14a2', change_type: 'add', item_name: 'Sunflower', size: 'Large', quantity: 3 },
-      { id: 'l-14a3', change_type: 'add', item_name: 'Pea Shoots', size: 'Small', quantity: 2 },
-    ],
-    timeline: mkTl('t14', 1, 'email', 'Mon: new order. Tue: cancel. Wed: new order. Thu: modify existing.', 'Sarma <chef@sarmarestaurant.com>', 'Full week order changes'),
-    attachments: [
-      { id: 'mock-att-14a', filename: 'farm_PO_2006546.png', extension: 'png', mime_type: 'image/png', size_bytes: 46083, storage_path: '/demo/1622.png', processing_status: 'completed' },
-      { id: 'mock-att-14b', filename: 'novelty_mini_carnations_order.png', extension: 'png', mime_type: 'image/png', size_bytes: 30218, storage_path: '/demo/15266.png', processing_status: 'completed' },
-    ],
-  },
-  {
-    id: 'prop-14b', intake_event_id: 'intake-14', order_id: 'fri-capo', action: 'assign',
-    order_frequency: 'one-time', customer_name: 'Sarma', delivery_date: d(DAY_AFTER),
-    message_count: 1, channel: 'email', created_at: ago(1),
-    message_preview: 'Bennett, big week ahead:\n1) Mon new order: 5 sm cilantro, 3 lg sunflower, 2 sm pea shoots\n2) Tue: CANCEL — closed for private event\n3) Wed new order: 2 lg basil thai, 1 sm borage, 4 lg arugula\n4) Thu: change shiso from 1→3, add 2 lg sorrel to existing\nThanks!',
-    message_full: 'Bennett, big week ahead:\n1) Mon new order: 5 sm cilantro, 3 lg sunflower, 2 sm pea shoots\n2) Tue: CANCEL — closed for private event\n3) Wed new order: 2 lg basil thai, 1 sm borage, 4 lg arugula\n4) Thu: change shiso from 1→3, add 2 lg sorrel to existing\nThanks!',
-    sender: 'Sarma <chef@sarmarestaurant.com>', subject: 'Full week order changes', email_date: ago(1),
-    tags: { intent: 'cancel_order' }, lines: [],
-    timeline: mkTl('t14b', 1, 'email', 'Mon: new order. Tue: cancel. Wed: new order. Thu: modify existing.', 'Sarma <chef@sarmarestaurant.com>', 'Full week order changes'),
-  },
-  {
-    id: 'prop-14c', intake_event_id: 'intake-14', order_id: null, action: 'create',
-    order_frequency: 'one-time', customer_name: 'Sarma', delivery_date: d(DAY_3),
-    message_count: 1, channel: 'email', created_at: ago(1),
-    message_preview: 'Bennett, big week ahead:\n1) Mon new order: 5 sm cilantro, 3 lg sunflower, 2 sm pea shoots\n2) Tue: CANCEL — closed for private event\n3) Wed new order: 2 lg basil thai, 1 sm borage, 4 lg arugula\n4) Thu: change shiso from 1→3, add 2 lg sorrel to existing\nThanks!',
-    message_full: 'Bennett, big week ahead:\n1) Mon new order: 5 sm cilantro, 3 lg sunflower, 2 sm pea shoots\n2) Tue: CANCEL — closed for private event\n3) Wed new order: 2 lg basil thai, 1 sm borage, 4 lg arugula\n4) Thu: change shiso from 1→3, add 2 lg sorrel to existing\nThanks!',
-    sender: 'Sarma <chef@sarmarestaurant.com>', subject: 'Full week order changes', email_date: ago(1),
-    lines: [
-      { id: 'l-14c1', change_type: 'add', item_name: 'Basil, Thai', size: 'Large', quantity: 2 },
-      { id: 'l-14c2', change_type: 'add', item_name: 'Borage', size: 'Small', quantity: 1 },
-      { id: 'l-14c3', change_type: 'add', item_name: 'Arugula, Astro', size: 'Large', quantity: 4 },
-    ],
-    timeline: mkTl('t14c', 1, 'email', 'Mon: new order. Tue: cancel. Wed: new order. Thu: modify existing.', 'Sarma <chef@sarmarestaurant.com>', 'Full week order changes'),
-  },
-  {
-    id: 'prop-14d', intake_event_id: 'intake-14', order_id: 'fri-oceanaire', action: 'assign',
-    order_frequency: 'one-time', customer_name: 'Sarma', delivery_date: d(DAY_4),
-    message_count: 1, channel: 'email', created_at: ago(1),
-    message_preview: 'Bennett, big week ahead:\n1) Mon new order: 5 sm cilantro, 3 lg sunflower, 2 sm pea shoots\n2) Tue: CANCEL — closed for private event\n3) Wed new order: 2 lg basil thai, 1 sm borage, 4 lg arugula\n4) Thu: change shiso from 1→3, add 2 lg sorrel to existing\nThanks!',
-    message_full: 'Bennett, big week ahead:\n1) Mon new order: 5 sm cilantro, 3 lg sunflower, 2 sm pea shoots\n2) Tue: CANCEL — closed for private event\n3) Wed new order: 2 lg basil thai, 1 sm borage, 4 lg arugula\n4) Thu: change shiso from 1→3, add 2 lg sorrel to existing\nThanks!',
-    sender: 'Sarma <chef@sarmarestaurant.com>', subject: 'Full week order changes', email_date: ago(1),
-    lines: [
-      { id: 'l-14d1', change_type: 'modify', item_name: 'Shiso, Green', size: 'Small', quantity: 3, original_quantity: 1 },
-      { id: 'l-14d2', change_type: 'add', item_name: 'Sorrel, Red Veined', size: 'Large', quantity: 2 },
-    ],
-    timeline: mkTl('t14d', 1, 'email', 'Mon: new order. Tue: cancel. Wed: new order. Thu: modify existing.', 'Sarma <chef@sarmarestaurant.com>', 'Full week order changes'),
-  },
-
-  // 15. UNDETERMINED + UNDETERMINED (AI couldn't parse anything from a vague SMS)
-  {
-    id: 'prop-15a', intake_event_id: 'intake-15', order_id: null, action: 'undetermined',
-    customer_name: 'Spoke Wine Bar', delivery_date: d(TOMORROW),
-    message_count: 1, channel: 'sms', created_at: ago(35),
-    message_preview: 'Hey same as last week for both days but maybe swap a couple things? I\'ll call you later to confirm',
-    message_full: 'Hey same as last week for both days but maybe swap a couple things? I\'ll call you later to confirm',
-    lines: [],
-    timeline: mkTl('t15', 35, 'sms', 'Hey same as last week for both days but maybe swap a couple things? I\'ll call you later to confirm', 'Spoke Wine Bar'),
-  },
-  {
-    id: 'prop-15b', intake_event_id: 'intake-15', order_id: null, action: 'undetermined',
-    customer_name: 'Spoke Wine Bar', delivery_date: d(DAY_AFTER),
-    message_count: 1, channel: 'sms', created_at: ago(35),
-    message_preview: 'Hey same as last week for both days but maybe swap a couple things? I\'ll call you later to confirm',
-    message_full: 'Hey same as last week for both days but maybe swap a couple things? I\'ll call you later to confirm',
-    lines: [],
-    timeline: mkTl('t15b', 35, 'sms', 'Hey same as last week for both days but maybe swap a couple things? I\'ll call you later to confirm', 'Spoke Wine Bar'),
-  },
-
-  // 16. CANCEL + CANCEL (cancel two different days from one message)
-  {
-    id: 'prop-16a', intake_event_id: 'intake-16', order_id: 'fri-bistro', action: 'assign',
-    order_frequency: 'one-time', customer_name: 'O Ya', delivery_date: d(TOMORROW),
-    message_count: 1, channel: 'sms', created_at: ago(6),
-    message_preview: 'Bennett sorry but we need to cancel both our Tuesday AND Thursday orders this week. Closing for staff retreat. Back next week!',
-    message_full: 'Bennett sorry but we need to cancel both our Tuesday AND Thursday orders this week. Closing for staff retreat. Back next week!',
-    tags: { intent: 'cancel_order' }, lines: [],
-    timeline: mkTl('t16', 6, 'sms', 'Cancel both Tuesday AND Thursday orders this week. Closing for staff retreat.', 'O Ya'),
-  },
-  {
-    id: 'prop-16b', intake_event_id: 'intake-16', order_id: 'fri-capo', action: 'assign',
-    order_frequency: 'one-time', customer_name: 'O Ya', delivery_date: d(DAY_AFTER),
-    message_count: 1, channel: 'sms', created_at: ago(6),
-    message_preview: 'Bennett sorry but we need to cancel both our Tuesday AND Thursday orders this week. Closing for staff retreat. Back next week!',
-    message_full: 'Bennett sorry but we need to cancel both our Tuesday AND Thursday orders this week. Closing for staff retreat. Back next week!',
-    tags: { intent: 'cancel_order' }, lines: [],
-    timeline: mkTl('t16b', 6, 'sms', 'Cancel both Tuesday AND Thursday orders this week. Closing for staff retreat.', 'O Ya'),
-  },
 ];
 
 // ============================================================================
@@ -1912,6 +727,56 @@ const ItemSearchDropdown: React.FC<ItemSearchDropdownProps> = ({ value, onChange
           No items found
         </div>
       )}
+    </div>
+  );
+};
+
+// Inline spreadsheet preview using SheetJS
+const SpreadsheetPreview: React.FC<{ url: string }> = ({ url }) => {
+  const [rows, setRows] = useState<string[][]>([]);
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    const load = async () => {
+      try {
+        const response = await fetch(url);
+        const buf = await response.arrayBuffer();
+        const wb = XLSX.read(buf, { type: 'array' });
+        const ws = wb.Sheets[wb.SheetNames[0]];
+        const data: string[][] = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
+        if (!cancelled) setRows(data.slice(0, 50)); // limit to 50 rows for preview
+      } catch (e: any) {
+        if (!cancelled) setError(e.message || 'Failed to load spreadsheet');
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    };
+    load();
+    return () => { cancelled = true; };
+  }, [url]);
+
+  if (loading) return <div className="px-3 pb-2 text-xs text-gray-400 flex items-center gap-1"><Loader2 className="w-3 h-3 animate-spin" /> Loading spreadsheet...</div>;
+  if (error) return <div className="px-3 pb-2 text-xs text-red-400">Failed to preview: {error}</div>;
+  if (rows.length === 0) return <div className="px-3 pb-2 text-xs text-gray-400">Empty spreadsheet</div>;
+
+  return (
+    <div className="px-3 pb-2">
+      <div className="border border-gray-200 rounded overflow-auto max-h-64 text-xs">
+        <table className="min-w-full border-collapse">
+          <tbody>
+            {rows.map((row, ri) => (
+              <tr key={ri} className={ri === 0 ? 'bg-gray-100 font-semibold sticky top-0' : ri % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
+                {row.map((cell, ci) => (
+                  <td key={ci} className="px-2 py-1 border-r border-b border-gray-200 whitespace-nowrap">{cell}</td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      {rows.length >= 50 && <div className="text-xs text-gray-400 mt-1">Showing first 50 rows</div>}
     </div>
   );
 };
@@ -2805,13 +1670,13 @@ const AssignToOrderModal: React.FC<AssignToOrderModalProps> = ({ proposal, sourc
     setIsAnalyzing(true);
 
     try {
-      const session = await supabaseClient.auth.getSession();
+      const accessToken = await getAccessToken();
       const response = await fetch(
         `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/create-proposal`,
         {
           method: 'POST',
           headers: {
-            'Authorization': `Bearer ${session.data.session?.access_token}`,
+            'Authorization': `Bearer ${accessToken}`,
             'Content-Type': 'application/json'
           },
           body: JSON.stringify({
@@ -3301,7 +2166,7 @@ function buildPackingSummary(orders: Order[]): { crop: string; sizes: Record<str
     });
 }
 
-function printPackingSummary(dateStr: string, orders: Order[], customers: Customer[]) {
+function printPackingSummary(dateStr: string, orders: Order[]) {
   const summary = buildPackingSummary(orders);
   const dateDisplay = new Date(dateStr + 'T00:00:00').toLocaleDateString('en-US', {
     weekday: 'long',
@@ -3310,11 +2175,10 @@ function printPackingSummary(dateStr: string, orders: Order[], customers: Custom
     year: 'numeric',
   });
 
-  // Build customer order rows sorted by sort_order
-  const customerSortMap = new Map(customers.map(c => [c.name, c.sort_order ?? Number.MAX_SAFE_INTEGER]));
+  // Build customer order rows sorted by sort_position
   const sortedOrders = [...orders].sort((a, b) => {
-    const aSort = customerSortMap.get(a.customer_name) ?? Number.MAX_SAFE_INTEGER;
-    const bSort = customerSortMap.get(b.customer_name) ?? Number.MAX_SAFE_INTEGER;
+    const aSort = a.sort_position ?? Number.MAX_SAFE_INTEGER;
+    const bSort = b.sort_position ?? Number.MAX_SAFE_INTEGER;
     if (aSort !== bSort) return aSort - bSort;
     return a.customer_name.localeCompare(b.customer_name);
   });
@@ -3504,6 +2368,54 @@ const CreateOrderSection: React.FC<{
     }
     return [{ id: 'default', code: line.size || 'S', name: line.size || 'Small' }];
   };
+
+  // If the order was already created, show a compact "Order Created" view
+  if (proposal.order_id) {
+    return (
+      <div className="bg-green-50 border border-green-200 rounded-lg overflow-hidden">
+        <div className="flex items-center justify-between px-3 py-2.5">
+          <p className="text-xs text-green-700 uppercase tracking-wider font-semibold">
+            {showMultiLabel ? `Order Created — ${formattedDate}` : 'Order Created'}
+          </p>
+          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-700">
+            <Check className="w-3 h-3" /> Created
+          </span>
+        </div>
+        <div className="px-3 pb-3">
+          <div className="flex items-center gap-3 px-3 py-2 bg-white border border-green-200 rounded-lg">
+            <div className="flex items-center gap-2 flex-1">
+              <User className="w-4 h-4 text-green-500 flex-shrink-0" />
+              <span className="text-sm font-medium text-gray-900">{customerName}</span>
+            </div>
+            <div className="flex items-center gap-2 flex-shrink-0">
+              <CalendarIcon className="w-4 h-4 text-green-500" />
+              <span className="text-xs text-gray-600">{formattedDate}</span>
+            </div>
+          </div>
+          <div className="border-t border-green-200 mt-3 pt-2">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-xs text-green-600/60 uppercase tracking-wider">
+                  <th className="py-1 text-left font-medium">Item</th>
+                  <th className="py-1 text-center font-medium">Size</th>
+                  <th className="py-1 text-center font-medium">Qty</th>
+                </tr>
+              </thead>
+              <tbody>
+                {editableLines.filter(l => l.change_type === 'add').map(line => (
+                  <tr key={line.id} className="text-green-800">
+                    <td className="py-1 text-left text-xs">{line.item_name}</td>
+                    <td className="py-1 text-center text-xs">{line.size}</td>
+                    <td className="py-1 text-center text-xs font-medium">{line.quantity}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="bg-green-50 border border-green-200 rounded-lg overflow-hidden">
@@ -3710,17 +2622,17 @@ const AssignOrderSection: React.FC<{
   };
 
   return (
-    <div className={`${proposal.tags?.intent === 'cancel_order' ? 'bg-red-50 border border-red-200' : 'bg-blue-50 border border-blue-200'} rounded-lg overflow-hidden`}>
+    <div className={`${proposal.type === 'cancel_order' ? 'bg-red-50 border border-red-200' : 'bg-blue-50 border border-blue-200'} rounded-lg overflow-hidden`}>
       <div
-        className={`flex items-center justify-between px-3 py-2.5 cursor-pointer select-none transition-colors ${proposal.tags?.intent === 'cancel_order' ? 'hover:bg-red-100/50 border-b border-red-200' : 'hover:bg-blue-100/50 border-b border-blue-200'}`}
+        className={`flex items-center justify-between px-3 py-2.5 cursor-pointer select-none transition-colors ${proposal.type === 'cancel_order' ? 'hover:bg-red-100/50 border-b border-red-200' : 'hover:bg-blue-100/50 border-b border-blue-200'}`}
         onClick={() => setIsCollapsed(!isCollapsed)}
       >
-        <p className={`text-xs uppercase tracking-wider font-semibold ${proposal.tags?.intent === 'cancel_order' ? 'text-red-700' : 'text-blue-700'}`}>
-          {proposal.tags?.intent === 'cancel_order'
+        <p className={`text-xs uppercase tracking-wider font-semibold ${proposal.type === 'cancel_order' ? 'text-red-700' : 'text-blue-700'}`}>
+          {proposal.type === 'cancel_order'
             ? (showMultiLabel ? `Cancel Order — ${formattedDate}` : 'Cancel Order')
             : (showMultiLabel ? `Modify Order — ${formattedDate}` : 'Modify Order')}
         </p>
-        {isCollapsed ? <ChevronDown className={`w-3.5 h-3.5 ${proposal.tags?.intent === 'cancel_order' ? 'text-red-500' : 'text-blue-500'}`} /> : <ChevronUp className={`w-3.5 h-3.5 ${proposal.tags?.intent === 'cancel_order' ? 'text-red-500' : 'text-blue-500'}`} />}
+        {isCollapsed ? <ChevronDown className={`w-3.5 h-3.5 ${proposal.type === 'cancel_order' ? 'text-red-500' : 'text-blue-500'}`} /> : <ChevronUp className={`w-3.5 h-3.5 ${proposal.type === 'cancel_order' ? 'text-red-500' : 'text-blue-500'}`} />}
       </div>
       {!isCollapsed && (
         <div className="px-3 pb-3">
@@ -3736,7 +2648,7 @@ const AssignOrderSection: React.FC<{
               <p className="text-sm font-medium text-gray-900">{proposal.customer_name}</p>
               <p className="text-xs text-gray-500">{formattedDate}</p>
             </div>
-            {matchedOrder && matchedOrder.items.length > 0 && proposal.tags?.intent !== 'cancel_order' && (
+            {matchedOrder && matchedOrder.items.length > 0 && proposal.type !== 'cancel_order' && (
               showOrderItems ? <ChevronUp className="w-4 h-4 text-blue-400" /> : <ChevronDown className="w-4 h-4 text-blue-400" />
             )}
           </div>
@@ -3765,7 +2677,7 @@ const AssignOrderSection: React.FC<{
             </div>
           </div>
           {/* Expandable current order items */}
-          {showOrderItems && matchedOrder && matchedOrder.items.length > 0 && proposal.tags?.intent !== 'cancel_order' && (
+          {showOrderItems && matchedOrder && matchedOrder.items.length > 0 && proposal.type !== 'cancel_order' && (
             <div className="mt-2 px-3 py-2 bg-white border border-blue-200 rounded-lg">
               <p className="text-xs text-gray-400 uppercase tracking-wider mb-1">Current order items</p>
               <div className="text-sm text-gray-600 space-y-0.5">
@@ -3780,26 +2692,26 @@ const AssignOrderSection: React.FC<{
             </div>
           )}
           {/* Changes table */}
-          <div className={`border-t mt-3 pt-2 ${proposal.tags?.intent === 'cancel_order' ? 'border-red-200' : 'border-blue-200'}`}>
-            {proposal.tags?.intent !== 'cancel_order' && (
+          <div className={`border-t mt-3 pt-2 ${proposal.type === 'cancel_order' ? 'border-red-200' : 'border-blue-200'}`}>
+            {proposal.type !== 'cancel_order' && (
               <p className="text-[11px] text-blue-500 uppercase tracking-widest font-semibold mb-2">Changes</p>
             )}
             {/* Cancel Order proposal */}
-            {proposal.tags?.intent === 'cancel_order' && (
+            {proposal.type === 'cancel_order' && (
               <div className="mb-2 px-3 py-2 bg-red-100 border border-red-300 rounded-lg">
                 <p className="text-sm font-semibold text-red-700">Cancel Order</p>
                 <p className="text-xs text-red-600">Customer requested to cancel this entire order.</p>
               </div>
             )}
             {/* Delete Order label - all existing order items are being removed */}
-            {matchedOrder && !proposal.tags?.intent && editableLines.length > 0 && editableLines.every(l => l.change_type === 'remove') && matchedOrder.items.length > 0 && matchedOrder.items.every(item => editableLines.some(l => l.change_type === 'remove' && (l.order_line_id ? l.order_line_id === item.order_line_id : l.item_name === item.name))) && (
+            {matchedOrder && proposal.type !== 'cancel_order' && editableLines.length > 0 && editableLines.every(l => l.change_type === 'remove') && matchedOrder.items.length > 0 && matchedOrder.items.every(item => editableLines.some(l => l.change_type === 'remove' && (l.order_line_id ? l.order_line_id === item.order_line_id : l.item_name === item.name))) && (
               <div className="mb-2 px-3 py-2 bg-red-100 border border-red-300 rounded-lg">
                 <p className="text-sm font-semibold text-red-700">Cancel Order</p>
                 <p className="text-xs text-red-600">This order will be cancelled.</p>
               </div>
             )}
             {/* Changes table */}
-            {proposal.tags?.intent !== 'cancel_order' && (
+            {proposal.type !== 'cancel_order' && (
             <table className="w-full text-sm">
               <thead>
                 <tr className="text-[10px] text-blue-400/70 uppercase tracking-wider">
@@ -3904,17 +2816,17 @@ const AssignOrderSection: React.FC<{
             )}
           </div>
           {/* Action buttons */}
-          <div className={`flex items-center gap-2 mt-3 pt-3 border-t ${proposal.tags?.intent === 'cancel_order' ? 'border-red-200' : 'border-blue-200'}`}>
+          <div className={`flex items-center gap-2 mt-3 pt-3 border-t ${proposal.type === 'cancel_order' ? 'border-red-200' : 'border-blue-200'}`}>
             <button
               onClick={() => onApplyChange(proposal.id, editableLines)}
               disabled={isApplying || isDismissing}
               className={`flex items-center gap-1 px-4 py-2 text-white text-sm font-medium rounded-lg transition-colors disabled:opacity-50 ${
-                proposal.tags?.intent === 'cancel_order' ? 'bg-red-600 hover:bg-red-700' : 'bg-green-600 hover:bg-green-700'
+                proposal.type === 'cancel_order' ? 'bg-red-600 hover:bg-red-700' : 'bg-green-600 hover:bg-green-700'
               }`}
             >
               {isApplying ? (
-                <><Loader2 className="w-4 h-4 animate-spin" /> {proposal.tags?.intent === 'cancel_order' ? 'Cancelling...' : 'Applying...'}</>
-              ) : proposal.tags?.intent === 'cancel_order' ? (
+                <><Loader2 className="w-4 h-4 animate-spin" /> {proposal.type === 'cancel_order' ? 'Cancelling...' : 'Applying...'}</>
+              ) : proposal.type === 'cancel_order' ? (
                 <><X className="w-4 h-4" /> Cancel Order</>
               ) : (
                 <><Check className="w-4 h-4" /> Apply Changes</>
@@ -4407,6 +3319,9 @@ const InboxCard: React.FC<InboxCardProps> = ({
                             <iframe src={url} className="w-full h-48 rounded border border-gray-200" title={att.filename} />
                           </div>
                         )}
+                        {isSpreadsheet && url && (
+                          <SpreadsheetPreview url={url} />
+                        )}
                       </div>
                     );
                   })}
@@ -4753,7 +3668,7 @@ interface CatalogItem {
 
 const Dashboard: React.FC<DashboardProps> = ({ organizationId, layout = 'default', headerContent }) => {
   const [viewMode, setViewMode] = useState<ViewMode>('week');
-  const [sidebarTab, setSidebarTab] = useState<'inbox' | 'orders' | 'upload' | 'analytics' | 'catalog' | 'history'>('inbox');
+  const [sidebarTab, setSidebarTab] = useState<'inbox' | 'orders' | 'upload' | 'analytics' | 'catalog' | 'history' | 'customers'>('inbox');
   const [orders, setOrders] = useState<Order[]>([]);
   const [editingOrderId, setEditingOrderId] = useState<string | null>(null);
   const [editableOrderLines, setEditableOrderLines] = useState<(OrderItem & { _action?: 'add' | 'modify' | 'remove' })[]>([]);
@@ -4763,6 +3678,11 @@ const Dashboard: React.FC<DashboardProps> = ({ organizationId, layout = 'default
   const [newOrderDeliveryDate, setNewOrderDeliveryDate] = useState('');
   const [newOrderLines, setNewOrderLines] = useState<{ name: string; size: string; quantity: number }[]>([{ name: '', size: 'S', quantity: 1 }]);
   const [savingNewOrder, setSavingNewOrder] = useState(false);
+  const [deletingOrderId, setDeletingOrderId] = useState<string | null>(null);
+  const [orderActionsMenuId, setOrderActionsMenuId] = useState<string | null>(null);
+  const [customerActionsMenuId, setCustomerActionsMenuId] = useState<string | null>(null);
+  const orderActionsRef = useRef<HTMLDivElement>(null);
+  const customerActionsRef = useRef<HTMLDivElement>(null);
   const [proposals, setProposals] = useState<Proposal[]>(MOCK_PROPOSALS);
   const inboxMessageCount = useMemo(() => {
     const seen = new Set<string>();
@@ -4789,6 +3709,22 @@ const Dashboard: React.FC<DashboardProps> = ({ organizationId, layout = 'default
 
   // Customers state (for searchable customer dropdown)
   const [customers, setCustomers] = useState<Customer[]>([]);
+  const [customerSearch, setCustomerSearch] = useState('');
+  const [expandedCustomerId, setExpandedCustomerId] = useState<string | null>(null);
+  const [editingCustomerId, setEditingCustomerId] = useState<string | null>(null);
+  const [editCustomerName, setEditCustomerName] = useState('');
+  const [editCustomerEmail, setEditCustomerEmail] = useState('');
+  const [editCustomerPhone, setEditCustomerPhone] = useState('');
+  const [editCustomerNotes, setEditCustomerNotes] = useState('');
+  const [savingCustomerId, setSavingCustomerId] = useState<string | null>(null);
+  const [newItemNoteName, setNewItemNoteName] = useState('');
+  const [newItemNoteText, setNewItemNoteText] = useState('');
+  const [itemNameDropdownOpen, setItemNameDropdownOpen] = useState(false);
+  const itemNameDropdownRef = useRef<HTMLDivElement>(null);
+  const [editingItemNoteId, setEditingItemNoteId] = useState<string | null>(null);
+  const [editItemNoteText, setEditItemNoteText] = useState('');
+  const [userMenuOpen, setUserMenuOpen] = useState(false);
+  const userMenuRef = useRef<HTMLDivElement>(null);
 
   // History state
   const [intakeHistory, setIntakeHistory] = useState<IntakeHistoryItem[]>([]);
@@ -4813,6 +3749,26 @@ const Dashboard: React.FC<DashboardProps> = ({ organizationId, layout = 'default
     setToast({ message, type });
     setTimeout(() => setToast(null), 3000);
   };
+
+  // Close user menu and item name dropdown on click outside
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (userMenuRef.current && !userMenuRef.current.contains(e.target as Node)) {
+        setUserMenuOpen(false);
+      }
+      if (itemNameDropdownRef.current && !itemNameDropdownRef.current.contains(e.target as Node)) {
+        setItemNameDropdownOpen(false);
+      }
+      if (orderActionsRef.current && !orderActionsRef.current.contains(e.target as Node)) {
+        setOrderActionsMenuId(null);
+      }
+      if (customerActionsRef.current && !customerActionsRef.current.contains(e.target as Node)) {
+        setCustomerActionsMenuId(null);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
 
   // Load orders, proposals, and customers
   useEffect(() => {
@@ -4856,42 +3812,36 @@ const Dashboard: React.FC<DashboardProps> = ({ organizationId, layout = 'default
     }
   }, [sidebarTab, organizationId, historyFilter]);
 
+  const USE_MOCK_INBOX = import.meta.env.DEV && organizationId === 'test-org-id'; // Use mock data for demo org (dev only)
+
   const loadOrders = async (showFullPageLoading = true) => {
     if (!organizationId) return;
+    if (USE_MOCK_INBOX) {
+      setOrders(MOCK_STANDING_ORDERS);
+      setIsLoading(false);
+      return;
+    }
 
     if (showFullPageLoading) setIsLoading(true);
     try {
-      const { data, error } = await supabaseClient
-        .from('orders')
-        .select(`
-          id,
-          customer_name,
-          status,
-          delivery_date,
-          created_at,
-          updated_at,
-          source_channel,
-          order_lines (
-            id,
-            product_name,
-            quantity,
-            status,
-            item_id,
-            item_variant_id,
-            items ( name ),
-            item_variants ( variant_code )
-          )
-        `)
-        .eq('organization_id', organizationId)
-        .neq('status', 'cancelled')
-        .order('delivery_date', { ascending: true })
-        .order('created_at', { ascending: true });
-
-      if (error) {
-        console.error('Error loading orders:', error);
+      const accessToken = await getAccessToken();
+      const response = await fetch(
+        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/get-orders`,
+        {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${accessToken}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ organization_id: organizationId }),
+        }
+      );
+      const result = await response.json();
+      if (!result.success) {
+        console.error('Error loading orders:', result.error);
         return;
       }
-      const transformedOrders: Order[] = (data || []).map((order: any) => {
+      const transformedOrders: Order[] = (result.orders || []).map((order: any) => {
         const activeLines = (order.order_lines || []).filter((l: any) => l.status === 'active');
         return {
           id: order.id,
@@ -4900,6 +3850,7 @@ const Dashboard: React.FC<DashboardProps> = ({ organizationId, layout = 'default
           source: order.source_channel || 'manual',
           delivery_date: order.delivery_date,
           created_at: order.created_at,
+          sort_position: order.sort_position ?? null,
           items: activeLines.map((line: any) => ({
             order_line_id: line.id,
             item_id: line.item_id || undefined,
@@ -4932,7 +3883,6 @@ const Dashboard: React.FC<DashboardProps> = ({ organizationId, layout = 'default
   };
 
   // Internal function that loads proposals without managing loading state
-  const USE_MOCK_INBOX = import.meta.env.DEV && organizationId === 'test-org-id'; // Use mock data for demo org (dev only)
   const loadProposalsInternal = async () => {
     if (USE_MOCK_INBOX) return; // Keep MOCK_PROPOSALS for demo
     if (!organizationId) return;
@@ -4943,6 +3893,7 @@ const Dashboard: React.FC<DashboardProps> = ({ organizationId, layout = 'default
         id,
         order_id,
         status,
+        type,
         intake_event_id,
         created_at,
         tags,
@@ -5053,6 +4004,7 @@ const Dashboard: React.FC<DashboardProps> = ({ organizationId, layout = 'default
       return {
         id: row.id,
         order_id: row.order_id,
+        type: row.type || undefined,
         intake_event_id: row.intake_event_id,
         action: row.order_id ? 'assign' : 'create',
         order_frequency: orderType,
@@ -5095,6 +4047,21 @@ const Dashboard: React.FC<DashboardProps> = ({ organizationId, layout = 'default
   // Load catalog items
   const loadCatalog = async () => {
     if (!organizationId) return;
+    if (USE_MOCK_INBOX) {
+      setCatalogItems([
+        { id: 'cat-1', sku: 'RD-8MIX', name: 'Rainbow Dianthus 8 Stem Mix Bunch x12', item_variants: [{ id: 'v1', variant_code: 'L', variant_name: 'Large' }] },
+        { id: 'cat-2', sku: 'RS-COMBO', name: 'Raffines/Solomios Combo Box', item_variants: [{ id: 'v2', variant_code: 'L', variant_name: 'Large' }] },
+        { id: 'cat-3', sku: 'SOL-001', name: 'Solomio', item_variants: [{ id: 'v3', variant_code: 'L', variant_name: 'Large' }] },
+        { id: 'cat-4', sku: 'RAF-001', name: 'Raffine', item_variants: [{ id: 'v4', variant_code: 'L', variant_name: 'Large' }] },
+        { id: 'cat-5', sku: 'NMC-001', name: 'Consumer Novelty Mini Carnations', item_variants: [{ id: 'v5', variant_code: 'L', variant_name: 'Large' }] },
+        { id: 'cat-6', sku: 'MCR-001', name: 'Mini Carn Rainbow', item_variants: [{ id: 'v6', variant_code: 'L', variant_name: 'Large' }, { id: 'v6b', variant_code: 'HB', variant_name: 'Half Box' }] },
+        { id: 'cat-7', sku: 'AA-001', name: 'Assorted Arrangements', item_variants: [{ id: 'v7', variant_code: 'L', variant_name: 'Large' }, { id: 'v7b', variant_code: 'S', variant_name: 'Small' }] },
+        { id: 'cat-8', sku: 'PRB-001', name: 'Premium Rose Bundle', item_variants: [{ id: 'v8', variant_code: 'S', variant_name: 'Small' }, { id: 'v8b', variant_code: 'L', variant_name: 'Large' }] },
+        { id: 'cat-9', sku: 'SWM-001', name: 'Seasonal Wildflower Mix', item_variants: [{ id: 'v9', variant_code: 'L', variant_name: 'Large' }] },
+      ]);
+      setCatalogLoading(false);
+      return;
+    }
     setCatalogLoading(true);
     const { data, error } = await supabaseClient
       .from('items')
@@ -5114,17 +4081,88 @@ const Dashboard: React.FC<DashboardProps> = ({ organizationId, layout = 'default
   // Load customers for searchable dropdown
   const loadCustomers = async () => {
     if (!organizationId) return;
+    if (USE_MOCK_INBOX) {
+      setCustomers([
+        { id: 'cust-1', name: 'KM Handling', email: 'orders@kmhandling.com', notes: 'Preferred carrier: FedEx. Always confirm delivery window 24hrs ahead.' },
+        { id: 'cust-2', name: 'Farm Export Co', email: 'logistics@farmexport.co', notes: 'Ships from Bogotá. Requires phytosanitary cert on every order.' },
+        { id: 'cust-3', name: 'Flower Buyer', email: 'sales@orangeflower.co' },
+        { id: 'cust-4', name: 'Bloom Distribution', email: 'gaotioncapital@gmail.com', notes: 'High volume account. Net 30 payment terms.', item_notes: [
+          { id: 'in-1', item_name: 'Moonlight', note: 'HB 4×18, 18 bunches/box, $0.25/stem, La Gaitana Farms, clear sleeve for carnations 12' },
+          { id: 'in-2', item_name: 'Zeppelin', note: 'HB 4×18, 18 bunches/box, $0.25/stem, high volume — always confirm availability 48hrs ahead' },
+          { id: 'in-3', item_name: 'Don Pedro', note: 'HB 4×18, 18 bunches/box, $0.25/stem, high volume' },
+          { id: 'in-4', item_name: 'Academy', note: 'QB 5×20, 20 bunches/box, $0.17/stem, mini carn, high volume — often orders 10+ boxes' },
+          { id: 'in-5', item_name: 'Doncel', note: 'HB 4×18, 18 bunches/box, $0.23/stem, high volume' },
+        ] },
+        { id: 'cust-5', name: '71001', email: null, notes: 'Internal customer code — verify mapping before shipment.' },
+        { id: 'cust-6', name: 'Flores del Valle', email: 'pedidos@floresdelvalle.co', phone: '+57 310 555 4422', notes: 'Spanish-speaking contact. Prefers SMS for order confirmations.', item_notes: [
+          { id: 'in-6', item_name: 'Moonlight', note: 'Standard box, 10 units default. Customer usually orders by name only.' },
+          { id: 'in-7', item_name: 'Farida', note: 'New addition — started ordering Feb 2026' },
+        ] },
+      ]);
+      return;
+    }
     const { data, error } = await supabaseClient
       .from('customers')
-      .select('id, name, email, phone, sort_order')
+      .select('id, name, email, phone, notes, customer_item_notes(id, item_name, note)')
       .eq('organization_id', organizationId)
-      .order('sort_order', { ascending: true, nullsFirst: false })
       .order('name');
 
     if (error) {
       console.error('Error loading customers:', error);
     } else {
-      setCustomers(data || []);
+      setCustomers((data || []).map((c: any) => ({
+        ...c,
+        item_notes: c.customer_item_notes || [],
+        customer_item_notes: undefined,
+      })));
+    }
+  };
+
+  // Save customer edits
+  const handleSaveCustomer = async (customerId: string) => {
+    setSavingCustomerId(customerId);
+    try {
+      const customer = customers.find(c => c.id === customerId);
+      if (USE_MOCK_INBOX) {
+        setCustomers(prev => prev.map(c =>
+          c.id === customerId
+            ? { ...c, name: editCustomerName, email: editCustomerEmail || null, phone: editCustomerPhone || null, notes: editCustomerNotes || null }
+            : c
+        ));
+        showToast('Customer updated');
+        setEditingCustomerId(null);
+        return;
+      }
+      const accessToken = await getAccessToken();
+      const response = await fetch(
+        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/update-customer`,
+        {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${accessToken}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            customer_id: customerId,
+            name: editCustomerName,
+            email: editCustomerEmail || null,
+            phone: editCustomerPhone || null,
+            notes: editCustomerNotes || null,
+            item_notes: customer?.item_notes || [],
+          }),
+        }
+      );
+      const result = await response.json();
+      if (result.success) {
+        showToast('Customer updated');
+        setEditingCustomerId(null);
+        loadCustomers();
+      } else {
+        console.error('Error updating customer:', result.error);
+        showToast('Failed to update customer', 'error');
+      }
+    } finally {
+      setSavingCustomerId(null);
     }
   };
 
@@ -5150,6 +4188,7 @@ const Dashboard: React.FC<DashboardProps> = ({ organizationId, layout = 'default
         order_change_proposals (
           id,
           status,
+          type,
           order_id,
           tags,
           orders ( id, customer_name, delivery_date ),
@@ -5167,6 +4206,7 @@ const Dashboard: React.FC<DashboardProps> = ({ organizationId, layout = 'default
         const proposals: IntakeHistoryProposal[] = (item.order_change_proposals || []).map((p: any) => ({
           id: p.id,
           status: p.status || null,
+          type: p.type || undefined,
           customer_name: p.orders?.customer_name || null,
           delivery_date: p.orders?.delivery_date || null,
           order_id: p.orders?.id || null,
@@ -5214,8 +4254,7 @@ const Dashboard: React.FC<DashboardProps> = ({ organizationId, layout = 'default
 
     setSavingNewOrder(true);
     try {
-      const { data: { session } } = await supabaseClient.auth.getSession();
-      if (!session) return;
+      const accessToken = await getAccessToken();
 
       // Create the order
       const { data: newOrder, error: orderError } = await supabaseClient
@@ -5246,7 +4285,7 @@ const Dashboard: React.FC<DashboardProps> = ({ organizationId, layout = 'default
       const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/update-order`, {
         method: 'POST',
         headers: {
-          'Authorization': `Bearer ${session.access_token}`,
+          'Authorization': `Bearer ${accessToken}`,
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({ orderId: newOrder.id, lines }),
@@ -5276,8 +4315,7 @@ const Dashboard: React.FC<DashboardProps> = ({ organizationId, layout = 'default
 
     setSavingOrderId(orderId);
     try {
-      const { data: { session } } = await supabaseClient.auth.getSession();
-      if (!session) return;
+      const accessToken = await getAccessToken();
 
       // Build the change lines by comparing editableOrderLines to original
       const changeLines: { action: string; order_line_id?: string; item_name: string; item_id?: string; item_variant_id?: string; variant_code?: string; quantity: number }[] = [];
@@ -5302,7 +4340,7 @@ const Dashboard: React.FC<DashboardProps> = ({ organizationId, layout = 'default
       const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/update-order`, {
         method: 'POST',
         headers: {
-          'Authorization': `Bearer ${session.access_token}`,
+          'Authorization': `Bearer ${accessToken}`,
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({ orderId, lines: changeLines }),
@@ -5324,15 +4362,94 @@ const Dashboard: React.FC<DashboardProps> = ({ organizationId, layout = 'default
     }
   };
 
+  // Handler — delete (cancel) an entire order
+  const handleDeleteOrder = async (orderId: string) => {
+    const order = orders.find(o => o.id === orderId);
+    if (!order) return;
+
+    setDeletingOrderId(orderId);
+    try {
+      const accessToken = await getAccessToken();
+      const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/update-order`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${accessToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ orderId, cancel_entire_order: true }),
+      });
+
+      if (!response.ok) {
+        const err = await response.json();
+        console.error('Failed to delete order:', err);
+        showToast('Failed to delete order', 'error');
+        return;
+      }
+
+      setEditingOrderId(null);
+      setEditableOrderLines([]);
+      await loadOrders(false);
+      showToast('Order deleted');
+    } catch (error) {
+      console.error('Error deleting order:', error);
+      showToast('Failed to delete order', 'error');
+    } finally {
+      setDeletingOrderId(null);
+    }
+  };
+
+  // Handler — delete all orders for a customer on a given date
+  const handleDeleteCustomerOrders = async (customerOrders: Order[], customerName: string) => {
+    if (customerOrders.length === 0) return;
+
+    try {
+      const accessToken = await getAccessToken();
+      for (const order of customerOrders) {
+        setDeletingOrderId(order.id);
+        const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/update-order`, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${accessToken}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ orderId: order.id, cancel_entire_order: true }),
+        });
+
+        if (!response.ok) {
+          const err = await response.json();
+          console.error('Failed to delete order:', err);
+          showToast(`Failed to delete order for ${customerName}`, 'error');
+          return;
+        }
+      }
+
+      setEditingOrderId(null);
+      setEditableOrderLines([]);
+      await loadOrders(false);
+      showToast(customerOrders.length === 1 ? 'Order deleted' : `${customerOrders.length} orders deleted`);
+    } catch (error) {
+      console.error('Error deleting customer orders:', error);
+      showToast('Failed to delete orders', 'error');
+    } finally {
+      setDeletingOrderId(null);
+    }
+  };
+
   // Handlers — apply changes to order via resolve-proposal API, then remove from local state
   const handleApplyChange = async (proposalId: string, lines: ProposalLine[]) => {
     const proposal = proposals.find(p => p.id === proposalId);
     if (!proposal) return;
 
+    if (USE_MOCK_INBOX) {
+      setProposals(prev => prev.filter(p => p.id !== proposalId));
+      showToast('Changes applied');
+      return;
+    }
+
     setApplyingProposalId(proposalId);
 
     try {
-      const session = await supabaseClient.auth.getSession();
+      const accessToken = await getAccessToken();
 
       // Build submitted lines for the API
       const submittedLines = lines
@@ -5357,7 +4474,7 @@ const Dashboard: React.FC<DashboardProps> = ({ organizationId, layout = 'default
         {
           method: 'POST',
           headers: {
-            'Authorization': `Bearer ${session.data.session?.access_token}`,
+            'Authorization': `Bearer ${accessToken}`,
             'Content-Type': 'application/json'
           },
           body: JSON.stringify({
@@ -5388,16 +4505,22 @@ const Dashboard: React.FC<DashboardProps> = ({ organizationId, layout = 'default
   };
 
   const handleDismiss = async (proposalId: string) => {
+    if (USE_MOCK_INBOX) {
+      setProposals(prev => prev.filter(p => p.id !== proposalId));
+      showToast('Proposal dismissed');
+      return;
+    }
+
     setDismissingProposalId(proposalId);
     try {
-      const session = await supabaseClient.auth.getSession();
+      const accessToken = await getAccessToken();
 
       const response = await fetch(
         `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/resolve-proposal`,
         {
           method: 'POST',
           headers: {
-            'Authorization': `Bearer ${session.data.session?.access_token}`,
+            'Authorization': `Bearer ${accessToken}`,
             'Content-Type': 'application/json'
           },
           body: JSON.stringify({
@@ -5450,8 +4573,15 @@ const Dashboard: React.FC<DashboardProps> = ({ organizationId, layout = 'default
     const proposal = proposals.find(p => p.id === proposalId);
     if (!proposal || !organizationId) return;
 
+    if (USE_MOCK_INBOX) {
+      setProposals(prev => prev.filter(p => p.id !== proposalId));
+      setCreateNewOrderModal(null);
+      showToast('Order created');
+      return;
+    }
+
     try {
-      const session = await supabaseClient.auth.getSession();
+      const accessToken = await getAccessToken();
       const customerName = overrideCustomerName || proposal.customer_name;
       const matchedCustomer = customers.find(c => c.name.toLowerCase() === customerName.toLowerCase());
 
@@ -5470,7 +4600,7 @@ const Dashboard: React.FC<DashboardProps> = ({ organizationId, layout = 'default
         {
           method: 'POST',
           headers: {
-            'Authorization': `Bearer ${session.data.session?.access_token}`,
+            'Authorization': `Bearer ${accessToken}`,
             'Content-Type': 'application/json'
           },
           body: JSON.stringify({
@@ -5504,7 +4634,7 @@ const Dashboard: React.FC<DashboardProps> = ({ organizationId, layout = 'default
     const proposal = proposals.find(p => p.id === proposalId);
     const existingTags = proposal?.tags || {};
 
-    // Merge with existing tags to preserve intent and other fields
+    // Merge with existing tags to preserve other fields
     await supabaseClient
       .from('order_change_proposals')
       .update({ tags: { ...existingTags, order_frequency: value } })
@@ -5544,8 +4674,15 @@ const Dashboard: React.FC<DashboardProps> = ({ organizationId, layout = 'default
   // Get orders grouped by date, then by customer
   const ordersByDateAndCustomer = useMemo(() => {
     const grouped: Record<string, Record<string, Order[]>> = {};
+    const query = searchQuery.toLowerCase();
 
     orders.forEach(order => {
+      if (query) {
+        const matchesCustomer = order.customer_name.toLowerCase().includes(query);
+        const matchesItem = order.items?.some(item => item.name.toLowerCase().includes(query));
+        if (!matchesCustomer && !matchesItem) return;
+      }
+
       const dateKey = order.delivery_date || order.created_at.split('T')[0];
       if (!grouped[dateKey]) {
         grouped[dateKey] = {};
@@ -5557,7 +4694,7 @@ const Dashboard: React.FC<DashboardProps> = ({ organizationId, layout = 'default
     });
 
     return grouped;
-  }, [orders]);
+  }, [orders, searchQuery]);
 
   const filteredDisplayDates = useMemo(() => {
     if (!hideEmptyDays) return displayDates;
@@ -5571,8 +4708,10 @@ const Dashboard: React.FC<DashboardProps> = ({ organizationId, layout = 'default
   // Filter orders for list view
   const filteredOrders = useMemo(() => {
     return orders.filter(order => {
-      const matchesSearch = searchQuery === '' ||
-        order.customer_name.toLowerCase().includes(searchQuery.toLowerCase());
+      const query = searchQuery.toLowerCase();
+      const matchesSearch = !query ||
+        order.customer_name.toLowerCase().includes(query) ||
+        order.items?.some(item => item.name.toLowerCase().includes(query));
       const matchesStatus = statusFilter === 'all' || order.status === statusFilter;
       const matchesDate = !selectedDate || order.delivery_date === selectedDate;
       return matchesSearch && matchesStatus && matchesDate;
@@ -5696,6 +4835,17 @@ const Dashboard: React.FC<DashboardProps> = ({ organizationId, layout = 'default
       </div>
 
       <div className="flex items-center space-x-4">
+        {/* Search */}
+        <div className="relative">
+          <Search className="absolute left-2.5 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
+          <input
+            type="text"
+            placeholder="Search orders..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="w-48 pl-8 pr-3 py-1.5 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500"
+          />
+        </div>
         {viewMode === 'week' && (
           <label className="flex items-center space-x-2 text-sm text-gray-600 cursor-pointer select-none">
             <input
@@ -5878,6 +5028,19 @@ const Dashboard: React.FC<DashboardProps> = ({ organizationId, layout = 'default
                 <ShoppingBag className="w-5 h-5 flex-shrink-0" />
                 {!sidebarCollapsed && <span className="font-medium">Catalog</span>}
               </button>
+              <button
+                onClick={() => setSidebarTab('customers')}
+                className={`w-full flex items-center ${sidebarCollapsed ? 'justify-center' : ''} gap-3 px-3 py-2.5 rounded-lg transition-colors ${
+                  sidebarTab === 'customers'
+                    ? 'text-white'
+                    : 'text-gray-600 hover:bg-gray-100'
+                }`}
+                style={sidebarTab === 'customers' ? { backgroundColor: frootfulGreen } : undefined}
+                title="Customers"
+              >
+                <Users className="w-5 h-5 flex-shrink-0" />
+                {!sidebarCollapsed && <span className="font-medium">Customers</span>}
+              </button>
             </div>
           </div>
 
@@ -5917,46 +5080,57 @@ const Dashboard: React.FC<DashboardProps> = ({ organizationId, layout = 'default
                 )}
               </div>
 
-              <div className="flex items-center space-x-4">
-                {headerContent.user && (
-                  <div className="flex items-center space-x-3">
-                    <div className="text-right">
-                      <p className="text-sm font-medium text-gray-900">{headerContent.user.user_metadata?.full_name || headerContent.user.email}</p>
-                    </div>
-                    {headerContent.user.user_metadata?.avatar_url && (
+              {headerContent.user && (
+                <div className="relative" ref={userMenuRef}>
+                  <button
+                    onClick={() => setUserMenuOpen(!userMenuOpen)}
+                    className="flex items-center space-x-2 px-3 py-1.5 rounded-lg hover:bg-gray-100 transition-colors"
+                  >
+                    {headerContent.user.user_metadata?.avatar_url ? (
                       <img
                         src={headerContent.user.user_metadata.avatar_url}
                         alt="Profile"
-                        className="w-8 h-8 rounded-full"
+                        className="w-7 h-7 rounded-full"
                       />
+                    ) : (
+                      <div className="w-7 h-7 rounded-full bg-green-100 flex items-center justify-center">
+                        <User className="w-4 h-4 text-green-700" />
+                      </div>
                     )}
-                  </div>
-                )}
-                <div className="relative group">
-                  <button className="p-2 text-gray-400 hover:text-gray-600 transition-colors rounded-lg hover:bg-gray-100">
-                    <Settings className="w-5 h-5" />
+                    <span className="text-sm font-medium text-gray-700">{headerContent.user.user_metadata?.full_name || headerContent.user.email}</span>
+                    <ChevronDown className={`w-4 h-4 text-gray-400 transition-transform ${userMenuOpen ? 'rotate-180' : ''}`} />
                   </button>
-                  <div className="absolute right-0 mt-2 w-48 bg-white rounded-lg shadow-lg py-1 z-10 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 border border-gray-200">
-                    <button
-                      onClick={headerContent.onSignOut}
-                      disabled={headerContent.isSigningOut}
-                      className="flex items-center gap-2 w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed"
-                    >
-                      {headerContent.isSigningOut ? (
-                        <>
-                          <Loader2 className="w-4 h-4 animate-spin" />
-                          <span>Signing out...</span>
-                        </>
-                      ) : (
-                        <>
-                          <LogOut className="w-4 h-4" />
-                          <span>Sign Out</span>
-                        </>
-                      )}
-                    </button>
-                  </div>
+                  {userMenuOpen && (
+                    <div className="absolute right-0 mt-1 w-48 bg-white rounded-lg shadow-lg py-1 z-50 border border-gray-200">
+                      <button
+                        onClick={() => { setUserMenuOpen(false); headerContent.onNavigateSettings(); }}
+                        className="flex items-center gap-2 w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
+                      >
+                        <Settings className="w-4 h-4" />
+                        <span>Settings</span>
+                      </button>
+                      <div className="border-t border-gray-100 my-1" />
+                      <button
+                        onClick={() => { setUserMenuOpen(false); headerContent.onSignOut(); }}
+                        disabled={headerContent.isSigningOut}
+                        className="flex items-center gap-2 w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        {headerContent.isSigningOut ? (
+                          <>
+                            <Loader2 className="w-4 h-4 animate-spin" />
+                            <span>Signing out...</span>
+                          </>
+                        ) : (
+                          <>
+                            <LogOut className="w-4 h-4" />
+                            <span>Sign Out</span>
+                          </>
+                        )}
+                      </button>
+                    </div>
+                  )}
                 </div>
-              </div>
+              )}
             </header>
           )}
 
@@ -6116,6 +5290,366 @@ const Dashboard: React.FC<DashboardProps> = ({ organizationId, layout = 'default
                                   ))}
                                 </tbody>
                               </table>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                </div>
+              )}
+            </div>
+          )}
+
+          {sidebarTab === 'customers' && (
+            <div className="bg-white rounded-xl border border-gray-200">
+              <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
+                <div className="flex items-center gap-2">
+                  <Users className="w-5 h-5 text-green-600" />
+                  <h3 className="text-lg font-semibold text-gray-900">Customers ({customers.length})</h3>
+                </div>
+                <button
+                  onClick={loadCustomers}
+                  className="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
+                  title="Refresh customers"
+                >
+                  <RefreshCw className="w-4 h-4" />
+                </button>
+              </div>
+
+              {/* Search */}
+              <div className="px-6 py-3 border-b border-gray-100">
+                <div className="relative">
+                  <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
+                  <input
+                    type="text"
+                    placeholder="Search customers..."
+                    value={customerSearch}
+                    onChange={(e) => setCustomerSearch(e.target.value)}
+                    className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 text-sm"
+                  />
+                </div>
+              </div>
+
+              {customers.length === 0 ? (
+                <div className="p-12 text-center text-gray-500">
+                  <Users className="w-12 h-12 mx-auto mb-3 text-gray-300" />
+                  <p className="text-lg font-medium text-gray-900 mb-1">No customers yet</p>
+                  <p>Customers will appear here once added to your organization.</p>
+                </div>
+              ) : (
+                <div className="divide-y divide-gray-100 max-h-[calc(100vh-280px)] overflow-y-auto">
+                  {customers
+                    .filter(c =>
+                      customerSearch === '' ||
+                      c.name.toLowerCase().includes(customerSearch.toLowerCase()) ||
+                      (c.email && c.email.toLowerCase().includes(customerSearch.toLowerCase())) ||
+                      (c.phone && c.phone.toLowerCase().includes(customerSearch.toLowerCase())) ||
+                      (c.notes && c.notes.toLowerCase().includes(customerSearch.toLowerCase()))
+                    )
+                    .map((customer) => {
+                      const isExpanded = expandedCustomerId === customer.id;
+                      const isEditing = editingCustomerId === customer.id;
+                      const isSaving = savingCustomerId === customer.id;
+
+                      return (
+                        <div key={customer.id}>
+                          {/* Compact row — double-click to expand */}
+                          <button
+                            onDoubleClick={() => {
+                              setExpandedCustomerId(isExpanded ? null : customer.id);
+                              if (isEditing) setEditingCustomerId(null);
+                            }}
+                            onClick={() => {
+                              if (!isExpanded) {
+                                setExpandedCustomerId(customer.id);
+                                if (editingCustomerId && editingCustomerId !== customer.id) setEditingCustomerId(null);
+                              } else {
+                                setExpandedCustomerId(null);
+                                if (isEditing) setEditingCustomerId(null);
+                              }
+                            }}
+                            className={`w-full px-6 py-3 text-left flex items-center gap-3 transition-colors ${isExpanded ? 'bg-gray-50' : 'hover:bg-gray-50'}`}
+                          >
+                            <div className="w-4 h-4 flex items-center justify-center text-gray-400">
+                              {isExpanded ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
+                            </div>
+                            <div className="w-8 h-8 rounded-full bg-green-100 text-green-700 flex items-center justify-center font-semibold text-xs flex-shrink-0">
+                              {customer.name.charAt(0).toUpperCase()}
+                            </div>
+                            <span className="font-medium text-sm text-gray-900 flex-1">{customer.name}</span>
+                          </button>
+
+                          {/* Expanded detail view */}
+                          {isExpanded && (
+                            <div className="bg-gray-50 border-t border-gray-100 px-6 py-4 pl-[4.25rem]">
+                              {isEditing ? (
+                                /* Editing mode */
+                                <div className="space-y-3">
+                                  <div>
+                                    <label className="block text-xs text-gray-500 mb-1">Name</label>
+                                    <input
+                                      type="text"
+                                      value={editCustomerName}
+                                      onChange={(e) => setEditCustomerName(e.target.value)}
+                                      className="w-full px-3 py-1.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 text-sm bg-white"
+                                      autoFocus
+                                    />
+                                  </div>
+                                  <div className="grid grid-cols-2 gap-3">
+                                    <div>
+                                      <label className="block text-xs text-gray-500 mb-1">Email</label>
+                                      <input
+                                        type="email"
+                                        value={editCustomerEmail}
+                                        onChange={(e) => setEditCustomerEmail(e.target.value)}
+                                        placeholder="—"
+                                        className="w-full px-3 py-1.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 text-sm bg-white"
+                                      />
+                                    </div>
+                                    <div>
+                                      <label className="block text-xs text-gray-500 mb-1">Phone</label>
+                                      <input
+                                        type="tel"
+                                        value={editCustomerPhone}
+                                        onChange={(e) => setEditCustomerPhone(e.target.value)}
+                                        placeholder="—"
+                                        className="w-full px-3 py-1.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 text-sm bg-white"
+                                      />
+                                    </div>
+                                  </div>
+                                  <div>
+                                    <label className="relative group inline-flex items-center gap-1 text-xs text-gray-500 mb-1 cursor-help">Notes &#9432;<span className="absolute bottom-full left-0 mb-1 hidden group-hover:block w-64 px-2.5 py-1.5 text-xs text-white bg-gray-800 rounded-lg shadow-lg z-10">General notes about this customer that apply to all orders (e.g. delivery day restrictions, shipping preferences, payment terms).</span></label>
+                                    <textarea
+                                      value={editCustomerNotes}
+                                      onChange={(e) => setEditCustomerNotes(e.target.value)}
+                                      placeholder="Add notes about this customer..."
+                                      rows={2}
+                                      className="w-full px-3 py-1.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 text-sm bg-white resize-none"
+                                    />
+                                  </div>
+                                  {/* Item-specific notes (editable) */}
+                                  <div className="pt-2 border-t border-gray-200">
+                                    <span className="relative group inline-flex items-center gap-1 text-xs text-gray-400 font-medium uppercase tracking-wider cursor-help">Item Notes &#9432;<span className="absolute bottom-full left-0 mb-1 hidden group-hover:block w-64 px-2.5 py-1.5 text-xs text-white bg-gray-800 rounded-lg shadow-lg z-10 normal-case tracking-normal font-normal">Item-specific notes for this customer (e.g. packaging type, box size, pricing, brand preferences). Used by AI to expand shorthand orders.</span></span>
+                                    {customer.item_notes && customer.item_notes.length > 0 ? (
+                                      <div className="mt-1.5 space-y-1">
+                                        {customer.item_notes.map(itemNote => (
+                                          <div key={itemNote.id} className="flex items-start gap-2 bg-white rounded-lg border border-gray-100 px-3 py-2">
+                                            {editingItemNoteId === itemNote.id ? (
+                                              <div className="flex-1 space-y-1.5">
+                                                <p className="text-xs font-medium text-gray-900">{itemNote.item_name}</p>
+                                                <textarea
+                                                  value={editItemNoteText}
+                                                  onChange={(e) => setEditItemNoteText(e.target.value)}
+                                                  rows={4}
+                                                  className="w-full px-2.5 py-1.5 text-xs border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-green-500 resize-none leading-relaxed"
+                                                  autoFocus
+                                                />
+                                                <div className="flex gap-1.5">
+                                                  <button
+                                                    onClick={() => {
+                                                      setCustomers(prev => prev.map(c =>
+                                                        c.id === customer.id
+                                                          ? { ...c, item_notes: c.item_notes?.map(n => n.id === itemNote.id ? { ...n, note: editItemNoteText } : n) }
+                                                          : c
+                                                      ));
+                                                      setEditingItemNoteId(null);
+                                                    }}
+                                                    className="px-2 py-0.5 text-[11px] text-white rounded transition-colors"
+                                                    style={{ backgroundColor: frootfulGreen }}
+                                                  >Save</button>
+                                                  <button
+                                                    onClick={() => setEditingItemNoteId(null)}
+                                                    className="px-2 py-0.5 text-[11px] text-gray-500 hover:text-gray-700"
+                                                  >Cancel</button>
+                                                </div>
+                                              </div>
+                                            ) : (
+                                              <>
+                                                <div className="flex-1 min-w-0">
+                                                  <p className="text-xs font-medium text-gray-900">{itemNote.item_name}</p>
+                                                  <p className="text-xs text-gray-500 mt-0.5">{itemNote.note}</p>
+                                                </div>
+                                                <div className="flex items-center gap-1 flex-shrink-0">
+                                                  <button
+                                                    onClick={(e) => {
+                                                      e.stopPropagation();
+                                                      setEditingItemNoteId(itemNote.id);
+                                                      setEditItemNoteText(itemNote.note);
+                                                    }}
+                                                    className="text-[11px] text-gray-400 hover:text-gray-600 px-1.5 py-0.5 rounded hover:bg-gray-50"
+                                                  >Edit</button>
+                                                  <button
+                                                    onClick={(e) => {
+                                                      e.stopPropagation();
+                                                      setCustomers(prev => prev.map(c =>
+                                                        c.id === customer.id
+                                                          ? { ...c, item_notes: c.item_notes?.filter(n => n.id !== itemNote.id) }
+                                                          : c
+                                                      ));
+                                                    }}
+                                                    className="text-[11px] text-gray-400 hover:text-red-500 px-1.5 py-0.5 rounded hover:bg-gray-50"
+                                                  ><X className="w-3 h-3" /></button>
+                                                </div>
+                                              </>
+                                            )}
+                                          </div>
+                                        ))}
+                                      </div>
+                                    ) : (
+                                      <p className="text-xs text-gray-300 mt-1">No item-specific notes</p>
+                                    )}
+                                    {/* Add new item note */}
+                                    <div className="mt-2 space-y-2 bg-white rounded-lg border border-gray-200 p-3">
+                                      <div className="relative" ref={itemNameDropdownRef}>
+                                        <label className="block text-[11px] text-gray-400 mb-0.5">Item</label>
+                                        <input
+                                          type="text"
+                                          placeholder="Search items..."
+                                          value={expandedCustomerId === customer.id ? newItemNoteName : ''}
+                                          onChange={(e) => { setNewItemNoteName(e.target.value); setItemNameDropdownOpen(true); }}
+                                          onFocus={() => setItemNameDropdownOpen(true)}
+                                          onClick={(e) => e.stopPropagation()}
+                                          className="w-full px-2.5 py-1.5 text-xs border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-green-500"
+                                        />
+                                        {itemNameDropdownOpen && (() => {
+                                          const q = newItemNoteName.toLowerCase();
+                                          const filtered = catalogItemNames.filter(n => n.toLowerCase().includes(q)).slice(0, 8);
+                                          if (filtered.length === 0) return null;
+                                          return (
+                                            <div className="absolute z-50 mt-1 w-full bg-white border border-gray-200 rounded-lg shadow-lg max-h-40 overflow-y-auto">
+                                              {filtered.map(name => (
+                                                <button
+                                                  key={name}
+                                                  onClick={(e) => { e.stopPropagation(); setNewItemNoteName(name); setItemNameDropdownOpen(false); }}
+                                                  className="w-full text-left px-2.5 py-1.5 text-xs text-gray-700 hover:bg-green-50 hover:text-green-700"
+                                                >
+                                                  {name}
+                                                </button>
+                                              ))}
+                                            </div>
+                                          );
+                                        })()}
+                                      </div>
+                                      <div>
+                                        <label className="block text-[11px] text-gray-400 mb-0.5">Note</label>
+                                        <textarea
+                                          placeholder="Describe how this customer orders this item (e.g. packaging, box size, pricing, brand)..."
+                                          value={expandedCustomerId === customer.id ? newItemNoteText : ''}
+                                          onChange={(e) => setNewItemNoteText(e.target.value)}
+                                          onClick={(e) => e.stopPropagation()}
+                                          rows={3}
+                                          className="w-full px-2.5 py-1.5 text-xs border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-green-500 resize-none leading-relaxed"
+                                        />
+                                      </div>
+                                      <div className="flex justify-end">
+                                        <button
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            if (newItemNoteName.trim() && newItemNoteText.trim()) {
+                                              const newNote: CustomerItemNote = { id: `in-${Date.now()}`, item_name: newItemNoteName.trim(), note: newItemNoteText.trim() };
+                                              setCustomers(prev => prev.map(c =>
+                                                c.id === customer.id
+                                                  ? { ...c, item_notes: [...(c.item_notes || []), newNote] }
+                                                  : c
+                                              ));
+                                              setNewItemNoteName('');
+                                              setNewItemNoteText('');
+                                            }
+                                          }}
+                                          disabled={!newItemNoteName.trim() || !newItemNoteText.trim()}
+                                          className="px-3 py-1 text-xs text-white rounded-lg transition-colors disabled:opacity-30 flex items-center gap-1"
+                                          style={{ backgroundColor: frootfulGreen }}
+                                        >
+                                          <Plus className="w-3 h-3" />
+                                          Add Note
+                                        </button>
+                                      </div>
+                                    </div>
+                                  </div>
+                                  <div className="flex justify-end gap-2">
+                                    <button
+                                      onClick={() => setEditingCustomerId(null)}
+                                      disabled={isSaving}
+                                      className="px-3 py-1.5 text-sm text-gray-600 hover:text-gray-800 hover:bg-gray-100 rounded-lg transition-colors disabled:opacity-50"
+                                    >
+                                      Cancel
+                                    </button>
+                                    <button
+                                      onClick={() => handleSaveCustomer(customer.id)}
+                                      disabled={isSaving || !editCustomerName.trim()}
+                                      className="px-3 py-1.5 text-sm text-white rounded-lg transition-colors disabled:opacity-50 flex items-center gap-1.5"
+                                      style={{ backgroundColor: frootfulGreen }}
+                                    >
+                                      {isSaving ? (
+                                        <>
+                                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                          Saving...
+                                        </>
+                                      ) : (
+                                        <>
+                                          <Check className="w-3.5 h-3.5" />
+                                          Save
+                                        </>
+                                      )}
+                                    </button>
+                                  </div>
+                                </div>
+                              ) : (
+                                /* Read-only expanded view */
+                                <div className="space-y-2">
+                                  <div className="grid grid-cols-2 gap-x-6 gap-y-2 text-sm">
+                                    <div>
+                                      <span className="text-xs text-gray-400">Email</span>
+                                      <p className={`flex items-center gap-1.5 ${customer.email ? 'text-gray-700' : 'text-gray-300'}`}>
+                                        <Mail className="w-3.5 h-3.5 text-gray-400" />
+                                        {customer.email || '—'}
+                                      </p>
+                                    </div>
+                                    <div>
+                                      <span className="text-xs text-gray-400">Phone</span>
+                                      <p className={`flex items-center gap-1.5 ${customer.phone ? 'text-gray-700' : 'text-gray-300'}`}>
+                                        <Phone className="w-3.5 h-3.5 text-gray-400" />
+                                        {customer.phone || '—'}
+                                      </p>
+                                    </div>
+                                  </div>
+                                  <div>
+                                    <span className="relative group inline-flex items-center gap-1 text-xs text-gray-400 cursor-help">Notes &#9432;<span className="absolute bottom-full left-0 mb-1 hidden group-hover:block w-64 px-2.5 py-1.5 text-xs text-white bg-gray-800 rounded-lg shadow-lg z-10">General notes about this customer that apply to all orders (e.g. delivery day restrictions, shipping preferences, payment terms).</span></span>
+                                    <p className={`text-sm mt-0.5 ${customer.notes ? 'text-gray-700' : 'text-gray-300'}`}>{customer.notes || '—'}</p>
+                                  </div>
+                                  {/* Item-specific notes (read-only) */}
+                                  {customer.item_notes && customer.item_notes.length > 0 && (
+                                    <div className="pt-2 border-t border-gray-200 mt-2">
+                                      <span className="relative group inline-flex items-center gap-1 text-xs text-gray-400 font-medium uppercase tracking-wider cursor-help">Item Notes &#9432;<span className="absolute bottom-full left-0 mb-1 hidden group-hover:block w-64 px-2.5 py-1.5 text-xs text-white bg-gray-800 rounded-lg shadow-lg z-10 normal-case tracking-normal font-normal">Item-specific notes for this customer (e.g. packaging type, box size, pricing, brand preferences). Used by AI to expand shorthand orders.</span></span>
+                                      <div className="mt-1.5 space-y-1">
+                                        {customer.item_notes.map(itemNote => (
+                                          <div key={itemNote.id} className="flex items-start gap-2 bg-white rounded-lg border border-gray-100 px-3 py-2">
+                                            <div className="flex-1 min-w-0">
+                                              <p className="text-xs font-medium text-gray-900">{itemNote.item_name}</p>
+                                              <p className="text-xs text-gray-500 mt-0.5">{itemNote.note}</p>
+                                            </div>
+                                          </div>
+                                        ))}
+                                      </div>
+                                    </div>
+                                  )}
+                                  <div className="pt-1">
+                                    <button
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        setEditingCustomerId(customer.id);
+                                        setEditCustomerName(customer.name);
+                                        setEditCustomerEmail(customer.email || '');
+                                        setEditCustomerPhone(customer.phone || '');
+                                        setEditCustomerNotes(customer.notes || '');
+                                      }}
+                                      className="px-3 py-1.5 text-xs text-gray-500 hover:text-gray-700 hover:bg-white border border-gray-200 rounded-lg transition-colors"
+                                    >
+                                      Edit
+                                    </button>
+                                  </div>
+                                </div>
+                              )}
                             </div>
                           )}
                         </div>
@@ -6330,7 +5864,7 @@ const Dashboard: React.FC<DashboardProps> = ({ organizationId, layout = 'default
                                     <div key={proposal.id} className={`${statusColor.bg} rounded-lg p-4 border ${statusColor.border}`}>
                                       <div className="flex items-center justify-between mb-2">
                                         <h4 className={`text-xs font-semibold ${statusColor.label} uppercase`}>
-                                          {proposal.tags?.intent === 'cancel_order'
+                                          {proposal.type === 'cancel_order'
                                             ? 'Order Cancelled'
                                             : statusLabel}
                                           {proposal.customer_name && ` — ${proposal.customer_name}`}
@@ -6370,7 +5904,7 @@ const Dashboard: React.FC<DashboardProps> = ({ organizationId, layout = 'default
                                           )}
                                         </div>
                                       </div>
-                                      {proposal.tags?.intent === 'cancel_order' ? (
+                                      {proposal.type === 'cancel_order' ? (
                                         <p className="text-sm text-gray-700">
                                           Cancel entire order for {proposal.customer_name}
                                         </p>
@@ -6556,10 +6090,8 @@ const Dashboard: React.FC<DashboardProps> = ({ organizationId, layout = 'default
                     const dateKey = date.toISOString().split('T')[0];
                     const customersForDate = getOrdersForDate(date);
                     const customerNames = Object.keys(customersForDate).sort((a, b) => {
-                      const aCust = customers.find(c => c.name === a);
-                      const bCust = customers.find(c => c.name === b);
-                      const aSort = aCust?.sort_order ?? Number.MAX_SAFE_INTEGER;
-                      const bSort = bCust?.sort_order ?? Number.MAX_SAFE_INTEGER;
+                      const aSort = customersForDate[a]?.[0]?.sort_position ?? Number.MAX_SAFE_INTEGER;
+                      const bSort = customersForDate[b]?.[0]?.sort_position ?? Number.MAX_SAFE_INTEGER;
                       if (aSort !== bSort) return aSort - bSort;
                       return a.localeCompare(b);
                     });
@@ -6570,13 +6102,13 @@ const Dashboard: React.FC<DashboardProps> = ({ organizationId, layout = 'default
                     return (
                       <div
                         key={dateKey}
-                        className={`bg-white rounded-xl shadow-sm border overflow-hidden transition-all ${
+                        className={`bg-white rounded-xl shadow-sm border transition-all ${
                           today ? 'border-green-300 ring-2 ring-green-100' : 'border-gray-200'
                         }`}
                       >
                         <button
                           onClick={() => toggleDateExpanded(dateKey)}
-                          className={`w-full flex items-center justify-between p-4 hover:bg-gray-50 transition-colors ${
+                          className={`w-full flex items-center justify-between p-4 rounded-t-xl hover:bg-gray-50 transition-colors ${
                             today ? 'bg-green-50' : ''
                           }`}
                         >
@@ -6604,7 +6136,7 @@ const Dashboard: React.FC<DashboardProps> = ({ organizationId, layout = 'default
                                 onClick={(e) => {
                                   e.stopPropagation();
                                   const allOrdersForDate = Object.values(customersForDate).flat();
-                                  printPackingSummary(dateKey, allOrdersForDate, customers);
+                                  printPackingSummary(dateKey, allOrdersForDate);
                                 }}
                                 className="flex items-center gap-1 px-3 py-1 bg-gray-100 text-gray-600 rounded-full text-sm font-medium hover:bg-gray-200 transition-colors"
                                 title="Print packing summary"
@@ -6681,6 +6213,53 @@ const Dashboard: React.FC<DashboardProps> = ({ organizationId, layout = 'default
                                               </Tooltip>
                                             ))}
                                           </div>
+                                          {/* Customer-level actions menu */}
+                                          <div
+                                            className="relative"
+                                            ref={customerActionsMenuId === `${dateKey}:${customerName}` ? customerActionsRef : undefined}
+                                            onClick={(e) => e.stopPropagation()}
+                                          >
+                                            <div
+                                              role="button"
+                                              onClick={() => setCustomerActionsMenuId(prev => prev === `${dateKey}:${customerName}` ? null : `${dateKey}:${customerName}`)}
+                                              className="p-1 text-gray-400 hover:text-gray-600 rounded hover:bg-gray-100 transition-colors"
+                                            >
+                                              <MoreHorizontal className="w-4 h-4" />
+                                            </div>
+                                            {customerActionsMenuId === `${dateKey}:${customerName}` && (
+                                              <div className="absolute right-0 top-full mt-1 w-36 bg-white border border-gray-200 rounded-lg shadow-lg z-10 py-1">
+                                                <div
+                                                  role="button"
+                                                  onClick={() => {
+                                                    setCustomerActionsMenuId(null);
+                                                    if (!isCustomerSelected) {
+                                                      setSelectedCustomer({ date: dateKey, customer: customerName });
+                                                    }
+                                                    const firstOrder = customerOrders[0];
+                                                    if (firstOrder) {
+                                                      setEditingOrderId(firstOrder.id);
+                                                      setEditableOrderLines(firstOrder.items.map(item => ({ ...item })));
+                                                    }
+                                                  }}
+                                                  className="w-full flex items-center gap-2 px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-50 cursor-pointer transition-colors"
+                                                >
+                                                  <Pencil className="w-3.5 h-3.5" />
+                                                  Edit
+                                                </div>
+                                                <div
+                                                  role="button"
+                                                  onClick={() => {
+                                                    setCustomerActionsMenuId(null);
+                                                    handleDeleteCustomerOrders(customerOrders, customerName);
+                                                  }}
+                                                  className="w-full flex items-center gap-2 px-3 py-1.5 text-sm text-red-600 hover:bg-red-50 cursor-pointer transition-colors"
+                                                >
+                                                  <Trash2 className="w-3.5 h-3.5" />
+                                                  Delete{customerOrders.length > 1 ? ` all (${customerOrders.length})` : ''}
+                                                </div>
+                                              </div>
+                                            )}
+                                          </div>
                                           {isCustomerSelected ? (
                                             <ChevronUp className="w-4 h-4 text-gray-400" />
                                           ) : (
@@ -6697,14 +6276,7 @@ const Dashboard: React.FC<DashboardProps> = ({ organizationId, layout = 'default
                                               return (
                                                 <div
                                                   key={order.id}
-                                                  className={`rounded-lg border bg-white p-4 ${isEditing ? 'border-indigo-300 ring-1 ring-indigo-200' : 'border-gray-200 cursor-pointer'}`}
-                                                  onDoubleClick={() => {
-                                                    if (!isEditing) {
-                                                      setEditingOrderId(order.id);
-                                                      setEditableOrderLines(order.items.map(item => ({ ...item })));
-                                                    }
-                                                  }}
-                                                  title={isEditing ? undefined : 'Double-click to edit'}
+                                                  className={`group/order relative rounded-lg border bg-white p-4 ${isEditing ? 'border-indigo-300 ring-1 ring-indigo-200' : 'border-gray-200'}`}
                                                 >
                                                   {isEditing ? (
                                                     /* ---- EDITABLE VIEW ---- */
@@ -6822,7 +6394,7 @@ const Dashboard: React.FC<DashboardProps> = ({ organizationId, layout = 'default
                                                         Add item
                                                       </button>
 
-                                                      {/* Save / Cancel */}
+                                                      {/* Save / Cancel / Delete */}
                                                       <div className="mt-3 flex items-center gap-2 border-t border-gray-100 pt-3">
                                                         <button
                                                           onClick={() => handleSaveOrderEdit(order.id)}
@@ -6843,30 +6415,81 @@ const Dashboard: React.FC<DashboardProps> = ({ organizationId, layout = 'default
                                                           <X className="w-3.5 h-3.5" />
                                                           Cancel
                                                         </button>
+                                                        <div className="flex-1" />
+                                                        <button
+                                                          onClick={() => handleDeleteOrder(order.id)}
+                                                          disabled={deletingOrderId === order.id}
+                                                          className="flex items-center gap-1 px-3 py-1.5 text-sm text-red-600 border border-red-200 rounded-lg hover:bg-red-50 disabled:opacity-50 transition-colors"
+                                                        >
+                                                          {deletingOrderId === order.id ? (
+                                                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                                          ) : (
+                                                            <Trash2 className="w-3.5 h-3.5" />
+                                                          )}
+                                                          Delete
+                                                        </button>
                                                       </div>
                                                     </div>
                                                   ) : (
                                                     /* ---- READ-ONLY VIEW ---- */
-                                                    order.items.length > 0 && (
-                                                      <table className="w-full text-sm">
-                                                        <thead>
-                                                          <tr className="text-left text-xs text-gray-400 uppercase tracking-wider">
-                                                            <th className="pb-2 font-medium">Item</th>
-                                                            <th className="pb-2 font-medium w-16 text-center">Size</th>
-                                                            <th className="pb-2 font-medium w-12 text-center">Qty</th>
-                                                          </tr>
-                                                        </thead>
-                                                        <tbody className="divide-y divide-gray-100">
-                                                          {order.items.map((item, idx) => (
-                                                            <tr key={idx}>
-                                                              <td className="py-1.5 text-gray-700">{item.name}</td>
-                                                              <td className="py-1.5 text-center text-gray-500">{item.size}</td>
-                                                              <td className="py-1.5 text-center text-gray-700 font-medium">{item.quantity}</td>
+                                                    <div>
+                                                      {/* Actions menu — click to toggle */}
+                                                      <div className="absolute top-2 right-2" ref={orderActionsMenuId === order.id ? orderActionsRef : undefined}>
+                                                        <button
+                                                          onClick={(e) => { e.stopPropagation(); setOrderActionsMenuId(prev => prev === order.id ? null : order.id); }}
+                                                          className="p-1 text-gray-400 hover:text-gray-600 rounded hover:bg-gray-100 transition-colors"
+                                                        >
+                                                          <MoreHorizontal className="w-4 h-4" />
+                                                        </button>
+                                                        {orderActionsMenuId === order.id && (
+                                                          <div className="absolute right-0 top-full mt-1 w-32 bg-white border border-gray-200 rounded-lg shadow-lg z-10 py-1">
+                                                            <button
+                                                              onClick={() => {
+                                                                setOrderActionsMenuId(null);
+                                                                setEditingOrderId(order.id);
+                                                                setEditableOrderLines(order.items.map(item => ({ ...item })));
+                                                              }}
+                                                              className="w-full flex items-center gap-2 px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
+                                                            >
+                                                              <Pencil className="w-3.5 h-3.5" />
+                                                              Edit
+                                                            </button>
+                                                            <button
+                                                              onClick={() => { setOrderActionsMenuId(null); handleDeleteOrder(order.id); }}
+                                                              disabled={deletingOrderId === order.id}
+                                                              className="w-full flex items-center gap-2 px-3 py-1.5 text-sm text-red-600 hover:bg-red-50 disabled:opacity-50 transition-colors"
+                                                            >
+                                                              {deletingOrderId === order.id ? (
+                                                                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                                              ) : (
+                                                                <Trash2 className="w-3.5 h-3.5" />
+                                                              )}
+                                                              Delete
+                                                            </button>
+                                                          </div>
+                                                        )}
+                                                      </div>
+                                                      {order.items.length > 0 && (
+                                                        <table className="w-full text-sm">
+                                                          <thead>
+                                                            <tr className="text-left text-xs text-gray-400 uppercase tracking-wider">
+                                                              <th className="pb-2 font-medium">Item</th>
+                                                              <th className="pb-2 font-medium w-16 text-center">Size</th>
+                                                              <th className="pb-2 font-medium w-12 text-center">Qty</th>
                                                             </tr>
-                                                          ))}
-                                                        </tbody>
-                                                      </table>
-                                                    )
+                                                          </thead>
+                                                          <tbody className="divide-y divide-gray-100">
+                                                            {order.items.map((item, idx) => (
+                                                              <tr key={idx}>
+                                                                <td className="py-1.5 text-gray-700">{item.name}</td>
+                                                                <td className="py-1.5 text-center text-gray-500">{item.size}</td>
+                                                                <td className="py-1.5 text-center text-gray-700 font-medium">{item.quantity}</td>
+                                                              </tr>
+                                                            ))}
+                                                          </tbody>
+                                                        </table>
+                                                      )}
+                                                    </div>
                                                   )}
                                                 </div>
                                               );
@@ -7017,10 +6640,8 @@ const Dashboard: React.FC<DashboardProps> = ({ organizationId, layout = 'default
               const dateKey = date.toISOString().split('T')[0];
               const customersForDate = getOrdersForDate(date);
               const customerNames = Object.keys(customersForDate).sort((a, b) => {
-                const aCust = customers.find(c => c.name === a);
-                const bCust = customers.find(c => c.name === b);
-                const aSort = aCust?.sort_order ?? Number.MAX_SAFE_INTEGER;
-                const bSort = bCust?.sort_order ?? Number.MAX_SAFE_INTEGER;
+                const aSort = customersForDate[a]?.[0]?.sort_position ?? Number.MAX_SAFE_INTEGER;
+                const bSort = customersForDate[b]?.[0]?.sort_position ?? Number.MAX_SAFE_INTEGER;
                 if (aSort !== bSort) return aSort - bSort;
                 return a.localeCompare(b);
               });
@@ -7067,7 +6688,7 @@ const Dashboard: React.FC<DashboardProps> = ({ organizationId, layout = 'default
                           onClick={(e) => {
                             e.stopPropagation();
                             const allOrdersForDate = Object.values(customersForDate).flat();
-                            printPackingSummary(dateKey, allOrdersForDate, customers);
+                            printPackingSummary(dateKey, allOrdersForDate);
                           }}
                           className="flex items-center gap-1 px-3 py-1 bg-gray-100 text-gray-600 rounded-full text-sm font-medium hover:bg-gray-200 transition-colors"
                           title="Print packing summary"
