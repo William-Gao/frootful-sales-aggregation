@@ -4436,124 +4436,6 @@ const Dashboard: React.FC<DashboardProps> = ({ organizationId, layout = 'default
     }
   };
 
-  // Handler — create a new order manually
-  const handleCreateNewOrder = async () => {
-    if (!newOrderCustomer.trim() || !newOrderDeliveryDate || !organizationId) return;
-    const validLines = newOrderLines.filter(l => l.name.trim());
-    if (validLines.length === 0) return;
-
-    setSavingNewOrder(true);
-    try {
-      const { data: { session } } = await supabaseClient.auth.getSession();
-      if (!session) return;
-
-      // Create the order
-      const { data: newOrder, error: orderError } = await supabaseClient
-        .from('orders')
-        .insert({
-          organization_id: organizationId,
-          customer_name: newOrderCustomer.trim(),
-          delivery_date: newOrderDeliveryDate,
-          status: 'ready',
-          source_channel: 'dashboard',
-        })
-        .select('id')
-        .single();
-
-      if (orderError || !newOrder) {
-        console.error('Failed to create order:', orderError);
-        return;
-      }
-
-      // Add lines via the update-order edge function
-      const lines = validLines.map(l => ({
-        action: 'add' as const,
-        item_name: l.name,
-        variant_code: l.size || undefined,
-        quantity: l.quantity,
-      }));
-
-      const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/update-order`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${session.access_token}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ orderId: newOrder.id, lines }),
-      });
-
-      if (!response.ok) {
-        console.error('Failed to add order lines:', await response.json());
-      }
-
-      // Reset form and reload
-      setCreatingNewOrder(false);
-      setNewOrderCustomer('');
-      setNewOrderDeliveryDate('');
-      setNewOrderLines([{ name: '', size: 'S', quantity: 1 }]);
-      await loadOrders(false);
-    } catch (error) {
-      console.error('Error creating order:', error);
-    } finally {
-      setSavingNewOrder(false);
-    }
-  };
-
-  // Handler — save direct order edits via update-order edge function
-  const handleSaveOrderEdit = async (orderId: string) => {
-    const order = orders.find(o => o.id === orderId);
-    if (!order) return;
-
-    setSavingOrderId(orderId);
-    try {
-      const { data: { session } } = await supabaseClient.auth.getSession();
-      if (!session) return;
-
-      // Build the change lines by comparing editableOrderLines to original
-      const changeLines: { action: string; order_line_id?: string; item_name: string; item_id?: string; item_variant_id?: string; variant_code?: string; quantity: number }[] = [];
-
-      for (const line of editableOrderLines) {
-        if (line._action === 'remove' && line.order_line_id) {
-          changeLines.push({ action: 'remove', order_line_id: line.order_line_id, item_name: line.name, quantity: line.quantity });
-        } else if (line._action === 'add') {
-          if (!line.name.trim()) continue;
-          changeLines.push({ action: 'add', item_name: line.name, variant_code: line.size || undefined, quantity: line.quantity });
-        } else if (line._action === 'modify' && line.order_line_id) {
-          changeLines.push({ action: 'modify', order_line_id: line.order_line_id, item_name: line.name, item_id: line.item_id, variant_code: line.size || undefined, quantity: line.quantity });
-        }
-      }
-
-      if (changeLines.length === 0) {
-        setEditingOrderId(null);
-        setEditableOrderLines([]);
-        return;
-      }
-
-      const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/update-order`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${session.access_token}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ orderId, lines: changeLines }),
-      });
-
-      if (!response.ok) {
-        const err = await response.json();
-        console.error('Failed to update order:', err);
-        return;
-      }
-
-      setEditingOrderId(null);
-      setEditableOrderLines([]);
-      await loadOrders(false);
-    } catch (error) {
-      console.error('Error saving order edit:', error);
-    } finally {
-      setSavingOrderId(null);
-    }
-  };
-
   // Handlers — apply changes to order via resolve-proposal API, then remove from local state
   const handleApplyChange = async (proposalId: string, lines: ProposalLine[]) => {
     const proposal = proposals.find(p => p.id === proposalId);
@@ -5137,15 +5019,15 @@ const Dashboard: React.FC<DashboardProps> = ({ organizationId, layout = 'default
               <button
                 onClick={() => setSidebarTab('catalog')}
                 className={`w-full flex items-center ${sidebarCollapsed ? 'justify-center' : ''} gap-3 px-3 py-2.5 rounded-lg transition-colors ${
-                  sidebarTab === 'history'
+                  sidebarTab === 'catalog'
                     ? 'text-white'
                     : 'text-gray-600 hover:bg-gray-100'
                 }`}
-                style={sidebarTab === 'history' ? { backgroundColor: frootfulGreen } : undefined}
-                title="History"
+                style={sidebarTab === 'catalog' ? { backgroundColor: frootfulGreen } : undefined}
+                title="Catalog"
               >
-                <Clock className="w-5 h-5 flex-shrink-0" />
-                {!sidebarCollapsed && <span className="font-medium">History</span>}
+                <ShoppingBag className="w-5 h-5 flex-shrink-0" />
+                {!sidebarCollapsed && <span className="font-medium">Catalog</span>}
               </button>
               <button
                 onClick={() => setSidebarTab('customers')}
