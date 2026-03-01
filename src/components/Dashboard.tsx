@@ -4105,7 +4105,6 @@ const Dashboard: React.FC<DashboardProps> = ({ organizationId, layout = 'default
       .from('customers')
       .select('id, name, email, phone, notes, customer_item_notes(id, item_name, note)')
       .eq('organization_id', organizationId)
-      .order('sort_order', { ascending: true, nullsFirst: false })
       .order('name');
 
     if (error) {
