@@ -1430,10 +1430,11 @@ interface CreateNewOrderModalProps {
   proposal: Proposal;
   customers: Customer[];
   onCreateOrder: (id: string, lines: ProposalLine[], customerName?: string, deliveryDate?: string) => Promise<void>;
+  onUpdateOrderFrequency: (proposalId: string, value: 'one-time' | 'recurring') => void;
   onClose: () => void;
 }
 
-const CreateNewOrderModal: React.FC<CreateNewOrderModalProps> = ({ proposal, customers, onCreateOrder, onClose }) => {
+const CreateNewOrderModal: React.FC<CreateNewOrderModalProps> = ({ proposal, customers, onCreateOrder, onUpdateOrderFrequency, onClose }) => {
   const [editableLines, setEditableLines] = useState<ProposalLine[]>(proposal.lines);
   const [customerName, setCustomerName] = useState(proposal.customer_name);
   const [deliveryDate, setDeliveryDate] = useState(() => {
@@ -1441,6 +1442,9 @@ const CreateNewOrderModal: React.FC<CreateNewOrderModalProps> = ({ proposal, cus
     tomorrow.setDate(tomorrow.getDate() + 1);
     return tomorrow.toISOString().split('T')[0];
   });
+  const [orderFrequency, setOrderFrequency] = useState<'one-time' | 'recurring'>(
+    proposal.order_frequency || 'one-time'
+  );
   const [showAllMessages, setShowAllMessages] = useState(false);
 
   const allMessages = useMemo(() => {
@@ -1549,6 +1553,30 @@ const CreateNewOrderModal: React.FC<CreateNewOrderModalProps> = ({ proposal, cus
                 onChange={(e) => setDeliveryDate(e.target.value)}
                 className="w-full px-3 py-1.5 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
               />
+            </div>
+          </div>
+
+          {/* Order frequency toggle */}
+          <div className="relative group/tag">
+            <button
+              onClick={() => {
+                const newVal = orderFrequency === 'one-time' ? 'recurring' : 'one-time';
+                setOrderFrequency(newVal);
+                onUpdateOrderFrequency(proposal.id, newVal);
+              }}
+              className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium transition-all duration-200 active:scale-95 ${
+                orderFrequency === 'one-time'
+                  ? 'bg-orange-100 text-orange-700 hover:bg-orange-200'
+                  : 'bg-blue-100 text-blue-700 hover:bg-blue-200'
+              }`}
+            >
+              {orderFrequency === 'one-time' ? 'One-time' : 'Recurring'}
+              <ArrowUpDown className="w-3 h-3 opacity-40" />
+            </button>
+            <div className="absolute left-0 bottom-full mb-1 w-56 px-3 py-2 bg-gray-900 text-white text-xs rounded-lg shadow-lg opacity-0 invisible group-hover/tag:opacity-100 group-hover/tag:visible transition-all duration-200 z-50 pointer-events-none">
+              {orderFrequency === 'one-time'
+                ? 'This is a one-time order and will not recur.'
+                : 'This will create a recurring standing order for this day of the week.'}
             </div>
           </div>
 
@@ -3677,6 +3705,7 @@ const Dashboard: React.FC<DashboardProps> = ({ organizationId, layout = 'default
   const [newOrderCustomer, setNewOrderCustomer] = useState('');
   const [newOrderDeliveryDate, setNewOrderDeliveryDate] = useState('');
   const [newOrderLines, setNewOrderLines] = useState<{ name: string; size: string; quantity: number }[]>([{ name: '', size: 'S', quantity: 1 }]);
+  const [newOrderFrequency, setNewOrderFrequency] = useState<'one-time' | 'recurring'>('one-time');
   const [savingNewOrder, setSavingNewOrder] = useState(false);
   const [deletingOrderId, setDeletingOrderId] = useState<string | null>(null);
   const [orderActionsMenuId, setOrderActionsMenuId] = useState<string | null>(null);
@@ -4265,6 +4294,7 @@ const Dashboard: React.FC<DashboardProps> = ({ organizationId, layout = 'default
           delivery_date: newOrderDeliveryDate,
           status: 'ready',
           source_channel: 'dashboard',
+          metadata: { order_frequency: newOrderFrequency },
         })
         .select('id')
         .single();
@@ -4295,11 +4325,28 @@ const Dashboard: React.FC<DashboardProps> = ({ organizationId, layout = 'default
         console.error('Failed to add order lines:', await response.json());
       }
 
+      // Send email notification (fire-and-forget)
+      fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/notify-order-created`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${accessToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          orderId: newOrder.id,
+          customerName: newOrderCustomer.trim(),
+          deliveryDate: newOrderDeliveryDate,
+          items: validLines.map(l => ({ name: l.name, size: l.size, quantity: l.quantity })),
+          orderFrequency: newOrderFrequency,
+        }),
+      }).catch(err => console.error('Failed to send order notification:', err));
+
       // Reset form and reload
       setCreatingNewOrder(false);
       setNewOrderCustomer('');
       setNewOrderDeliveryDate('');
       setNewOrderLines([{ name: '', size: 'S', quantity: 1 }]);
+      setNewOrderFrequency('one-time');
       await loadOrders(false);
     } catch (error) {
       console.error('Error creating order:', error);
@@ -4658,12 +4705,12 @@ const Dashboard: React.FC<DashboardProps> = ({ organizationId, layout = 'default
     if (proposal) setAssignToOrderModal({ proposal, sourceOrderId });
   };
 
-  // Get dates: today + next 7 days (8 days total)
+  // Get dates: today + next 14 days (15 days total)
   const displayDates = useMemo(() => {
     const dates: Date[] = [];
     const today = new Date();
     today.setHours(0, 0, 0, 0);
-    for (let i = 0; i < 8; i++) {
+    for (let i = 0; i < 15; i++) {
       const date = new Date(today);
       date.setDate(today.getDate() + i);
       dates.push(date);
@@ -4831,7 +4878,7 @@ const Dashboard: React.FC<DashboardProps> = ({ organizationId, layout = 'default
     <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
       <div>
         <h2 className="text-2xl font-bold text-gray-900">Upcoming Orders</h2>
-        <p className="text-gray-600">Today and the next 7 days</p>
+        <p className="text-gray-600">Today and the next 14 days</p>
       </div>
 
       <div className="flex items-center space-x-4">
@@ -4910,6 +4957,7 @@ const Dashboard: React.FC<DashboardProps> = ({ organizationId, layout = 'default
           proposal={createNewOrderModal.proposal}
           customers={customers}
           onCreateOrder={handleCreateOrder}
+          onUpdateOrderFrequency={handleUpdateOrderFrequency}
           onClose={() => setCreateNewOrderModal(null)}
         />
       )}
@@ -5983,6 +6031,26 @@ const Dashboard: React.FC<DashboardProps> = ({ organizationId, layout = 'default
                     </div>
                   </div>
 
+                  {/* Order frequency toggle */}
+                  <div className="relative group/tag mb-4">
+                    <button
+                      onClick={() => setNewOrderFrequency(prev => prev === 'one-time' ? 'recurring' : 'one-time')}
+                      className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium transition-all duration-200 active:scale-95 ${
+                        newOrderFrequency === 'one-time'
+                          ? 'bg-orange-100 text-orange-700 hover:bg-orange-200'
+                          : 'bg-blue-100 text-blue-700 hover:bg-blue-200'
+                      }`}
+                    >
+                      {newOrderFrequency === 'one-time' ? 'One-time' : 'Recurring'}
+                      <ArrowUpDown className="w-3 h-3 opacity-40" />
+                    </button>
+                    <div className="absolute left-0 bottom-full mb-1 w-56 px-3 py-2 bg-gray-900 text-white text-xs rounded-lg shadow-lg opacity-0 invisible group-hover/tag:opacity-100 group-hover/tag:visible transition-all duration-200 z-50 pointer-events-none">
+                      {newOrderFrequency === 'one-time'
+                        ? 'This is a one-time order and will not recur.'
+                        : 'This will create a recurring standing order for this day of the week.'}
+                    </div>
+                  </div>
+
                   <table className="w-full text-sm mb-2">
                     <thead>
                       <tr className="text-left text-xs text-gray-400 uppercase tracking-wider">
@@ -6061,7 +6129,7 @@ const Dashboard: React.FC<DashboardProps> = ({ organizationId, layout = 'default
                       Create Order
                     </button>
                     <button
-                      onClick={() => { setCreatingNewOrder(false); setNewOrderCustomer(''); setNewOrderDeliveryDate(''); setNewOrderLines([{ name: '', size: 'S', quantity: 1 }]); }}
+                      onClick={() => { setCreatingNewOrder(false); setNewOrderCustomer(''); setNewOrderDeliveryDate(''); setNewOrderLines([{ name: '', size: 'S', quantity: 1 }]); setNewOrderFrequency('one-time'); }}
                       className="flex items-center gap-1 px-3 py-1.5 text-sm border border-gray-300 text-gray-600 rounded-lg hover:bg-gray-50 transition-colors"
                     >
                       <X className="w-3.5 h-3.5" />
@@ -6080,7 +6148,7 @@ const Dashboard: React.FC<DashboardProps> = ({ organizationId, layout = 'default
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
                   </svg>
                   <h3 className="text-lg font-medium text-gray-900 mb-1">No orders found</h3>
-                  <p className="text-sm text-gray-500">No orders found for the next 7 days. Orders will appear here once they are created or imported.</p>
+                  <p className="text-sm text-gray-500">No orders found for the next 14 days. Orders will appear here once they are created or imported.</p>
                 </div>
               )}
 
