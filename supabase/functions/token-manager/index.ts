@@ -242,29 +242,54 @@ async function storeTokens(userId: string, tokenData: TokenData): Promise<Respon
   const encryptedAccessToken = await encrypt(tokenData.accessToken);
   const encryptedRefreshToken = tokenData.refreshToken ? await encrypt(tokenData.refreshToken) : null;
 
-  // For supabase_session provider, also store email for lookup
-  const additionalFields: any = {};
-  if (tokenData.provider === 'supabase_session' && tokenData.email) {
-    // We don't need to store email separately since we can look up by user_id
-    // But we could add it for debugging purposes
-  }
+  // Look up user's organization
+  const { data: orgData } = await supabase
+    .from('user_organizations')
+    .select('organization_id')
+    .eq('user_id', userId)
+    .limit(1)
+    .single();
 
-  const { data, error } = await supabase
+  // Fall back to Frootful internal org for system accounts (e.g. orders.frootful@gmail.com)
+  const FROOTFUL_SYSTEM_ORG = 'ac3dd72d-373d-4424-8085-55b3b1844459';
+  const organizationId = orgData?.organization_id || FROOTFUL_SYSTEM_ORG;
+
+  const tokenRow = {
+    user_id: userId,
+    provider: tokenData.provider,
+    encrypted_access_token: encryptedAccessToken,
+    encrypted_refresh_token: encryptedRefreshToken,
+    token_expires_at: tokenData.expiresAt,
+    tenant_id: tokenData.tenantId,
+    company_id: tokenData.companyId,
+    company_name: tokenData.companyName,
+    organization_id: organizationId,
+  };
+
+  // Check if a row already exists for this user+provider
+  const { data: existing } = await supabase
     .from('user_tokens')
-    .upsert({
-      user_id: userId,
-      provider: tokenData.provider,
-      encrypted_access_token: encryptedAccessToken,
-      encrypted_refresh_token: encryptedRefreshToken,
-      token_expires_at: tokenData.expiresAt,
-      tenant_id: tokenData.tenantId,
-      company_id: tokenData.companyId,
-      company_name: tokenData.companyName,
-      ...additionalFields
-    }, {
-      onConflict: 'user_id,provider'
-    })
-    .select();
+    .select('id')
+    .eq('user_id', userId)
+    .eq('provider', tokenData.provider)
+    .limit(1)
+    .single();
+
+  let data, error;
+  if (existing) {
+    // Update existing row
+    ({ data, error } = await supabase
+      .from('user_tokens')
+      .update(tokenRow)
+      .eq('id', existing.id)
+      .select());
+  } else {
+    // Insert new row
+    ({ data, error } = await supabase
+      .from('user_tokens')
+      .insert(tokenRow)
+      .select());
+  }
 
   if (error) {
     throw new Error(`Failed to store tokens: ${error.message}`);

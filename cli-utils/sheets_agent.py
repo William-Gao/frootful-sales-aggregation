@@ -11,6 +11,8 @@ Usage:
     python sheets_agent.py --days 14           # All days, next 14 days
     python sheets_agent.py --day friday        # Just Friday, next 7 days
     python sheets_agent.py --day tuesday --days 14 --prod
+    python sheets_agent.py --date 2026-03-20   # Specific date only
+    python sheets_agent.py --from 2026-03-16 --to 2026-03-27  # Date range
 """
 
 import json
@@ -185,15 +187,14 @@ def parse_date_string(date_str: str) -> str | None:
     return None
 
 
-async def read_sheet_for_day(session: ClientSession, spreadsheet_id: str, target_day: str, window_days: int = 7) -> list[dict]:
+async def read_sheet_for_day(session: ClientSession, spreadsheet_id: str, target_day: str, start_date: date, end_date: date) -> list[dict]:
     """
     Read the ORDERS tab and extract order rows for dates within the window
-    (today .. today + window_days) for the given day (tuesday/wednesday/friday).
+    (start_date .. end_date) for the given day (tuesday/wednesday/friday).
 
     Returns: list of {date: str, iso_date: str, rows: [[customer, product, size, qty], ...]}
     """
     day_label = f"{target_day.capitalize()} Harvests"
-    today = date.today().isoformat()
 
     print(f'  Looking for "{day_label}" section...')
 
@@ -277,11 +278,12 @@ async def read_sheet_for_day(session: ClientSession, spreadsheet_id: str, target
     if not date_sections:
         raise RuntimeError(f'No date sections found within "{day_label}"')
 
-    # Find dates within the window (today .. today+window_days)
-    end_date = (date.today() + timedelta(days=window_days)).isoformat()
-    in_window = [s for s in date_sections if today <= s["iso_date"] <= end_date]
+    # Find dates within the window
+    start_iso = start_date.isoformat()
+    end_iso = end_date.isoformat()
+    in_window = [s for s in date_sections if start_iso <= s["iso_date"] <= end_iso]
     if not in_window:
-        print(f"  No dates found in window {today} to {end_date}. Using most recent date.")
+        print(f"  No dates found in window {start_iso} to {end_iso}. Using most recent date.")
         in_window = [date_sections[-1]]
 
     print(f"  Dates in window: {', '.join(s['iso_date'] for s in in_window)}")
@@ -690,15 +692,43 @@ async def main():
                 sys.exit(1)
             selected_days = [day]
 
+    # Date overrides: --date for a single date, --from/--to for a range
     today = date.today()
-    end_date = today + timedelta(days=window_days)
+    if "--date" in sys.argv:
+        idx = sys.argv.index("--date")
+        if idx + 1 < len(sys.argv):
+            target = date.fromisoformat(sys.argv[idx + 1])
+            start_date = target
+            end_date = target
+        else:
+            print("Error: --date requires a YYYY-MM-DD argument")
+            sys.exit(1)
+    elif "--from" in sys.argv:
+        idx = sys.argv.index("--from")
+        if idx + 1 < len(sys.argv):
+            start_date = date.fromisoformat(sys.argv[idx + 1])
+        else:
+            print("Error: --from requires a YYYY-MM-DD argument")
+            sys.exit(1)
+        if "--to" in sys.argv:
+            idx = sys.argv.index("--to")
+            if idx + 1 < len(sys.argv):
+                end_date = date.fromisoformat(sys.argv[idx + 1])
+            else:
+                print("Error: --to requires a YYYY-MM-DD argument")
+                sys.exit(1)
+        else:
+            end_date = start_date + timedelta(days=window_days)
+    else:
+        start_date = today
+        end_date = today + timedelta(days=window_days)
 
     print("=" * 60)
     print("FROOTFUL SHEETS ORDER AGENT")
     print("=" * 60)
     env_label = "PRODUCTION" if IS_PROD else "STAGING"
     print(f"\nEnvironment: {env_label} ({SUPABASE_URL})")
-    print(f"Date window: {today.isoformat()} to {end_date.isoformat()} ({window_days} days)")
+    print(f"Date window: {start_date.isoformat()} to {end_date.isoformat()}")
     print(f"Harvest days: {', '.join(d.capitalize() for d in selected_days)}")
 
     # Step 1: Connect to Composio MCP and read sheet data for all days
@@ -718,7 +748,7 @@ async def main():
 
             for day in selected_days:
                 print(f"\n2. Reading ORDERS tab for {day.capitalize()}...")
-                sections = await read_sheet_for_day(session, SPREADSHEET_ID, day, window_days)
+                sections = await read_sheet_for_day(session, SPREADSHEET_ID, day, start_date, end_date)
                 for section in sections:
                     if section["rows"]:
                         all_sections.append((day, section))

@@ -35,8 +35,6 @@ function buildSystemPrompt(customers: Customer[], items: Item[]): string {
     return `  ${item.name} [SKU: ${item.sku}] (id: ${item.id}) → variants: ${variants}`;
   });
 
-  const today = new Date().toISOString().split('T')[0];
-
   return `You are Frootful's order processing agent for Boston Microgreens.
 You receive orders from restaurant customers via text messages, emails, PDFs, images, or spreadsheets.
 
@@ -62,6 +60,7 @@ RULES:
   Otherwise → "one-time"
 - Variants: S = Small, L = Large, T20 = Tray 20
   "small" → S, "large" → L, "tray" or "tray of" → T20
+  "micro" or "cont" (container) → S (Small)
 - If the customer doesn't specify a variant, default to S (Small)
 - A single message may reference multiple delivery dates — call the tool separately for each
 - For modify_order: pass order_id and a changes object. Only include what's changing:
@@ -71,8 +70,8 @@ RULES:
     - type "add": new item → requires item_id, variant_id, quantity
     - type "update": changing an existing line → requires order_line_id, plus only the fields changing (variant_id, quantity)
     - type "remove": canceling a line → requires only order_line_id
-- Today's date is ${today}
-- CRITICAL: All delivery dates MUST be in the future. When an order says "Tuesday" or "Friday", calculate the NEXT occurrence that is AFTER today. Do NOT create orders for past dates. Do NOT comment on dates being in the past — just use the correct future date.
+- Use the DATE REFERENCE provided in the user message to look up all dates. Do NOT calculate dates yourself.
+- CRITICAL: All delivery dates MUST be in the future. Do NOT create orders for past dates.
 
 Be concise. Match, check existing orders, submit.`;
 }

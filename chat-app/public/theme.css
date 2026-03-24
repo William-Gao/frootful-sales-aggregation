@@ -1,0 +1,34 @@
+/* Frootful green theme for Chainlit */
+
+:root {
+  --accent-color: #16a34a;
+  --accent-hover: #15803d;
+}
+
+/* Send button */
+button[data-testid="send-button"],
+.cl-send-button {
+  background-color: var(--accent-color) !important;
+}
+button[data-testid="send-button"]:hover,
+.cl-send-button:hover {
+  background-color: var(--accent-hover) !important;
+}
+
+/* Hide the ENTIRE Chainlit header — we use the React widget title bar instead */
+header {
+  display: none !important;
+}
+
+/* Hide the readme/welcome page */
+.chainlit-readme,
+[data-testid="readme"] {
+  display: none !important;
+}
+
+/* Hide Chainlit watermark */
+a[href*="chainlit"],
+.watermark,
+[data-testid="watermark"] {
+  display: none !important;
+}

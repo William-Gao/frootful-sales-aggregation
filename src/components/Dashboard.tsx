@@ -118,6 +118,52 @@ interface Order {
 
 type ProposalType = 'new_order' | 'change_order' | 'cancel_order';
 
+// PO-specific metadata for rich order display (La Gaitana style)
+interface PORecipeLine {
+  color: string;
+  variety: string;
+  quantity: number; // bunches
+  stems_per_bunch?: number;
+  upc?: string;
+}
+
+interface POLineDetail {
+  item_code: string; // e.g. 'CBD01794'
+  bunches_per_box: number; // e.g. 140
+  stems_per_bunch: number; // e.g. 5
+  price: number; // e.g. 0.925
+  price_unit: 'bunch' | 'stem'; // per-bunch or per-stem
+  upc: string; // e.g. '841152000137' or 'varies'
+  recipe_type?: 'mix' | 'rainbow' | 'single'; // how the recipe works
+  recipe_label?: string; // e.g. 'standard mix, 140 bch'
+  recipe_note?: string; // italic note below recipe
+  variety_name?: string; // for single-variety items e.g. 'Polar Route'
+  recipe?: PORecipeLine[]; // breakdown for mix/rainbow items
+}
+
+interface POMetadata {
+  po_number: string; // e.g. 'PO029889'
+  customer_po?: string; // e.g. '94X720766'
+  sales_order?: string; // e.g. 'SO411191'
+  sell_to?: string; // e.g. '106'
+  banner?: string; // e.g. 'HEB'
+  farm?: string; // e.g. 'Gaitana'
+  farms_available?: string[]; // e.g. ['Gaitana', 'Arabela']
+  box_type?: string; // e.g. 'FB Gems'
+  consolidation_date?: string;
+  arrive_date?: string;
+  truck_date?: string;
+  ship_method?: string; // e.g. 'PASSION'
+  location?: string; // e.g. 'MBOGOTA'
+  order_state?: 'in_process' | 'pending' | 'confirmed';
+  totals?: {
+    cases: number;
+    bunches?: number;
+    stems: number;
+    amount: number;
+  };
+}
+
 interface ProposalLine {
   id: string;
   change_type: 'add' | 'modify' | 'remove';
@@ -131,6 +177,7 @@ interface ProposalLine {
   original_size?: string;
   available_variants?: { id: string; code: string; name: string }[];
   delivery_date?: string;
+  po_line?: POLineDetail; // rich PO line data (optional)
 }
 
 interface TimelineEvent {
@@ -176,6 +223,7 @@ interface Proposal {
   order_frequency?: 'one-time' | 'recurring';
   tags?: { order_frequency?: string; erp_sync_status?: string; source?: string; [key: string]: string | undefined };
   attachments?: ProposalAttachment[];
+  po_metadata?: POMetadata; // Rich PO data for La Gaitana-style orders
 }
 
 interface Customer {
@@ -614,6 +662,97 @@ const MOCK_PROPOSALS: Proposal[] = [
       { id: 't6-ai', type: 'event', timestamp: ago(119), eventType: 'ai_analysis' },
     ],
     attachments: [],
+  },
+
+  // 7. La Gaitana Farms — PO029889 (Customer 1142 → HEB) — rich PO with recipes
+  {
+    id: 'prop-7', intake_event_id: 'intake-7', order_id: null, action: 'create',
+    order_frequency: 'one-time', customer_name: 'Customer 1142', delivery_date: d(DAY_3),
+    message_count: 1, channel: 'email', created_at: ago(3),
+    message_preview: 'Hi,\n\nPlease find attached PO029889 for Customer 1142 (HEB).\n\n4 line items: Carnation Asst (20 FB), Carnations White (11 FB), Mini Carnations Asst (17 FB), RBW Mini Carns (26 FB).\n\nConsolidation: MBOGOTA, Mar 4\nArrive: Mar 6\nTruck: Mar 9\nShipment: PASSION\n\nTotal: 74 cases, 56,530 stems, $10,773.95\n\nThanks,\nOperflor',
+    message_full: 'Hi,\n\nPlease find attached PO029889 for Customer 1142 (HEB).\n\n4 line items: Carnation Asst (20 FB), Carnations White (11 FB), Mini Carnations Asst (17 FB), RBW Mini Carns (26 FB).\n\nConsolidation: MBOGOTA, Mar 4\nArrive: Mar 6\nTruck: Mar 9\nShipment: PASSION\n\nTotal: 74 cases, 56,530 stems, $10,773.95\n\nThanks,\nOperflor',
+    message_html: '<p>Hi,</p><p>Please find attached PO029889 for Customer 1142 (HEB).</p><p>4 line items: Carnation Asst (20 FB), Carnations White (11 FB), Mini Carnations Asst (17 FB), RBW Mini Carns (26 FB).</p><p>Consolidation: MBOGOTA, Mar 4<br/>Arrive: Mar 6<br/>Truck: Mar 9<br/>Shipment: PASSION</p><p>Total: 74 cases, 56,530 stems, $10,773.95</p><p>Thanks,<br/>Operflor</p>',
+    sender: 'Operflor <orders@operflor.com>', subject: 'PO029889 — Customer 1142 (HEB)', email_date: ago(3),
+    po_metadata: {
+      po_number: 'PO029889',
+      customer_po: '94X720766',
+      sales_order: 'SO411191',
+      sell_to: '106',
+      banner: 'HEB',
+      farm: 'Gaitana',
+      farms_available: ['Gaitana', 'Arabela'],
+      box_type: 'FB Gems',
+      consolidation_date: 'Mar 4',
+      arrive_date: 'Mar 6',
+      truck_date: 'Mar 9',
+      ship_method: 'PASSION',
+      location: 'MBOGOTA',
+      order_state: 'in_process',
+      totals: { cases: 74, bunches: 10145, stems: 56530, amount: 10773.95 },
+    },
+    lines: [
+      {
+        id: 'l-7a', change_type: 'add', item_name: 'Carnation Asst', size: 'FB', quantity: 20,
+        po_line: {
+          item_code: 'CBD01794', bunches_per_box: 140, stems_per_bunch: 5,
+          price: 0.925, price_unit: 'bunch', upc: '841152000137',
+          recipe_type: 'mix', recipe_label: 'standard mix, 140 bch (will be adjusted by farm)',
+          recipe_note: 'AI uses default breakdown from spec PDF. Elian adjusts mix based on farm availability before setting to Pending.',
+          recipe: [
+            { color: 'Red', variety: 'Don Pedro', quantity: 20 },
+            { color: 'Hot Pink', variety: 'Bizet', quantity: 20 },
+            { color: 'Lt Pink', variety: 'Lege Pink', quantity: 20 },
+            { color: 'Orange', variety: 'Tangelo', quantity: 20 },
+            { color: 'Yellow', variety: 'Caroline Gold', quantity: 20 },
+            { color: 'Mixed', variety: 'varies', quantity: 40 },
+          ],
+        },
+      },
+      {
+        id: 'l-7b', change_type: 'add', item_name: 'Carnations White', size: 'FB', quantity: 11,
+        po_line: {
+          item_code: 'CBD13451', bunches_per_box: 140, stems_per_bunch: 5,
+          price: 0.925, price_unit: 'bunch', upc: '841152040200',
+          recipe_type: 'single', variety_name: 'Polar Route',
+        },
+      },
+      {
+        id: 'l-7c', change_type: 'add', item_name: 'Mini Carnations Asst', size: 'FB', quantity: 17,
+        po_line: {
+          item_code: 'CBD01788', bunches_per_box: 135, stems_per_bunch: 6,
+          price: 1.11, price_unit: 'bunch', upc: 'varies',
+          recipe_type: 'mix', recipe_label: '135 bch, UPC varies by color group (will be adjusted)',
+          recipe_note: 'Each color group has its own UPC. AI fills default split; farm adjusts varieties based on availability.',
+          recipe: [
+            { color: 'Red', variety: 'Aragon', quantity: 34, upc: '841152010201' },
+            { color: 'Blue/Purple', variety: 'Epsilon', quantity: 34, upc: '841152030201' },
+            { color: 'White', variety: 'Xue', quantity: 34, upc: '841152040201' },
+            { color: 'Yellow', variety: 'Kumquat', quantity: 33, upc: '841152020201' },
+          ],
+        },
+      },
+      {
+        id: 'l-7d', change_type: 'add', item_name: 'RBW Mini Carns', size: 'FB', quantity: 26,
+        po_line: {
+          item_code: 'CBD01792', bunches_per_box: 135, stems_per_bunch: 6,
+          price: 1.20, price_unit: 'bunch', upc: '841152050071',
+          recipe_type: 'rainbow', recipe_label: 'fixed 6-color rainbow, 135 bch (required)',
+          recipe_note: 'Rainbow recipe is fixed (all 6 colors required). Farm may swap varieties but never removes a color.',
+          recipe: [
+            { color: 'Hot Pink', variety: 'Chua', quantity: 1, stems_per_bunch: 1 },
+            { color: 'Orange', variety: 'Kumquat', quantity: 1, stems_per_bunch: 1 },
+            { color: 'Pink', variety: 'Lorenzo', quantity: 1, stems_per_bunch: 1 },
+            { color: 'Purple', variety: 'Epsilon', quantity: 1, stems_per_bunch: 1 },
+            { color: 'Red', variety: 'Aragon', quantity: 1, stems_per_bunch: 1 },
+            { color: 'Blue', variety: 'Tuparro', quantity: 1, stems_per_bunch: 1 },
+          ],
+        },
+      },
+    ],
+    timeline: mkTl('t7', 3, 'email', 'PO029889 for Customer 1142 (HEB). 4 line items, 74 cases, $10,773.95. Consolidation MBOGOTA Mar 4.', 'Operflor <orders@operflor.com>', 'PO029889 — Customer 1142 (HEB)'),
+    attachments: [
+      { id: 'att-7a', filename: 'PO029889_Customer_1142.pdf', extension: 'pdf', mime_type: 'application/pdf', size_bytes: 125000, storage_path: '/demo/po029889.pdf', processing_status: 'completed' },
+    ],
   },
 
 ];
@@ -1641,6 +1780,19 @@ const CreateNewOrderModal: React.FC<CreateNewOrderModalProps> = ({ proposal, cus
               </tr>
             </tbody>
           </table>
+
+          {/* Notes */}
+          <div className="mt-3">
+            <label className="flex items-center gap-1.5 text-xs text-gray-400 uppercase tracking-wider mb-1">
+              <FileText className="w-3 h-3" />
+              Notes
+            </label>
+            <textarea
+              placeholder="Add notes or feedback about this order..."
+              rows={2}
+              className="w-full px-3 py-1.5 text-sm border border-gray-300 rounded-lg bg-white focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500 resize-none placeholder:text-gray-300"
+            />
+          </div>
         </div>
 
         {/* Footer */}
@@ -2124,6 +2276,18 @@ const AssignToOrderModal: React.FC<AssignToOrderModalProps> = ({ proposal, sourc
                   </tbody>
                 </table>
               )}
+              {/* Notes */}
+              <div className="mt-3">
+                <label className="flex items-center gap-1.5 text-xs text-gray-400 uppercase tracking-wider mb-1">
+                  <FileText className="w-3 h-3" />
+                  Notes
+                </label>
+                <textarea
+                  placeholder="Add notes or feedback about these changes..."
+                  rows={2}
+                  className="w-full px-3 py-1.5 text-sm border border-gray-300 rounded-lg bg-white focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500 resize-none placeholder:text-gray-300"
+                />
+              </div>
             </div>
             <div className="flex items-center gap-2 px-6 py-4 border-t border-gray-200">
               <button
@@ -2399,15 +2563,26 @@ const CreateOrderSection: React.FC<{
 
   // If the order was already created, show a compact "Order Created" view
   if (proposal.order_id) {
+    const po = proposal.po_metadata;
     return (
       <div className="bg-green-50 border border-green-200 rounded-lg overflow-hidden">
         <div className="flex items-center justify-between px-3 py-2.5">
           <p className="text-xs text-green-700 uppercase tracking-wider font-semibold">
             {showMultiLabel ? `Order Created — ${formattedDate}` : 'Order Created'}
           </p>
-          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-700">
-            <Check className="w-3 h-3" /> Created
-          </span>
+          {po ? (
+            <div className="flex items-center gap-1" style={{ fontSize: '10px' }}>
+              <span className="px-1.5 py-0.5 rounded bg-gray-100 text-gray-400 font-medium line-through">In Process</span>
+              <ChevronRight className="w-3 h-3 text-gray-300" />
+              <span className="px-1.5 py-0.5 rounded bg-yellow-100 text-yellow-700 font-semibold border border-yellow-200">Pending</span>
+              <ChevronRight className="w-3 h-3 text-gray-300" />
+              <span className="px-1.5 py-0.5 rounded bg-gray-100 text-gray-400 font-medium">Confirmed</span>
+            </div>
+          ) : (
+            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-700">
+              <Check className="w-3 h-3" /> Created
+            </span>
+          )}
         </div>
         <div className="px-3 pb-3">
           <div className="flex items-center gap-3 px-3 py-2 bg-white border border-green-200 rounded-lg">
@@ -2415,31 +2590,102 @@ const CreateOrderSection: React.FC<{
               <User className="w-4 h-4 text-green-500 flex-shrink-0" />
               <span className="text-sm font-medium text-gray-900">{customerName}</span>
             </div>
+            {po?.farm && (
+              <div className="flex items-center gap-1.5 flex-shrink-0">
+                <Building2 className="w-3.5 h-3.5 text-green-500" />
+                <span className="text-xs text-gray-700 font-medium">{po.farm}</span>
+              </div>
+            )}
             <div className="flex items-center gap-2 flex-shrink-0">
               <CalendarIcon className="w-4 h-4 text-green-500" />
               <span className="text-xs text-gray-600">{formattedDate}</span>
             </div>
           </div>
+
+          {/* PO Metadata (read-only) */}
+          {po && (
+            <div className="mt-3 px-3 py-2.5 bg-white border border-green-200 rounded-lg">
+              <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs">
+                <span><span className="text-green-600/60 font-medium">PO</span> <span className="text-gray-900 font-semibold ml-1">{po.po_number}</span></span>
+                {po.customer_po && <span><span className="text-green-600/60 font-medium">Cust PO</span> <span className="text-gray-900 ml-1">{po.customer_po}</span></span>}
+                {po.sales_order && <span><span className="text-green-600/60 font-medium">SO</span> <span className="text-gray-900 ml-1">{po.sales_order}</span></span>}
+                {po.banner && <span className="px-1.5 py-0.5 bg-green-100 text-green-700 rounded font-medium">{po.banner}</span>}
+                {po.box_type && <span className="px-1.5 py-0.5 bg-gray-100 text-gray-600 rounded font-medium">{po.box_type}</span>}
+              </div>
+              <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs mt-2 text-gray-500">
+                {po.consolidation_date && <span>Consolidation: <span className="text-gray-700">{po.consolidation_date}</span></span>}
+                {po.arrive_date && <span>Arrive: <span className="text-gray-700">{po.arrive_date}</span></span>}
+                {po.truck_date && <span>Truck: <span className="text-gray-700">{po.truck_date}</span></span>}
+                {(po.ship_method || po.location) && <span className="text-gray-400">|</span>}
+                {po.ship_method && <span>Ship: <span className="text-gray-700">{po.ship_method}</span></span>}
+                {po.location && <span>Loc: <span className="text-gray-700">{po.location}</span></span>}
+              </div>
+            </div>
+          )}
+
           <div className="border-t border-green-200 mt-3 pt-2">
             <table className="w-full text-sm">
               <thead>
                 <tr className="text-xs text-green-600/60 uppercase tracking-wider">
-                  <th className="py-1 text-left font-medium">Item</th>
-                  <th className="py-1 text-center font-medium">Size</th>
-                  <th className="py-1 text-center font-medium">Qty</th>
+                  {po ? (
+                    <>
+                      <th className="py-1 text-left font-medium">Code</th>
+                      <th className="py-1 text-left font-medium">Item</th>
+                      <th className="py-1 text-center font-medium">Cases</th>
+                      <th className="py-1 text-center font-medium">Bch/Box</th>
+                      <th className="py-1 text-center font-medium">St/Bch</th>
+                      <th className="py-1 text-center font-medium">Price</th>
+                      <th className="py-1 text-right font-medium">UPC</th>
+                    </>
+                  ) : (
+                    <>
+                      <th className="py-1 text-left font-medium">Item</th>
+                      <th className="py-1 text-center font-medium">Size</th>
+                      <th className="py-1 text-center font-medium">Qty</th>
+                    </>
+                  )}
                 </tr>
               </thead>
               <tbody>
                 {editableLines.filter(l => l.change_type === 'add').map(line => (
                   <tr key={line.id} className="text-green-800">
-                    <td className="py-1 text-left text-xs">{line.item_name}</td>
-                    <td className="py-1 text-center text-xs">{line.size}</td>
-                    <td className="py-1 text-center text-xs font-medium">{line.quantity}</td>
+                    {line.po_line ? (
+                      <>
+                        <td className="py-1 text-left text-xs font-mono text-gray-500">{line.po_line.item_code}</td>
+                        <td className="py-1 text-left text-xs">
+                          {line.item_name}
+                          {line.po_line.recipe_type === 'mix' && <span className="ml-1 px-1 py-0 rounded font-semibold bg-amber-100 text-amber-700 border border-amber-200" style={{ fontSize: '9px' }}>MIX</span>}
+                          {line.po_line.recipe_type === 'rainbow' && <span className="ml-1 px-1 py-0 rounded font-semibold bg-blue-100 text-blue-700 border border-blue-200" style={{ fontSize: '9px' }}>RAINBOW</span>}
+                          {line.po_line.recipe_type === 'single' && line.po_line.variety_name && <span className="ml-1 text-gray-400" style={{ fontSize: '9px' }}>({line.po_line.variety_name})</span>}
+                        </td>
+                        <td className="py-1 text-center text-xs font-medium">{line.quantity}</td>
+                        <td className="py-1 text-center text-xs">{line.po_line.bunches_per_box}</td>
+                        <td className="py-1 text-center text-xs">{line.po_line.stems_per_bunch}</td>
+                        <td className="py-1 text-center text-xs">${line.po_line.price}<span className="text-gray-400">/{line.po_line.price_unit === 'bunch' ? 'bch' : 'stm'}</span></td>
+                        <td className="py-1 text-right font-mono text-gray-400" style={{ fontSize: '10px' }}>{line.po_line.upc === 'varies' ? <span className="italic">varies</span> : line.po_line.upc}</td>
+                      </>
+                    ) : (
+                      <>
+                        <td className="py-1 text-left text-xs">{line.item_name}</td>
+                        <td className="py-1 text-center text-xs">{line.size}</td>
+                        <td className="py-1 text-center text-xs font-medium">{line.quantity}</td>
+                      </>
+                    )}
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
+
+          {/* PO Totals */}
+          {po?.totals && (
+            <div className="flex items-center gap-4 mt-2 pt-2 border-t border-green-200 text-xs text-green-700">
+              <span><span className="font-medium">{po.totals.cases}</span> cases</span>
+              {po.totals.bunches && <span><span className="font-medium">{po.totals.bunches.toLocaleString()}</span> bunches</span>}
+              <span><span className="font-medium">{po.totals.stems.toLocaleString()}</span> stems</span>
+              <span className="font-semibold ml-auto">${po.totals.amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+            </div>
+          )}
         </div>
       </div>
     );
@@ -2447,154 +2693,381 @@ const CreateOrderSection: React.FC<{
 
   return (
     <div className="bg-green-50 border border-green-200 rounded-lg overflow-hidden">
-      <div
-        className="flex items-center justify-between px-3 py-2.5 cursor-pointer select-none hover:bg-green-100/50 transition-colors border-b border-green-200"
-        onClick={() => setIsCollapsed(!isCollapsed)}
-      >
-        <p className="text-xs text-green-700 uppercase tracking-wider font-semibold">
-          {showMultiLabel ? `Create New Order — ${formattedDate}` : 'Create New Order'}
-        </p>
-        {isCollapsed ? <ChevronDown className="w-3.5 h-3.5 text-green-500" /> : <ChevronUp className="w-3.5 h-3.5 text-green-500" />}
-      </div>
-      {!isCollapsed && (
-        <div className="px-3 pb-3">
-          <div className="flex items-center gap-3 px-3 py-2 bg-white border border-green-200 rounded-lg mt-2">
-            <div className="flex items-center gap-2 flex-1" onClick={(e) => e.stopPropagation()}>
-              <User className="w-4 h-4 text-green-500 flex-shrink-0" />
-              <CustomerSearchDropdown
-                value={customerName}
-                onChange={setCustomerName}
-                customers={customers}
-                className="text-sm font-medium text-gray-900 bg-transparent border-b border-transparent hover:border-gray-300 focus:border-green-500 focus:outline-none px-0 py-0.5 w-full"
-              />
-            </div>
-            <div className="flex items-center gap-2 flex-shrink-0">
-              <CalendarIcon className="w-4 h-4 text-green-500" />
-              <input
-                type="date"
-                value={deliveryDate}
-                onChange={(e) => setDeliveryDate(e.target.value)}
-                onClick={(e) => e.stopPropagation()}
-                className="text-xs text-gray-600 bg-transparent border-b border-transparent hover:border-gray-300 focus:border-green-500 focus:outline-none px-0 py-0.5"
-              />
-            </div>
-          </div>
-          {/* Order frequency toggle */}
-          <div className="mt-2 relative group/tag">
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                const newVal = orderFrequency === 'one-time' ? 'recurring' : 'one-time';
-                setOrderFrequency(newVal);
-                onUpdateOrderFrequency(proposal.id, newVal);
-              }}
-              className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium transition-all duration-200 active:scale-95 ${
-                orderFrequency === 'one-time'
-                  ? 'bg-orange-100 text-orange-700 hover:bg-orange-200'
-                  : 'bg-blue-100 text-blue-700 hover:bg-blue-200'
-              }`}
+      {(() => {
+        const po = proposal.po_metadata;
+        return (
+          <>
+            <div
+              className="flex items-center justify-between px-3 py-2.5 cursor-pointer select-none hover:bg-green-100/50 transition-colors border-b border-green-200"
+              onClick={() => setIsCollapsed(!isCollapsed)}
             >
-              {orderFrequency === 'one-time' ? 'One-time' : 'Recurring'}
-              <ArrowUpDown className="w-3 h-3 opacity-40" />
-            </button>
-            <div className="absolute left-0 bottom-full mb-1 w-56 px-3 py-2 bg-gray-900 text-white text-xs rounded-lg shadow-lg opacity-0 invisible group-hover/tag:opacity-100 group-hover/tag:visible transition-all duration-200 z-50 pointer-events-none">
-              {orderFrequency === 'one-time'
-                ? 'This is a one-time order and will not recur.'
-                : 'This will create a recurring standing order for this day of the week.'}
+              <p className="text-xs text-green-700 uppercase tracking-wider font-semibold">
+                {showMultiLabel ? `Create New Order — ${formattedDate}` : 'Create New Order'}
+              </p>
+              <div className="flex items-center gap-2">
+                {/* Order state pipeline for PO orders */}
+                {po && (
+                  <div className="flex items-center gap-1 mr-2" style={{ fontSize: '10px' }}>
+                    <span className="px-1.5 py-0.5 rounded bg-green-600 text-white font-semibold">In Process</span>
+                    <ChevronRight className="w-3 h-3 text-gray-300" />
+                    <span className="px-1.5 py-0.5 rounded bg-gray-100 text-gray-400 font-medium">Pending</span>
+                    <ChevronRight className="w-3 h-3 text-gray-300" />
+                    <span className="px-1.5 py-0.5 rounded bg-gray-100 text-gray-400 font-medium">Confirmed</span>
+                  </div>
+                )}
+                {isCollapsed ? <ChevronDown className="w-3.5 h-3.5 text-green-500" /> : <ChevronUp className="w-3.5 h-3.5 text-green-500" />}
+              </div>
             </div>
-          </div>
-          {/* Items table */}
-          <div className="border-t border-green-200 mt-3 pt-2">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="text-xs text-green-600/60 uppercase tracking-wider">
-                  <th className="py-1 text-left font-medium">Item</th>
-                  <th className="py-1 text-center font-medium">Size</th>
-                  <th className="py-1 text-center font-medium">Qty</th>
-                  <th className="py-1 w-6"></th>
-                </tr>
-              </thead>
-              <tbody>
-                {editableLines
-                  .filter(l => l.change_type === 'add')
-                  .map(line => (
-                    <tr key={line.id} className="bg-green-50/50">
-                      <td className="py-1.5 pl-1">
-                        <div className="flex items-center gap-1">
-                          <span className="text-green-600 text-xs font-bold">+</span>
-                          <ItemSearchDropdown
-                            value={line.item_name}
-                            onChange={(val) => updateEditableLine(line.id, { item_name: val })}
-                          />
-                        </div>
-                      </td>
-                      <td className="py-1.5 text-center">
-                        <select
-                          value={line.size}
-                          onChange={(e) => updateEditableLine(line.id, { size: e.target.value })}
-                          className="px-1 py-0.5 text-xs border border-green-300 rounded bg-white focus:outline-none focus:ring-1 focus:ring-green-500"
-                        >
-                          {getVariantsForLine(line).map(v => (
-                            <option key={v.code} value={v.code}>{v.code}</option>
-                          ))}
-                        </select>
-                      </td>
-                      <td className="py-1.5 text-center">
-                        <input
-                          type="number"
-                          min="1"
-                          value={line.quantity}
-                          onChange={(e) => updateEditableLine(line.id, { quantity: parseInt(e.target.value) || 1 })}
-                          className="w-12 px-1 py-0.5 text-sm text-center border border-green-300 rounded bg-white focus:outline-none focus:ring-1 focus:ring-green-500"
-                        />
-                      </td>
-                      <td className="py-1.5">
-                        <button onClick={() => removeEditableLine(line.id)} className="text-gray-400 hover:text-red-500">
-                          <X className="w-3.5 h-3.5" />
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-                <tr>
-                  <td colSpan={4} className="pt-1">
+            {!isCollapsed && (
+              <div className="px-3 pb-3">
+                {/* Customer / Farm / Date bar */}
+                <div className="flex items-center gap-3 px-3 py-2 bg-white border border-green-200 rounded-lg mt-2">
+                  <div className="flex items-center gap-2 flex-1" onClick={(e) => e.stopPropagation()}>
+                    <User className="w-4 h-4 text-green-500 flex-shrink-0" />
+                    <CustomerSearchDropdown
+                      value={customerName}
+                      onChange={setCustomerName}
+                      customers={customers}
+                      className="text-sm font-medium text-gray-900 bg-transparent border-b border-transparent hover:border-gray-300 focus:border-green-500 focus:outline-none px-0 py-0.5 w-full"
+                    />
+                  </div>
+                  {/* Farm selector for PO orders */}
+                  {po?.farms_available && (
+                    <div className="flex items-center gap-1.5 flex-shrink-0" onClick={(e) => e.stopPropagation()}>
+                      <Building2 className="w-3.5 h-3.5 text-green-500" />
+                      <select className="text-xs border border-green-300 rounded bg-white px-1.5 py-0.5 text-gray-700 font-medium focus:outline-none focus:ring-1 focus:ring-green-500">
+                        {po.farms_available.map(f => (
+                          <option key={f} value={f} selected={f === po.farm}>{f}</option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
+                  <div className="flex items-center gap-2 flex-shrink-0">
+                    <CalendarIcon className="w-4 h-4 text-green-500" />
+                    <input
+                      type="date"
+                      value={deliveryDate}
+                      onChange={(e) => setDeliveryDate(e.target.value)}
+                      onClick={(e) => e.stopPropagation()}
+                      className="text-xs text-gray-600 bg-transparent border-b border-transparent hover:border-gray-300 focus:border-green-500 focus:outline-none px-0 py-0.5"
+                    />
+                  </div>
+                </div>
+
+                {/* Badges row: frequency + box type */}
+                <div className="mt-2 flex items-center gap-2">
+                  <div className="relative group/tag">
                     <button
-                      onClick={addNewItemLine}
-                      className="flex items-center gap-1 text-xs text-green-600 hover:text-green-700 hover:bg-green-100/50 px-2 py-1 rounded transition-colors"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        const newVal = orderFrequency === 'one-time' ? 'recurring' : 'one-time';
+                        setOrderFrequency(newVal);
+                        onUpdateOrderFrequency(proposal.id, newVal);
+                      }}
+                      className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium transition-all duration-200 active:scale-95 ${
+                        orderFrequency === 'one-time'
+                          ? 'bg-orange-100 text-orange-700 hover:bg-orange-200'
+                          : 'bg-blue-100 text-blue-700 hover:bg-blue-200'
+                      }`}
                     >
-                      <span className="text-sm font-bold">+</span> Add item
+                      {orderFrequency === 'one-time' ? 'One-time' : 'Recurring'}
+                      <ArrowUpDown className="w-3 h-3 opacity-40" />
                     </button>
-                  </td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-          {/* Action buttons */}
-          <div className="flex items-center gap-2 mt-3 pt-3 border-t border-green-200">
-            <button
-              onClick={async () => {
-                setIsCreating(true);
-                await onCreateOrder(proposal.id, editableLines, customerName, deliveryDate);
-                setIsCreating(false);
-              }}
-              disabled={isCreating}
-              className="flex items-center gap-1 px-4 py-2 bg-green-600 text-white text-sm font-medium rounded-lg hover:bg-green-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              {isCreating ? (
-                <><Loader2 className="w-4 h-4 animate-spin" /> Creating...</>
-              ) : (
-                <><Check className="w-4 h-4" /> Create Order</>
-              )}
-            </button>
-            <button
-              onClick={() => onDismiss(proposal.id)}
-              disabled={isCreating || isDismissing}
-              className="flex items-center gap-1 px-4 py-2 bg-white text-gray-600 text-sm font-medium rounded-lg border border-gray-200 hover:bg-gray-50 transition-colors disabled:opacity-50"
-            >
-              <X className="w-4 h-4" /> Dismiss
-            </button>
-          </div>
-        </div>
-      )}
+                    <div className="absolute left-0 bottom-full mb-1 w-56 px-3 py-2 bg-gray-900 text-white text-xs rounded-lg shadow-lg opacity-0 invisible group-hover/tag:opacity-100 group-hover/tag:visible transition-all duration-200 z-50 pointer-events-none">
+                      {orderFrequency === 'one-time'
+                        ? 'This is a one-time order and will not recur.'
+                        : 'This will create a recurring standing order for this day of the week.'}
+                    </div>
+                  </div>
+                  {po?.box_type && (
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-600 border border-gray-200">
+                      {po.box_type}
+                    </span>
+                  )}
+                </div>
+
+                {/* PO Metadata card */}
+                {po && (
+                  <div className="mt-3 px-3 py-2.5 bg-white border border-green-200 rounded-lg">
+                    <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs">
+                      <span><span className="text-green-600/60 font-medium">PO</span> <span className="text-gray-900 font-semibold ml-1">{po.po_number}</span></span>
+                      {po.customer_po && <span><span className="text-green-600/60 font-medium">Cust PO</span> <span className="text-gray-900 ml-1">{po.customer_po}</span></span>}
+                      {po.sales_order && <span><span className="text-green-600/60 font-medium">SO</span> <span className="text-gray-900 ml-1">{po.sales_order}</span></span>}
+                      {po.sell_to && <span><span className="text-green-600/60 font-medium">Sell-to</span> <span className="text-gray-900 ml-1">{po.sell_to}</span></span>}
+                      {po.banner && <span className="px-1.5 py-0.5 bg-green-100 text-green-700 rounded font-medium">{po.banner}</span>}
+                    </div>
+                    <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs mt-2 text-gray-500">
+                      {po.consolidation_date && <span><CalendarIcon className="w-3 h-3 inline mr-0.5 -mt-0.5" /> Consolidation: <span className="text-gray-700">{po.consolidation_date}</span></span>}
+                      {po.arrive_date && <span>Arrive: <span className="text-gray-700">{po.arrive_date}</span></span>}
+                      {po.truck_date && <span>Truck: <span className="text-gray-700">{po.truck_date}</span></span>}
+                      {(po.ship_method || po.location) && <span className="text-gray-400">|</span>}
+                      {po.ship_method && <span>Ship: <span className="text-gray-700">{po.ship_method}</span></span>}
+                      {po.location && <span>Loc: <span className="text-gray-700">{po.location}</span></span>}
+                    </div>
+                  </div>
+                )}
+
+                {/* Items table — PO-aware or simple */}
+                <div className="border-t border-green-200 mt-3 pt-2">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="text-xs text-green-600/60 uppercase tracking-wider">
+                        {po ? (
+                          <>
+                            <th className="py-1 text-left font-medium">Code</th>
+                            <th className="py-1 text-left font-medium">Item</th>
+                            <th className="py-1 text-center font-medium">Cases</th>
+                            <th className="py-1 text-center font-medium">Bch/Box</th>
+                            <th className="py-1 text-center font-medium">St/Bch</th>
+                            <th className="py-1 text-center font-medium">Price</th>
+                            <th className="py-1 text-right font-medium">UPC</th>
+                            <th className="py-1 w-6"></th>
+                          </>
+                        ) : (
+                          <>
+                            <th className="py-1 text-left font-medium">Item</th>
+                            <th className="py-1 text-center font-medium">Size</th>
+                            <th className="py-1 text-center font-medium">Qty</th>
+                            <th className="py-1 w-6"></th>
+                          </>
+                        )}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {editableLines
+                        .filter(l => l.change_type === 'add')
+                        .map(line => (
+                          <React.Fragment key={line.id}>
+                            <tr className="bg-green-50/50">
+                              {line.po_line ? (
+                                <>
+                                  <td className="py-1.5 pl-1">
+                                    <span className="text-xs text-gray-500 font-mono">{line.po_line.item_code}</span>
+                                  </td>
+                                  <td className="py-1.5">
+                                    <div className="flex items-center gap-1">
+                                      <span className="text-green-600 text-xs font-bold">+</span>
+                                      <span className="text-xs text-gray-900">{line.item_name}</span>
+                                      {line.po_line.recipe_type === 'mix' && <span className="ml-1 px-1 py-0 rounded font-semibold bg-amber-100 text-amber-700 border border-amber-200" style={{ fontSize: '9px' }}>MIX</span>}
+                                      {line.po_line.recipe_type === 'rainbow' && <span className="ml-1 px-1 py-0 rounded font-semibold bg-blue-100 text-blue-700 border border-blue-200" style={{ fontSize: '9px' }}>RAINBOW</span>}
+                                      {line.po_line.recipe_type === 'single' && line.po_line.variety_name && <span className="ml-1 text-gray-400" style={{ fontSize: '9px' }}>({line.po_line.variety_name})</span>}
+                                    </div>
+                                  </td>
+                                  <td className="py-1.5 text-center">
+                                    <input
+                                      type="number"
+                                      min="1"
+                                      value={line.quantity}
+                                      onChange={(e) => updateEditableLine(line.id, { quantity: parseInt(e.target.value) || 1 })}
+                                      className="w-12 px-1 py-0.5 text-sm text-center border border-green-300 rounded bg-white focus:outline-none focus:ring-1 focus:ring-green-500"
+                                    />
+                                  </td>
+                                  <td className="py-1.5 text-center text-xs text-gray-600">{line.po_line.bunches_per_box}</td>
+                                  <td className="py-1.5 text-center text-xs text-gray-600">{line.po_line.stems_per_bunch}</td>
+                                  <td className="py-1.5 text-center text-xs text-gray-600">
+                                    <span>${line.po_line.price}</span><span className="text-gray-400">/{line.po_line.price_unit === 'bunch' ? 'bch' : 'stm'}</span>
+                                  </td>
+                                  <td className="py-1.5 text-right">
+                                    {line.po_line.upc === 'varies'
+                                      ? <span className="font-mono text-gray-400 italic" style={{ fontSize: '10px' }}>varies</span>
+                                      : <span className="font-mono text-gray-400" style={{ fontSize: '10px' }}>{line.po_line.upc}</span>
+                                    }
+                                  </td>
+                                  <td className="py-1.5">
+                                    <button onClick={() => removeEditableLine(line.id)} className="text-gray-400 hover:text-red-500">
+                                      <X className="w-3.5 h-3.5" />
+                                    </button>
+                                  </td>
+                                </>
+                              ) : (
+                                <>
+                                  <td className="py-1.5 pl-1">
+                                    <div className="flex items-center gap-1">
+                                      <span className="text-green-600 text-xs font-bold">+</span>
+                                      <ItemSearchDropdown
+                                        value={line.item_name}
+                                        onChange={(val) => updateEditableLine(line.id, { item_name: val })}
+                                      />
+                                    </div>
+                                  </td>
+                                  <td className="py-1.5 text-center">
+                                    <select
+                                      value={line.size}
+                                      onChange={(e) => updateEditableLine(line.id, { size: e.target.value })}
+                                      className="px-1 py-0.5 text-xs border border-green-300 rounded bg-white focus:outline-none focus:ring-1 focus:ring-green-500"
+                                    >
+                                      {getVariantsForLine(line).map(v => (
+                                        <option key={v.code} value={v.code}>{v.code}</option>
+                                      ))}
+                                    </select>
+                                  </td>
+                                  <td className="py-1.5 text-center">
+                                    <input
+                                      type="number"
+                                      min="1"
+                                      value={line.quantity}
+                                      onChange={(e) => updateEditableLine(line.id, { quantity: parseInt(e.target.value) || 1 })}
+                                      className="w-12 px-1 py-0.5 text-sm text-center border border-green-300 rounded bg-white focus:outline-none focus:ring-1 focus:ring-green-500"
+                                    />
+                                  </td>
+                                  <td className="py-1.5">
+                                    <button onClick={() => removeEditableLine(line.id)} className="text-gray-400 hover:text-red-500">
+                                      <X className="w-3.5 h-3.5" />
+                                    </button>
+                                  </td>
+                                </>
+                              )}
+                            </tr>
+                            {/* Expandable recipe for mix/rainbow items */}
+                            {line.po_line?.recipe && line.po_line.recipe.length > 0 && (
+                              <tr className={line.po_line.recipe_type === 'rainbow' ? 'bg-blue-50/40' : 'bg-amber-50/40'}>
+                                <td colSpan={po ? 8 : 4} className="px-2 py-0">
+                                  <details open={line.po_line.recipe_type === 'rainbow'}>
+                                    <summary className={`flex items-center gap-1.5 py-1.5 text-xs cursor-pointer ${line.po_line.recipe_type === 'rainbow' ? 'text-blue-700' : 'text-amber-700'}`}>
+                                      <ChevronRight className="w-3 h-3" />
+                                      <span className="font-medium">Recipe</span>
+                                      <span className={line.po_line.recipe_type === 'rainbow' ? 'text-blue-500' : 'text-amber-500'}>
+                                        — {line.po_line.recipe_label}
+                                      </span>
+                                    </summary>
+                                    <div className="ml-5 pb-2">
+                                      {line.po_line.recipe_type === 'rainbow' ? (
+                                        <>
+                                          <table style={{ fontSize: '10px' }} className="text-gray-600 mt-1">
+                                            <thead>
+                                              <tr className="text-gray-400 uppercase">
+                                                <th className="pr-3 text-left font-medium">Color</th>
+                                                <th className="pr-3 text-left font-medium">Variety</th>
+                                                <th className="pr-3 text-center font-medium">St/Bch</th>
+                                                <th className="text-center font-medium">Bch</th>
+                                              </tr>
+                                            </thead>
+                                            <tbody>
+                                              {line.po_line.recipe.map((r, i) => (
+                                                <tr key={i}>
+                                                  <td className="pr-3">{r.color}</td>
+                                                  <td className="pr-3">{r.variety}</td>
+                                                  <td className="pr-3 text-center">{r.stems_per_bunch || 1}</td>
+                                                  <td className="text-center font-medium text-gray-700">{r.quantity}</td>
+                                                </tr>
+                                              ))}
+                                            </tbody>
+                                            <tfoot>
+                                              <tr className="border-t border-blue-200 text-blue-700">
+                                                <td colSpan={3} className="pt-1 pr-3 font-medium">Total per bunch</td>
+                                                <td className="pt-1 text-center font-semibold">{line.po_line.recipe.reduce((s, r) => s + (r.stems_per_bunch || 1), 0)} stems</td>
+                                              </tr>
+                                            </tfoot>
+                                          </table>
+                                          {line.po_line.recipe_note && <p style={{ fontSize: '10px' }} className="text-blue-600 mt-1 italic">{line.po_line.recipe_note}</p>}
+                                        </>
+                                      ) : line.po_line.recipe.some(r => r.upc) ? (
+                                        <>
+                                          <table style={{ fontSize: '10px' }} className="text-gray-600 mt-1">
+                                            <thead>
+                                              <tr className="text-gray-400 uppercase">
+                                                <th className="pr-3 text-left font-medium">Color</th>
+                                                <th className="pr-3 text-left font-medium">Variety</th>
+                                                <th className="pr-3 text-center font-medium">Bch</th>
+                                                <th className="text-right font-medium">UPC</th>
+                                              </tr>
+                                            </thead>
+                                            <tbody>
+                                              {line.po_line.recipe.map((r, i) => (
+                                                <tr key={i}>
+                                                  <td className="pr-3">{r.color}</td>
+                                                  <td className="pr-3">{r.variety}</td>
+                                                  <td className="pr-3 text-center font-medium text-gray-700">{r.quantity}</td>
+                                                  <td className="text-right font-mono text-gray-400">{r.upc || ''}</td>
+                                                </tr>
+                                              ))}
+                                            </tbody>
+                                          </table>
+                                          {line.po_line.recipe_note && <p style={{ fontSize: '10px' }} className="text-amber-600 mt-1 italic">{line.po_line.recipe_note}</p>}
+                                        </>
+                                      ) : (
+                                        <>
+                                          <div className="flex flex-wrap gap-x-3 gap-y-1 text-gray-500 mt-1" style={{ fontSize: '10px' }}>
+                                            {line.po_line.recipe.map((r, i) => (
+                                              <span key={i}>{r.color} ({r.variety}) <b className="text-gray-700">{r.quantity}</b></span>
+                                            ))}
+                                          </div>
+                                          {line.po_line.recipe_note && <p style={{ fontSize: '10px' }} className="text-amber-600 mt-1 italic">{line.po_line.recipe_note}</p>}
+                                        </>
+                                      )}
+                                    </div>
+                                  </details>
+                                </td>
+                              </tr>
+                            )}
+                          </React.Fragment>
+                        ))}
+                      <tr>
+                        <td colSpan={po ? 8 : 4} className="pt-1">
+                          <button
+                            onClick={addNewItemLine}
+                            className="flex items-center gap-1 text-xs text-green-600 hover:text-green-700 hover:bg-green-100/50 px-2 py-1 rounded transition-colors"
+                          >
+                            <span className="text-sm font-bold">+</span> Add item
+                          </button>
+                        </td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+
+                {/* PO Totals */}
+                {po?.totals && (
+                  <div className="flex items-center gap-4 mt-2 pt-2 border-t border-green-200 text-xs text-green-700">
+                    <span><span className="font-medium">{po.totals.cases}</span> cases</span>
+                    {po.totals.bunches && <span><span className="font-medium">{po.totals.bunches.toLocaleString()}</span> bunches</span>}
+                    <span><span className="font-medium">{po.totals.stems.toLocaleString()}</span> stems</span>
+                    <span className="font-semibold ml-auto">${po.totals.amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                  </div>
+                )}
+
+                {/* Notes */}
+                <div className="mt-3">
+                  <label className="flex items-center gap-1.5 text-xs text-gray-400 uppercase tracking-wider mb-1">
+                    <FileText className="w-3 h-3" />
+                    Notes
+                  </label>
+                  <textarea
+                    placeholder="Add notes or feedback about this order..."
+                    rows={2}
+                    className="w-full px-3 py-1.5 text-sm border border-green-200 rounded-lg bg-white focus:outline-none focus:ring-1 focus:ring-green-500 focus:border-green-500 resize-none placeholder:text-gray-300"
+                  />
+                </div>
+                {/* Action buttons */}
+                <div className="flex items-center gap-2 mt-3 pt-3 border-t border-green-200">
+                  <button
+                    onClick={async () => {
+                      setIsCreating(true);
+                      await onCreateOrder(proposal.id, editableLines, customerName, deliveryDate);
+                      setIsCreating(false);
+                    }}
+                    disabled={isCreating}
+                    className="flex items-center gap-1 px-4 py-2 bg-green-600 text-white text-sm font-medium rounded-lg hover:bg-green-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {isCreating ? (
+                      <><Loader2 className="w-4 h-4 animate-spin" /> Creating...</>
+                    ) : (
+                      <><Check className="w-4 h-4" /> Create Order</>
+                    )}
+                  </button>
+                  <button
+                    onClick={() => onDismiss(proposal.id)}
+                    disabled={isCreating || isDismissing}
+                    className="flex items-center gap-1 px-4 py-2 bg-white text-gray-600 text-sm font-medium rounded-lg border border-gray-200 hover:bg-gray-50 transition-colors disabled:opacity-50"
+                  >
+                    <X className="w-4 h-4" /> Dismiss
+                  </button>
+                </div>
+              </div>
+            )}
+          </>
+        );
+      })()}
     </div>
   );
 };
@@ -2842,6 +3315,22 @@ const AssignOrderSection: React.FC<{
               </tbody>
             </table>
             )}
+          </div>
+          {/* Notes */}
+          <div className="mt-3">
+            <label className="flex items-center gap-1.5 text-xs text-gray-400 uppercase tracking-wider mb-1">
+              <FileText className="w-3 h-3" />
+              Notes
+            </label>
+            <textarea
+              placeholder="Add notes or feedback about these changes..."
+              rows={2}
+              className={`w-full px-3 py-1.5 text-sm border rounded-lg bg-white focus:outline-none focus:ring-1 resize-none placeholder:text-gray-300 ${
+                proposal.type === 'cancel_order'
+                  ? 'border-red-200 focus:ring-red-500 focus:border-red-500'
+                  : 'border-blue-200 focus:ring-blue-500 focus:border-blue-500'
+              }`}
+            />
           </div>
           {/* Action buttons */}
           <div className={`flex items-center gap-2 mt-3 pt-3 border-t ${proposal.type === 'cancel_order' ? 'border-red-200' : 'border-blue-200'}`}>
@@ -4127,6 +4616,7 @@ const Dashboard: React.FC<DashboardProps> = ({ organizationId, layout = 'default
           { id: 'in-6', item_name: 'Moonlight', note: 'Standard box, 10 units default. Customer usually orders by name only.' },
           { id: 'in-7', item_name: 'Farida', note: 'New addition — started ordering Feb 2026' },
         ] },
+        { id: 'cust-7', name: 'Customer 1142', email: 'orders@operflor.com', notes: 'Importer → HEB. Farm: Gaitana (default). Items: Carnation Asst, Carnations White, Mini Carnations Asst, RBW Mini Carns. All FB Gems box type. 5 st/bch carnations, 6 st/bch minis. Prices per bunch (US market).' },
       ]);
       return;
     }

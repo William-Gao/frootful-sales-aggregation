@@ -14,6 +14,8 @@ const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
 const ADMIN_EMAIL = 'orders.frootful@gmail.com';
 const NOTIFICATION_RECIPIENT = 'william@frootful.ai';
+const LA_GAITANA_ORG_ID = '81cf0716-45ee-4fe8-895f-d9af962f5fab';
+const ORCHESTRATOR_URL = Deno.env.get('ORCHESTRATOR_URL') || '';
 
 interface SubmittedLine {
   change_type: 'add' | 'remove' | 'modify';
@@ -164,9 +166,10 @@ async function handleAccept(
       .update({ status: 'cancelled' })
       .eq('id', orderId);
 
-    // Check if recurring cancel needs ERP sync
+    // Check if ERP sync needed (recurring orders OR La Gaitana org)
     const isRecurring = proposal.tags?.order_frequency === 'recurring';
-    const updatedTags = isRecurring
+    const needsErpSync = isRecurring || proposal.organization_id === LA_GAITANA_ORG_ID;
+    const updatedTags = needsErpSync
       ? { ...proposal.tags, erp_sync_status: 'pending' }
       : proposal.tags;
 
@@ -190,6 +193,15 @@ async function handleAccept(
         cancelled_by: user.email,
       }
     });
+
+    // Trigger orchestrator for ERP entry
+    if (needsErpSync && ORCHESTRATOR_URL) {
+      fetch(`${ORCHESTRATOR_URL}/enter`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ proposal_id: payload.proposalId }),
+      }).catch(err => logger.error('Orchestrator trigger failed', { error: String(err) }));
+    }
 
     // Send notification
     await sendAcceptNotification(payload, proposal, orderId, user, organizationName, true, logger);
@@ -259,9 +271,10 @@ async function handleAccept(
     // Audit: compare submitted vs AI-proposed
     const auditData = buildAuditData(submittedLines, originalLines, user);
 
-    // Check for recurring ERP sync
+    // Check if ERP sync needed (recurring orders OR La Gaitana org)
     const isRecurring = proposal.tags?.order_frequency === 'recurring';
-    const updatedTags = isRecurring
+    const needsErpSync = isRecurring || proposal.organization_id === LA_GAITANA_ORG_ID;
+    const updatedTags = needsErpSync
       ? { ...proposal.tags, erp_sync_status: 'pending' }
       : proposal.tags;
 
@@ -277,6 +290,15 @@ async function handleAccept(
         metadata: auditData,
       })
       .eq('id', payload.proposalId);
+
+    // Trigger orchestrator for ERP entry
+    if (needsErpSync && ORCHESTRATOR_URL) {
+      fetch(`${ORCHESTRATOR_URL}/enter`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ proposal_id: payload.proposalId }),
+      }).catch(err => logger.error('Orchestrator trigger failed', { error: String(err) }));
+    }
 
     // Send notification
     await sendAcceptNotification(payload, proposal, orderId, user, organizationName, true, logger);
@@ -298,9 +320,10 @@ async function handleAccept(
     // Audit
     const auditData = buildAuditData(submittedLines, originalLines, user);
 
-    // Check for recurring ERP sync
+    // Check if ERP sync needed (recurring orders OR La Gaitana org)
     const isRecurring = proposal.tags?.order_frequency === 'recurring';
-    const updatedTags = isRecurring
+    const needsErpSync = isRecurring || proposal.organization_id === LA_GAITANA_ORG_ID;
+    const updatedTags = needsErpSync
       ? { ...proposal.tags, erp_sync_status: 'pending' }
       : proposal.tags;
 
@@ -326,6 +349,15 @@ async function handleAccept(
         ...auditData,
       }
     });
+
+    // Trigger orchestrator for ERP entry
+    if (needsErpSync && ORCHESTRATOR_URL) {
+      fetch(`${ORCHESTRATOR_URL}/enter`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ proposal_id: payload.proposalId }),
+      }).catch(err => logger.error('Orchestrator trigger failed', { error: String(err) }));
+    }
 
     // Send notification
     await sendAcceptNotification(payload, proposal, orderId, user, organizationName, false, logger);

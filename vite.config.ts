@@ -90,6 +90,18 @@ export default defineConfig({
       '@': resolve(__dirname, 'src')
     }
   },
+  server: {
+    proxy: {
+      '/api/chat': {
+        target: 'http://localhost:8000',
+        changeOrigin: true,
+      },
+      '/api/webflor': {
+        target: 'http://localhost:8000',
+        changeOrigin: true,
+      },
+    },
+  },
   define: {
     global: 'globalThis',
   }

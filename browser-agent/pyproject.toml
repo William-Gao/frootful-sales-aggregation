@@ -1,0 +1,27 @@
+[project]
+name = "frootful-browser-agent"
+version = "0.1.0"
+description = "Browser Use agent for entering orders into Webflor"
+requires-python = ">=3.11"
+dependencies = [
+    "anthropic",
+    "browser-use",
+    "httpx",
+    "langchain-anthropic",
+    "playwright",
+    "python-dotenv",
+    "supabase",
+    "claude-agent-sdk",
+    "mcp",
+    "fastapi",
+    "uvicorn",
+    "mistune>=3.2.0",
+    "chainlit>=2.10.0",
+    "langfuse",
+    "opentelemetry-instrumentation-anthropic",
+    "opentelemetry-exporter-otlp>=1.40.0",
+    "openpyxl>=3.1.5",
+]
+
+[dependency-groups]
+dev = []

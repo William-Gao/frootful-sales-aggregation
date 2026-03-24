@@ -1,0 +1,18 @@
+[project]
+name = "frootful-chat-app"
+version = "0.1.0"
+description = "Chainlit chat app for La Gaitana Farms with WebFlor tools"
+requires-python = ">=3.11"
+dependencies = [
+    "anthropic",
+    "chainlit>=2.10.0",
+    "httpx",
+    "python-dotenv",
+    "supabase",
+    "opentelemetry-instrumentation-anthropic",
+    "opentelemetry-exporter-otlp",
+    "langfuse",
+]
+
+[dependency-groups]
+dev = []

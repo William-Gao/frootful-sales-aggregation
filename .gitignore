@@ -44,3 +44,13 @@ venv/
 .venv/
 __pycache__/
 *.pyc
+
+# Reference data (downloaded via download_reference_data.py)
+browser-agent/data/
+DO_NOT_ADD_TO_GIT/
+
+# MCP config (contains local paths)
+.mcp.json
+
+# Order files
+orders/

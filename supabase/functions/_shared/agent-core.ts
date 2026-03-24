@@ -52,6 +52,7 @@ export type ProposalType = 'new_order' | 'change_order' | 'cancel_order';
 export interface AgentContext {
   organizationId: string;
   intakeEventId: string | null;
+  userId: string | null;
 }
 
 export type ToolExecutor = (
@@ -531,6 +532,7 @@ export async function runAgentLoop(
   ctx: AgentContext,
   logger: ReturnType<typeof createLogger>,
 ): Promise<{ success: boolean; turns: number; error?: string }> {
+  const startTime = Date.now();
   const systemPrompt = agent.buildSystemPrompt(
     Object.values(customersById),
     Object.values(itemsById),
@@ -538,6 +540,50 @@ export async function runAgentLoop(
   const messages: Anthropic.MessageParam[] = [{ role: 'user', content: userContent }];
   const maxTurns = agent.maxTurns || 50;
   const model = agent.model || 'claude-sonnet-4-5-20250929';
+  let totalInputTokens = 0;
+  let totalOutputTokens = 0;
+
+  // ── Insert initial ai_analysis_logs row ──────────────────────────────
+  let aiLogId: string | null = null;
+  try {
+    const { data: aiLog } = await supabase
+      .from('ai_analysis_logs')
+      .insert({
+        user_id: ctx.userId,
+        analysis_type: 'agent',
+        source_id: ctx.intakeEventId,
+        raw_request: {
+          system_prompt: systemPrompt,
+          user_content: userContent,
+          model,
+          organization_id: ctx.organizationId,
+        },
+        model_used: model,
+      })
+      .select('id')
+      .single();
+    aiLogId = aiLog?.id || null;
+  } catch (logError) {
+    logger.warn('Failed to create ai_analysis_log', { error: logError });
+  }
+
+  // Helper to persist the final state of the conversation
+  const persistLog = async (result: { success: boolean; turns: number; error?: string }) => {
+    if (!aiLogId) return;
+    try {
+      await supabase
+        .from('ai_analysis_logs')
+        .update({
+          raw_response: { messages },
+          parsed_result: result,
+          tokens_used: totalInputTokens + totalOutputTokens,
+          processing_time_ms: Date.now() - startTime,
+        })
+        .eq('id', aiLogId);
+    } catch (updateError) {
+      logger.warn('Failed to update ai_analysis_log', { error: updateError });
+    }
+  };
 
   for (let turn = 1; turn <= maxTurns; turn++) {
     logger.info(`Agent turn ${turn}`);
@@ -550,29 +596,34 @@ export async function runAgentLoop(
       messages,
     });
 
+    totalInputTokens += response.usage.input_tokens;
+    totalOutputTokens += response.usage.output_tokens;
+
     messages.push({ role: 'assistant', content: response.content });
 
     for (const block of response.content) {
       if (block.type === 'text' && block.text.trim()) {
-        logger.info('Agent text', { text: block.text.substring(0, 200) });
+        logger.info('Agent text', { text: block.text });
       }
     }
 
     if (response.stop_reason === 'end_turn') {
-      logger.info('Agent finished', { turns: turn, inputTokens: response.usage.input_tokens, outputTokens: response.usage.output_tokens });
-      return { success: true, turns: turn };
+      logger.info('Agent finished', { turns: turn, inputTokens: totalInputTokens, outputTokens: totalOutputTokens });
+      const result = { success: true, turns: turn };
+      await persistLog(result);
+      return result;
     }
 
     const toolResults: Anthropic.ToolResultBlockParam[] = [];
     for (const block of response.content) {
       if (block.type === 'tool_use') {
-        logger.info('Tool call', { tool: block.name, input: JSON.stringify(block.input).substring(0, 200) });
+        logger.info('Tool call', { tool: block.name, input: JSON.stringify(block.input) });
 
         let resultStr: string;
         try {
           const result = await agent.executeTool(block.name, block.input as Record<string, unknown>, ctx, logger);
           resultStr = JSON.stringify(result, null, 0);
-          logger.info('Tool result', { tool: block.name, result: resultStr.substring(0, 200) });
+          logger.info('Tool result', { tool: block.name, result: resultStr });
         } catch (e) {
           resultStr = JSON.stringify({ error: e instanceof Error ? e.message : String(e) });
           logger.error('Tool error', e, { tool: block.name });
@@ -590,5 +641,7 @@ export async function runAgentLoop(
   }
 
   logger.warn('Agent hit max turns');
-  return { success: false, turns: maxTurns, error: 'max_turns_reached' };
+  const result = { success: false, turns: maxTurns, error: 'max_turns_reached' };
+  await persistLog(result);
+  return result;
 }
